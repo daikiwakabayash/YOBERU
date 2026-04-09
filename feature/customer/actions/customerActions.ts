@@ -97,3 +97,53 @@ export async function deleteCustomer(id: number) {
   revalidatePath("/customer");
   return { success: true };
 }
+
+/**
+ * 集計実行: Recalculate visit_count, total_sales, last_visit_date
+ * for all customers in a given shop from appointments data.
+ */
+export async function runAggregation(shopId: number) {
+  const supabase = await createClient();
+
+  // Fetch all customers in the shop
+  const { data: customers, error: custErr } = await supabase
+    .from("customers")
+    .select("id")
+    .eq("shop_id", shopId)
+    .is("deleted_at", null);
+
+  if (custErr) return { error: custErr.message };
+  if (!customers || customers.length === 0) return { success: true };
+
+  // For each customer, aggregate from appointments (status = 2 means completed)
+  for (const cust of customers) {
+    const { data: appointments } = await supabase
+      .from("appointments")
+      .select("id, sales, start_at")
+      .eq("customer_id", cust.id)
+      .eq("status", 2)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: false });
+
+    const visitCount = appointments?.length ?? 0;
+    const totalSales = appointments?.reduce(
+      (sum, a) => sum + (Number(a.sales) || 0),
+      0
+    ) ?? 0;
+    const lastVisitDate = appointments?.[0]?.start_at
+      ? appointments[0].start_at.slice(0, 10)
+      : null;
+
+    await supabase
+      .from("customers")
+      .update({
+        visit_count: visitCount,
+        total_sales: totalSales,
+        last_visit_date: lastVisitDate,
+      })
+      .eq("id", cust.id);
+  }
+
+  revalidatePath("/customer");
+  return { success: true };
+}
