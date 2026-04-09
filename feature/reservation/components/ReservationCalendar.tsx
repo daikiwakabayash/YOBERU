@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import type { CalendarData, CalendarAppointment } from "../types";
-import { timeToMinutes } from "@/helper/utils/time";
+import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { AppointmentDetailSheet } from "./AppointmentDetailSheet";
+import { updateAppointment } from "../actions/reservationActions";
+import { toast } from "sonner";
 
 interface ReservationCalendarProps {
   data: CalendarData;
@@ -36,6 +38,89 @@ export function ReservationCalendar({
   } | null>(null);
   const [nowMinutes, setNowMinutes] = useState<number | null>(null);
 
+  // Grid calculations (needed by drag handlers, so declare early)
+  const workingStaffs = staffs.filter((s) => s.isWorking);
+  const slotHeightPx = (SLOT_HEIGHT * 30) / (frameMin || 30);
+  const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
+  const totalSlots = timeSlots.length;
+  const totalHeight = totalSlots * slotHeightPx;
+
+  // Drag state
+  const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [dragStaffId, setDragStaffId] = useState<number | null>(null);
+  const [dragTop, setDragTop] = useState(0);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const handleDragStart = useCallback(
+    (appt: CalendarAppointment, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
+      if (!rect) return;
+      setDragAppt(appt);
+      setDragStaffId(appt.staffId);
+      setDragOffset(e.clientY - rect.top);
+      setDragTop(rect.top - (gridRef.current?.getBoundingClientRect().top ?? 0));
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!dragAppt || !gridRef.current) return;
+    const gridRect = gridRef.current.getBoundingClientRect();
+
+    function handleMouseMove(e: MouseEvent) {
+      const newTop = e.clientY - gridRect.top - dragOffset;
+      setDragTop(Math.max(0, newTop));
+
+      // Detect staff column
+      const staffHeaders = gridRef.current!.querySelectorAll("[data-staff-id]");
+      staffHeaders.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right) {
+          setDragStaffId(Number(el.getAttribute("data-staff-id")));
+        }
+      });
+    }
+
+    async function handleMouseUp() {
+      if (!dragAppt) return;
+      const pixelsPerMinute = slotHeightPx / frameMin;
+      const newMinutes = Math.round(dragTop / pixelsPerMinute / frameMin) * frameMin + startHour;
+      const newStartTime = minutesToTime(newMinutes);
+      const durationMin = timeToMinutes(dragAppt.endAt.slice(11, 16)) - timeToMinutes(dragAppt.startAt.slice(11, 16));
+      const newEndTime = minutesToTime(newMinutes + durationMin);
+
+      const newStartAt = `${date}T${newStartTime}:00`;
+      const newEndAt = `${date}T${newEndTime}:00`;
+
+      const form = new FormData();
+      form.set("start_at", newStartAt);
+      form.set("end_at", newEndAt);
+      if (dragStaffId && dragStaffId !== dragAppt.staffId) {
+        form.set("staff_id", String(dragStaffId));
+      }
+
+      const result = await updateAppointment(dragAppt.id, form);
+      if ("error" in result && result.error) {
+        toast.error(String(result.error));
+      } else {
+        toast.success(`予約を ${newStartTime} に移動しました`);
+      }
+
+      setDragAppt(null);
+      setDragStaffId(null);
+    }
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragAppt, dragOffset, dragTop, dragStaffId, date, frameMin, slotHeightPx, startHour]);
+
   useEffect(() => {
     function updateNow() {
       const now = new Date();
@@ -45,12 +130,6 @@ export function ReservationCalendar({
     const interval = setInterval(updateNow, 60000);
     return () => clearInterval(interval);
   }, []);
-
-  const workingStaffs = staffs.filter((s) => s.isWorking);
-  const slotHeightPx = (SLOT_HEIGHT * 30) / (frameMin || 30);
-  const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
-  const totalSlots = timeSlots.length;
-  const totalHeight = totalSlots * slotHeightPx;
 
   const appointmentsByStaff = useMemo(() => {
     const map = new Map<number, CalendarAppointment[]>();
@@ -119,6 +198,7 @@ export function ReservationCalendar({
 
         {/* Grid body */}
         <div
+          ref={gridRef}
           className="relative flex"
           style={{
             minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH,
@@ -160,6 +240,7 @@ export function ReservationCalendar({
             return (
               <div
                 key={staff.id}
+                data-staff-id={staff.id}
                 className="relative shrink-0 border-r"
                 style={{ width: STAFF_COL_WIDTH }}
               >
@@ -199,10 +280,12 @@ export function ReservationCalendar({
                 {staffAppts.map((appt) => {
                   const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
                   const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
-                  const offsetSlots = (apptStartMin - startHour) / frameMin;
-                  const durationSlots = (apptEndMin - apptStartMin) / frameMin;
-                  const top = offsetSlots * slotHeightPx + 3;
-                  const height = durationSlots * slotHeightPx - 6;
+                  // Use minute-based positioning for pixel-perfect alignment
+                  const minutesFromStart = apptStartMin - startHour;
+                  const durationMinutes = apptEndMin - apptStartMin;
+                  const pixelsPerMinute = slotHeightPx / frameMin;
+                  const top = minutesFromStart * pixelsPerMinute + 2;
+                  const height = durationMinutes * pixelsPerMinute - 4;
                   const startTime = appt.startAt.slice(11, 16);
                   const endTime = appt.endAt.slice(11, 16);
 
@@ -250,12 +333,23 @@ export function ReservationCalendar({
                   return (
                     <div
                       key={appt.id}
-                      className={`absolute left-1.5 right-1.5 cursor-pointer rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg`}
-                      style={{ top, height, zIndex: 5 }}
+                      data-appt={appt.id}
+                      className={`absolute left-1.5 right-1.5 rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg ${
+                        dragAppt?.id === appt.id
+                          ? "cursor-grabbing opacity-60 z-50"
+                          : "cursor-grab"
+                      }`}
+                      style={{
+                        top: dragAppt?.id === appt.id ? dragTop : top,
+                        height,
+                        zIndex: dragAppt?.id === appt.id ? 50 : 5,
+                      }}
                       onClick={(e) => {
+                        if (dragAppt) return;
                         e.stopPropagation();
                         setSelectedAppt(appt);
                       }}
+                      onMouseDown={(e) => handleDragStart(appt, e)}
                     >
                       {/* Status badge top-right */}
                       {statusBadge && (
