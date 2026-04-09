@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   Sheet,
   SheetContent,
@@ -12,23 +12,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import {
-  UserCheck,
-  CheckCircle,
-  XCircle,
-  FileText,
-  Receipt,
-  Clock,
-  User,
-} from "lucide-react";
+import { Search, UserPlus, X } from "lucide-react";
 import type { CalendarAppointment } from "../types";
 import {
-  APPOINTMENT_STATUS_LABELS,
-  APPOINTMENT_STATUS_COLORS,
-} from "../types";
-import {
+  createAppointment,
   updateAppointment,
   cancelAppointment,
 } from "../actions/reservationActions";
@@ -36,271 +25,882 @@ import {
   checkinAppointment,
   completeAppointment,
 } from "@/feature/reception/actions/receptionActions";
+import { searchCustomers } from "@/feature/customer/services/getCustomers";
+import type { CustomerSummary } from "@/feature/customer/types";
 import { toast } from "sonner";
 
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
 interface AppointmentDetailSheetProps {
-  appointment?: CalendarAppointment | null;
   open: boolean;
   onClose: () => void;
+  appointment?: CalendarAppointment | null;
   newBooking?: {
     staffId: number;
     staffName: string;
     date: string;
     time: string;
   } | null;
-  menus?: Array<{ menu_manage_id: string; name: string; price: number; duration: number }>;
-  visitSources?: Array<{ id: number; name: string }>;
-  shopId?: number;
-  brandId?: number;
+  menus: Array<{
+    menu_manage_id: string;
+    name: string;
+    price: number;
+    duration: number;
+  }>;
+  visitSources: Array<{ id: number; name: string }>;
+  shopId: number;
+  brandId: number;
 }
 
+// ---------------------------------------------------------------------------
+// Status helpers
+// ---------------------------------------------------------------------------
+const STATUS_BADGE: Record<number, { label: string; cls: string }> = {
+  0: { label: "待機", cls: "border-orange-400 text-orange-600 bg-orange-50" },
+  1: { label: "施術中", cls: "border-green-500 text-green-700 bg-green-50" },
+  2: { label: "完了", cls: "border-gray-300 text-gray-500 bg-gray-50" },
+  3: { label: "キャンセル", cls: "border-red-300 text-red-500 bg-red-50" },
+};
+
+const PAYMENT_METHODS = [
+  { value: "square", label: "Square" },
+  { value: "cash", label: "現金" },
+  { value: "card", label: "カード" },
+  { value: "paypay", label: "PayPay" },
+] as const;
+
+const PLAN_CARDS = [
+  { name: "月4回", price: 15400, unit: "月" },
+  { name: "月8回", price: 26400, unit: "月" },
+  { name: "通い放題", price: 35200, unit: "月" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Generate time options for selects
+// ---------------------------------------------------------------------------
+function generateTimeOptions(): string[] {
+  const opts: string[] = [];
+  for (let h = 9; h <= 21; h++) {
+    for (const m of [0, 15, 30, 45]) {
+      if (h === 21 && m > 0) break;
+      opts.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    }
+  }
+  return opts;
+}
+
+const TIME_OPTIONS = generateTimeOptions();
+const DURATION_OPTIONS = [15, 30, 45, 60, 75, 90, 120];
+
+// ===========================================================================
+// Component
+// ===========================================================================
 export function AppointmentDetailSheet({
-  appointment,
   open,
   onClose,
+  appointment,
+  newBooking,
+  menus,
+  visitSources,
+  shopId,
+  brandId,
 }: AppointmentDetailSheetProps) {
+  const isNew = !appointment;
+
+  // ---- Customer state (new booking) ----
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerResults, setCustomerResults] = useState<CustomerSummary[]>([]);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] =
+    useState<CustomerSummary | null>(null);
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const searchDebounce = useRef<NodeJS.Timeout | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // ---- Status ----
   const [status, setStatus] = useState(appointment?.status ?? 0);
-  const [salesAmount, setSalesAmount] = useState(String(appointment?.sales || ""));
+
+  // ---- Visit source ----
+  const [visitSourceId, setVisitSourceId] = useState<number | null>(
+    appointment?.visitSourceId ?? null
+  );
+
+  // ---- Selected menus ----
+  const [selectedMenuIds, setSelectedMenuIds] = useState<string[]>(() => {
+    if (appointment?.menuManageId) return [appointment.menuManageId];
+    return [];
+  });
+
+  // ---- Carte ----
   const [customerRecord, setCustomerRecord] = useState(
     appointment?.customerRecord ?? ""
   );
-  const [memo, setMemo] = useState(appointment?.memo ?? "");
+
+  // ---- Billing ----
+  const [additionalCharge, setAdditionalCharge] = useState(
+    String(appointment?.additionalCharge ?? 0)
+  );
+
+  // ---- Payment ----
+  const [paymentMethod, setPaymentMethod] = useState<string>(
+    appointment?.paymentMethod ?? ""
+  );
+
+  // ---- Next appointment ----
+  const [nextDate, setNextDate] = useState("");
+  const [nextStartTime, setNextStartTime] = useState("10:00");
+  const [nextDuration, setNextDuration] = useState(60);
+  const [lineRemind, setLineRemind] = useState(true);
+
+  // ---- Saving ----
   const [saving, setSaving] = useState(false);
 
-  if (!appointment) {
-    return (
-      <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-        <SheetContent className="w-[440px] overflow-y-auto sm:max-w-[440px]">
-          <SheetHeader>
-            <SheetTitle>新規予約</SheetTitle>
-          </SheetHeader>
-          <div className="py-8 text-center text-muted-foreground">
-            Supabase接続後に予約入力フォームが表示されます
-          </div>
-        </SheetContent>
-      </Sheet>
+  // ---- Derived ----
+  const startTime =
+    appointment?.startAt?.slice(11, 16) ?? newBooking?.time ?? "";
+  const menuTotal = useMemo(() => {
+    return menus
+      .filter((m) => selectedMenuIds.includes(m.menu_manage_id))
+      .reduce((sum, m) => sum + m.price, 0);
+  }, [menus, selectedMenuIds]);
+
+  const total = menuTotal + (Number(additionalCharge) || 0);
+
+  // -----------------------------------------------------------------------
+  // Customer search (for new booking)
+  // -----------------------------------------------------------------------
+  const doCustomerSearch = useCallback(
+    async (q: string) => {
+      if (!q.trim()) {
+        setCustomerResults([]);
+        setCustomerDropdownOpen(false);
+        return;
+      }
+      setIsSearching(true);
+      try {
+        const data = await searchCustomers(shopId, q, 8);
+        setCustomerResults(data);
+        setCustomerDropdownOpen(true);
+      } catch {
+        setCustomerResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [shopId]
+  );
+
+  function handleCustomerQueryChange(value: string) {
+    setCustomerQuery(value);
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => doCustomerSearch(value), 300);
+  }
+
+  function handleSelectCustomer(c: CustomerSummary) {
+    setSelectedCustomer(c);
+    setCustomerDropdownOpen(false);
+    setCustomerQuery("");
+    setIsCreatingCustomer(false);
+  }
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        setCustomerDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Menu toggle
+  // -----------------------------------------------------------------------
+  function toggleMenu(menuId: string) {
+    setSelectedMenuIds((prev) =>
+      prev.includes(menuId)
+        ? prev.filter((id) => id !== menuId)
+        : [...prev, menuId]
     );
   }
 
-  const appt = appointment;
-  const startTime = appt.startAt.slice(11, 16);
-  const endTime = appt.endAt.slice(11, 16);
-  const startDate = appt.startAt.slice(0, 10);
-
-  const statusColor =
-    APPOINTMENT_STATUS_COLORS[appt.status] ?? "bg-gray-100 text-gray-800";
-
+  // -----------------------------------------------------------------------
+  // Actions
+  // -----------------------------------------------------------------------
   async function handleCheckin() {
-    const result = await checkinAppointment(appt.id);
-    if (result.error) toast.error(result.error);
-    else {
+    if (!appointment) return;
+    const result = await checkinAppointment(appointment.id);
+    if (result.error) {
+      toast.error(result.error);
+    } else {
       toast.success("来店を記録しました");
       setStatus(1);
     }
   }
 
-  async function handleComplete() {
-    const amount = Number(salesAmount) || 0;
-    const result = await completeAppointment(appt.id, amount);
-    if (result.error) toast.error(result.error);
-    else {
-      toast.success("施術完了しました");
-      setStatus(2);
-    }
-  }
-
   async function handleCancel() {
+    if (!appointment) return;
     if (!confirm("この予約をキャンセルしますか？")) return;
-    const result = await cancelAppointment(appt.id);
-    if (result.error) toast.error(result.error);
-    else {
+    const result = await cancelAppointment(appointment.id);
+    if (result.error) {
+      toast.error(result.error);
+    } else {
       toast.success("キャンセルしました");
       setStatus(3);
       onClose();
     }
   }
 
-  async function handleSaveRecord() {
+  // -----------------------------------------------------------------------
+  // Main submit: 会計を確定する
+  // -----------------------------------------------------------------------
+  async function handleSubmit() {
+    // Validation for new booking
+    if (isNew) {
+      if (!selectedCustomer && !isCreatingCustomer) {
+        toast.error("顧客を選択または新規作成してください");
+        return;
+      }
+      if (isCreatingCustomer && !newCustomerName.trim()) {
+        toast.error("顧客名を入力してください");
+        return;
+      }
+      if (isCreatingCustomer && !newCustomerPhone.trim()) {
+        toast.error("電話番号を入力してください");
+        return;
+      }
+      if (!visitSourceId) {
+        toast.error("来店経路を選択してください");
+        return;
+      }
+    }
+
+    if (selectedMenuIds.length === 0) {
+      toast.error("メニューを1つ以上選択してください");
+      return;
+    }
+
+    if (!paymentMethod) {
+      toast.error("支払い方法を選択してください");
+      return;
+    }
+
     setSaving(true);
-    const formData = new FormData();
-    formData.set("memo", memo);
-    formData.set("customer_record", customerRecord);
-    formData.set("sales", salesAmount);
-    formData.set("status", String(status));
-    const result = await updateAppointment(appt.id, formData);
-    setSaving(false);
-    if ("error" in result && result.error) toast.error(String(result.error));
-    else toast.success("保存しました");
+
+    try {
+      // --- For new booking: create customer if needed, then create appointment ---
+      if (isNew && newBooking) {
+        let customerId: number;
+
+        if (isCreatingCustomer) {
+          // Create a minimal customer via direct formData
+          const custForm = new FormData();
+          custForm.set("brand_id", String(brandId));
+          custForm.set("shop_id", String(shopId));
+          const nameParts = newCustomerName.trim().split(/\s+/);
+          custForm.set("last_name", nameParts[0] ?? "");
+          custForm.set("first_name", nameParts.slice(1).join(" ") || "");
+          custForm.set("phone_number_1", newCustomerPhone);
+          custForm.set("type", "0");
+          custForm.set("gender", "0");
+
+          const { createCustomer } = await import(
+            "@/feature/customer/actions/customerActions"
+          );
+          const custResult = await createCustomer(custForm);
+          if ("error" in custResult && custResult.error) {
+            toast.error(
+              typeof custResult.error === "string"
+                ? custResult.error
+                : "顧客作成に失敗しました"
+            );
+            setSaving(false);
+            return;
+          }
+          // Re-search to get the ID of the newly created customer
+          const matches = await searchCustomers(shopId, newCustomerPhone, 1);
+          if (!matches.length) {
+            toast.error("顧客の作成後に取得できませんでした");
+            setSaving(false);
+            return;
+          }
+          customerId = matches[0].id;
+        } else {
+          customerId = selectedCustomer!.id;
+        }
+
+        // Build primary menu duration for end_at
+        const primaryMenu = menus.find(
+          (m) => m.menu_manage_id === selectedMenuIds[0]
+        );
+        const totalDuration = menus
+          .filter((m) => selectedMenuIds.includes(m.menu_manage_id))
+          .reduce((s, m) => s + m.duration, 0);
+        const dur = totalDuration || primaryMenu?.duration || 60;
+
+        const startAt = `${newBooking.date}T${newBooking.time}:00`;
+        const endDate = new Date(startAt);
+        endDate.setMinutes(endDate.getMinutes() + dur);
+        const endAt = endDate.toISOString().replace("Z", "");
+
+        const form = new FormData();
+        form.set("brand_id", String(brandId));
+        form.set("shop_id", String(shopId));
+        form.set("customer_id", String(customerId));
+        form.set("staff_id", String(newBooking.staffId));
+        form.set("menu_manage_id", selectedMenuIds[0]);
+        form.set("type", "0");
+        form.set("start_at", startAt);
+        form.set("end_at", endAt);
+        form.set("memo", "");
+        form.set("customer_record", customerRecord);
+        form.set("is_couple", "false");
+        form.set("sales", String(total));
+        form.set("status", "2");
+
+        const result = await createAppointment(form);
+        if ("error" in result && result.error) {
+          toast.error(
+            typeof result.error === "string"
+              ? result.error
+              : "予約作成に失敗しました"
+          );
+          setSaving(false);
+          return;
+        }
+
+        toast.success("予約を作成し会計を確定しました");
+      } else if (appointment) {
+        // --- Existing appointment: complete with billing ---
+        const completeResult = await completeAppointment(appointment.id, total);
+        if (completeResult.error) {
+          toast.error(completeResult.error);
+          setSaving(false);
+          return;
+        }
+
+        // Update additional fields
+        const form = new FormData();
+        form.set("customer_record", customerRecord);
+        form.set("sales", String(total));
+        form.set("status", "2");
+        if (visitSourceId) {
+          form.set("visit_source_id", String(visitSourceId));
+        }
+        if (paymentMethod) {
+          form.set("payment_method", paymentMethod);
+        }
+        if (Number(additionalCharge)) {
+          form.set("additional_charge", additionalCharge);
+        }
+
+        await updateAppointment(appointment.id, form);
+        setStatus(2);
+        toast.success("会計を確定しました");
+      }
+
+      // --- Create next appointment if date is set ---
+      if (nextDate && appointment) {
+        const nextStartAt = `${nextDate}T${nextStartTime}:00`;
+        const nextEnd = new Date(nextStartAt);
+        nextEnd.setMinutes(nextEnd.getMinutes() + nextDuration);
+        const nextEndAt = nextEnd.toISOString().replace("Z", "");
+
+        const nextForm = new FormData();
+        nextForm.set("brand_id", String(brandId));
+        nextForm.set("shop_id", String(shopId));
+        nextForm.set("customer_id", String(appointment.customerId));
+        nextForm.set("staff_id", String(appointment.staffId));
+        nextForm.set(
+          "menu_manage_id",
+          selectedMenuIds[0] || appointment.menuManageId
+        );
+        nextForm.set("type", "0");
+        nextForm.set("start_at", nextStartAt);
+        nextForm.set("end_at", nextEndAt);
+        nextForm.set("memo", "");
+        nextForm.set("is_couple", "false");
+        nextForm.set("sales", "0");
+        nextForm.set("status", "0");
+
+        const nextResult = await createAppointment(nextForm);
+        if ("error" in nextResult && nextResult.error) {
+          toast.error("次回予約の作成に失敗しました");
+        } else {
+          toast.success("次回予約を作成しました");
+          if (lineRemind) {
+            toast.info("LINEリマインドが設定されました");
+          }
+        }
+      }
+
+      onClose();
+    } catch (err) {
+      toast.error("エラーが発生しました");
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
   }
+
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
+  const statusInfo = STATUS_BADGE[status] ?? STATUS_BADGE[0];
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent className="w-[440px] overflow-y-auto sm:max-w-[440px]">
-        <SheetHeader className="pb-4">
-          <SheetTitle className="flex items-center gap-2">
-            <span>{appt.customerName}</span>
-            <Badge className={statusColor}>
-              {APPOINTMENT_STATUS_LABELS[appt.status] ?? "不明"}
+      <SheetContent
+        side="right"
+        className="w-[520px] overflow-y-auto p-0 sm:max-w-[520px]"
+      >
+        {/* ------- Header ------- */}
+        <SheetHeader className="sticky top-0 z-10 border-b bg-white px-6 py-4">
+          <div className="flex items-center justify-between">
+            <SheetTitle className="text-base font-bold">
+              {isNew ? (
+                "新規予約"
+              ) : (
+                <span className="flex items-center gap-2 text-sm">
+                  <span className="font-black text-gray-900">
+                    {appointment.customerName}
+                  </span>
+                  {appointment.customerPhone && (
+                    <>
+                      <span className="text-gray-300">|</span>
+                      <span className="font-medium text-gray-500">
+                        {appointment.customerPhone}
+                      </span>
+                    </>
+                  )}
+                  <span className="text-gray-300">|</span>
+                  <span className="font-medium text-gray-500">
+                    予約{startTime}
+                  </span>
+                </span>
+              )}
+            </SheetTitle>
+            <Badge
+              variant="outline"
+              className={`ml-2 shrink-0 text-xs ${statusInfo.cls}`}
+            >
+              {statusInfo.label}
             </Badge>
-            {appt.isNewCustomer && (
-              <Badge className="bg-emerald-500 text-white">新規</Badge>
-            )}
-          </SheetTitle>
+          </div>
         </SheetHeader>
 
-        {/* Summary */}
-        <div className="space-y-3 rounded-xl bg-gray-50 p-4 text-sm">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-gray-400" />
-            <span className="font-medium">
-              {startDate} {startTime} - {endTime}
-            </span>
-            <span className="text-gray-400">({appt.duration}分)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <User className="h-4 w-4 text-gray-400" />
-            <span>{appt.menuName}</span>
-          </div>
-          {appt.isNewCustomer && appt.source && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400">流入経路:</span>
-              <Badge variant="outline" className="text-xs">
-                {appt.source}
-              </Badge>
+        <div className="space-y-6 px-6 py-5">
+          {/* ------- Status action buttons (existing) ------- */}
+          {!isNew && status === 0 && (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={handleCheckin}
+                className="flex-1 bg-green-600 hover:bg-green-700"
+              >
+                来店（チェックイン）
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleCancel}>
+                キャンセル
+              </Button>
             </div>
           )}
-        </div>
 
-        <Separator className="my-4" />
+          {/* ===== Section: Customer (new booking only) ===== */}
+          {isNew && !selectedCustomer && !isCreatingCustomer && (
+            <section className="space-y-3">
+              <Label className="text-xs font-bold text-gray-500">
+                顧客を検索
+              </Label>
+              <div ref={searchContainerRef} className="relative">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={customerQuery}
+                    onChange={(e) => handleCustomerQueryChange(e.target.value)}
+                    placeholder="名前・電話番号で検索..."
+                    className="pl-9"
+                  />
+                </div>
+                {customerDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full rounded-md border bg-white shadow-lg">
+                    {isSearching ? (
+                      <div className="px-4 py-3 text-sm text-muted-foreground">
+                        検索中...
+                      </div>
+                    ) : customerResults.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-muted-foreground">
+                        該当する顧客がいません
+                      </div>
+                    ) : (
+                      <ul className="max-h-48 overflow-auto py-1">
+                        {customerResults.map((c) => (
+                          <li key={c.id}>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-100"
+                              onClick={() => handleSelectCustomer(c)}
+                            >
+                              <span className="font-medium">
+                                {[c.last_name, c.first_name]
+                                  .filter(Boolean)
+                                  .join(" ") || "-"}
+                              </span>
+                              {c.phone_number_1 && (
+                                <span className="text-xs text-muted-foreground">
+                                  {c.phone_number_1}
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setIsCreatingCustomer(true)}
+              >
+                <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+                新規顧客を作成
+              </Button>
+            </section>
+          )}
 
-        {/* Action buttons based on status */}
-        {status === 0 && (
-          <div className="flex gap-2">
-            <Button
-              onClick={handleCheckin}
-              className="flex-1 bg-green-600 hover:bg-green-700"
-            >
-              <UserCheck className="mr-1 h-4 w-4" />
-              来店（チェックイン）
-            </Button>
-            <Button variant="outline" onClick={handleCancel}>
-              <XCircle className="mr-1 h-4 w-4" />
-              キャンセル
-            </Button>
-          </div>
-        )}
-        {status === 1 && (
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>会計金額（税込）</Label>
-              <Input
-                type="number"
-                value={salesAmount}
-                onChange={(e) => setSalesAmount(e.target.value)}
-                placeholder="0"
-                className="text-lg font-bold"
-              />
+          {/* Selected customer badge (new booking) */}
+          {isNew && selectedCustomer && (
+            <section className="flex items-center gap-2 rounded-lg border bg-gray-50 px-3 py-2">
+              <span className="text-sm font-bold">
+                {[selectedCustomer.last_name, selectedCustomer.first_name]
+                  .filter(Boolean)
+                  .join(" ")}
+              </span>
+              {selectedCustomer.phone_number_1 && (
+                <span className="text-xs text-muted-foreground">
+                  {selectedCustomer.phone_number_1}
+                </span>
+              )}
+              <button
+                type="button"
+                className="ml-auto text-gray-400 hover:text-gray-600"
+                onClick={() => setSelectedCustomer(null)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </section>
+          )}
+
+          {/* New customer form */}
+          {isNew && isCreatingCustomer && !selectedCustomer && (
+            <section className="space-y-3 rounded-lg border bg-gray-50 p-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold text-gray-500">
+                  新規顧客
+                </Label>
+                <button
+                  type="button"
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                  onClick={() => setIsCreatingCustomer(false)}
+                >
+                  戻る
+                </button>
+              </div>
+              <div className="space-y-2">
+                <Input
+                  placeholder="氏名（姓 名）*"
+                  value={newCustomerName}
+                  onChange={(e) => setNewCustomerName(e.target.value)}
+                />
+                <Input
+                  placeholder="電話番号 *"
+                  type="tel"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                />
+              </div>
+            </section>
+          )}
+
+          {/* ===== Section: Visit Source (来店経路) ===== */}
+          <section className="space-y-2">
+            <Label className="text-xs font-bold text-gray-500">
+              来店経路
+              {isNew && <span className="ml-1 text-red-500">*必須</span>}
+            </Label>
+            <div className="flex flex-wrap gap-1.5">
+              {visitSources.map((vs) => (
+                <button
+                  key={vs.id}
+                  type="button"
+                  onClick={() =>
+                    setVisitSourceId(visitSourceId === vs.id ? null : vs.id)
+                  }
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    visitSourceId === vs.id
+                      ? "border-orange-400 bg-orange-500 text-white"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-orange-300 hover:bg-orange-50"
+                  }`}
+                >
+                  {vs.name}
+                </button>
+              ))}
             </div>
-            <Button
-              onClick={handleComplete}
-              className="w-full bg-blue-600 hover:bg-blue-700"
-            >
-              <CheckCircle className="mr-1 h-4 w-4" />
-              施術完了 + 会計
-            </Button>
-          </div>
-        )}
-        {status === 2 && (
-          <div className="rounded-lg bg-blue-50 p-3 text-center text-sm text-blue-700">
-            完了済み
-            {Number(salesAmount) > 0 &&
-              ` - ¥${Number(salesAmount).toLocaleString()}`}
-          </div>
-        )}
+          </section>
 
-        <Separator className="my-4" />
+          <Separator />
 
-        {/* Tabs: カルテ / メモ / 会計 */}
-        <Tabs defaultValue="carte">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="carte" className="text-xs">
-              <FileText className="mr-1 h-3 w-3" />
-              カルテ
-            </TabsTrigger>
-            <TabsTrigger value="memo" className="text-xs">
-              メモ
-            </TabsTrigger>
-            <TabsTrigger value="billing" className="text-xs">
-              <Receipt className="mr-1 h-3 w-3" />
-              会計
-            </TabsTrigger>
-          </TabsList>
+          {/* ===== Section: Menu Selection ===== */}
+          <section className="space-y-2">
+            <Label className="text-xs font-bold text-gray-500">
+              メニュー選択
+            </Label>
+            <div className="space-y-1">
+              {menus.map((menu) => {
+                const isSelected = selectedMenuIds.includes(
+                  menu.menu_manage_id
+                );
+                return (
+                  <label
+                    key={menu.menu_manage_id}
+                    className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
+                      isSelected
+                        ? "border-blue-300 bg-blue-50"
+                        : "border-gray-100 bg-white hover:border-gray-200"
+                    }`}
+                  >
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleMenu(menu.menu_manage_id)}
+                    />
+                    <span className="flex-1 text-sm">
+                      {menu.name}（{menu.duration}分）
+                    </span>
+                    <span className="text-sm font-bold text-gray-700">
+                      {menu.price === 0 ? (
+                        <Badge
+                          variant="outline"
+                          className="border-green-300 bg-green-50 text-green-700"
+                        >
+                          プラン内
+                        </Badge>
+                      ) : (
+                        `¥${menu.price.toLocaleString()}`
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </section>
 
-          <TabsContent value="carte" className="space-y-3 pt-3">
+          <Separator />
+
+          {/* ===== Section: Carte (カルテ) ===== */}
+          <section className="space-y-2">
+            <Label className="text-xs font-bold text-gray-500">カルテ</Label>
             <Textarea
               value={customerRecord}
               onChange={(e) => setCustomerRecord(e.target.value)}
-              rows={8}
-              placeholder="施術内容、患者の状態、次回の注意点など..."
-              className="resize-none"
-            />
-            <Button
-              size="sm"
-              onClick={handleSaveRecord}
-              disabled={saving}
-            >
-              {saving ? "保存中..." : "カルテを保存"}
-            </Button>
-          </TabsContent>
-
-          <TabsContent value="memo" className="space-y-3 pt-3">
-            <Textarea
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
               rows={4}
-              placeholder="予約に関するメモ..."
+              placeholder="所見・次回への引き継ぎ"
               className="resize-none"
             />
-            <Button
-              size="sm"
-              onClick={handleSaveRecord}
-              disabled={saving}
-            >
-              {saving ? "保存中..." : "メモを保存"}
-            </Button>
-          </TabsContent>
+            <p className="text-[11px] text-muted-foreground">
+              患者DBに自動蓄積されます
+            </p>
+          </section>
 
-          <TabsContent value="billing" className="space-y-3 pt-3">
-            <div className="space-y-2">
-              <Label>売上金額</Label>
+          <Separator />
+
+          {/* ===== Section: Billing (お会計) ===== */}
+          <section className="space-y-3">
+            <Label className="text-xs font-bold text-gray-500">お会計</Label>
+            <div className="space-y-1 rounded-lg border bg-gray-50 p-3">
+              {menus
+                .filter((m) => selectedMenuIds.includes(m.menu_manage_id))
+                .map((m) => (
+                  <div
+                    key={m.menu_manage_id}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <span className="text-gray-700">{m.name}</span>
+                    <span className="font-medium">
+                      ¥{m.price.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              {selectedMenuIds.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  メニューを選択してください
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <Label className="shrink-0 text-xs text-gray-500">
+                追加料金
+              </Label>
               <Input
                 type="number"
-                value={salesAmount}
-                onChange={(e) => setSalesAmount(e.target.value)}
+                value={additionalCharge}
+                onChange={(e) => setAdditionalCharge(e.target.value)}
+                className="h-8 w-32 text-right text-sm"
+                placeholder="0"
               />
+              <span className="text-xs text-gray-400">円</span>
             </div>
-            <div className="space-y-2">
-              <Label>ステータス</Label>
-              <select
-                className="w-full rounded-md border px-3 py-2 text-sm"
-                value={status}
-                onChange={(e) => setStatus(Number(e.target.value))}
-              >
-                <option value={0}>予約済</option>
-                <option value={1}>来店</option>
-                <option value={2}>完了</option>
-                <option value={3}>キャンセル</option>
-              </select>
+            <div className="flex items-center justify-between rounded-lg bg-gray-900 px-4 py-2.5 text-white">
+              <span className="text-sm font-medium">合計</span>
+              <span className="text-lg font-black">
+                ¥{total.toLocaleString()}
+              </span>
             </div>
-            <Button
-              size="sm"
-              onClick={handleSaveRecord}
-              disabled={saving}
-            >
-              {saving ? "保存中..." : "会計を保存"}
-            </Button>
-          </TabsContent>
-        </Tabs>
+          </section>
+
+          <Separator />
+
+          {/* ===== Section: Plan suggestion ===== */}
+          {!isNew && appointment && (
+            <section className="space-y-2">
+              <Label className="text-xs font-bold text-gray-500">
+                プラン提案
+              </Label>
+              <p className="text-xs text-orange-600">
+                プラン未契約 - プランを提案してください
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {PLAN_CARDS.map((plan) => (
+                  <div
+                    key={plan.name}
+                    className="cursor-pointer rounded-lg border border-gray-200 p-3 text-center transition-colors hover:border-orange-300 hover:bg-orange-50"
+                  >
+                    <div className="text-xs font-bold text-gray-700">
+                      {plan.name}
+                    </div>
+                    <div className="mt-1 text-sm font-black text-orange-600">
+                      ¥{plan.price.toLocaleString()}
+                    </div>
+                    <div className="text-[10px] text-gray-400">
+                      /{plan.unit}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {!isNew && appointment && <Separator />}
+
+          {/* ===== Section: Payment Method ===== */}
+          <section className="space-y-2">
+            <Label className="text-xs font-bold text-gray-500">
+              支払い方法
+            </Label>
+            <div className="grid grid-cols-4 gap-2">
+              {PAYMENT_METHODS.map((pm) => (
+                <button
+                  key={pm.value}
+                  type="button"
+                  onClick={() => setPaymentMethod(pm.value)}
+                  className={`rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+                    paymentMethod === pm.value
+                      ? "border-blue-400 bg-blue-500 text-white"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
+                  }`}
+                >
+                  {pm.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <Separator />
+
+          {/* ===== Section: Next Appointment ===== */}
+          <section className="space-y-3">
+            <Label className="text-xs font-bold text-gray-500">次回予約</Label>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[11px] text-gray-400">日付</Label>
+                <Input
+                  type="date"
+                  value={nextDate}
+                  onChange={(e) => setNextDate(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-gray-400">開始時間</Label>
+                <select
+                  value={nextStartTime}
+                  onChange={(e) => setNextStartTime(e.target.value)}
+                  className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs"
+                >
+                  {TIME_OPTIONS.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-gray-400">施術時間</Label>
+                <select
+                  value={nextDuration}
+                  onChange={(e) => setNextDuration(Number(e.target.value))}
+                  className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs"
+                >
+                  {DURATION_OPTIONS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}分
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <label className="flex items-center gap-2">
+              <Checkbox
+                checked={lineRemind}
+                onCheckedChange={(v) => setLineRemind(!!v)}
+              />
+              <span className="text-xs text-gray-700">
+                LINEリマインド送信
+              </span>
+            </label>
+            {nextDate && (
+              <p className="text-[11px] text-muted-foreground">
+                ① 予約確定時 ② 来院前日12:00
+              </p>
+            )}
+          </section>
+
+          <Separator />
+
+          {/* ===== Submit button ===== */}
+          <Button
+            size="lg"
+            className="w-full bg-orange-500 py-6 text-base font-black hover:bg-orange-600"
+            onClick={handleSubmit}
+            disabled={saving || status === 2 || status === 3}
+          >
+            {saving
+              ? "処理中..."
+              : status === 2
+                ? "会計確定済み"
+                : "会計を確定する"}
+          </Button>
+        </div>
       </SheetContent>
     </Sheet>
   );
