@@ -1,10 +1,13 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ReservationCalendar } from "@/feature/reservation/components/ReservationCalendar";
 import { ReservationCalendarToolbar } from "@/feature/reservation/components/ReservationCalendarToolbar";
+import { AggregationButton } from "@/feature/reservation/components/AggregationButton";
 import { getCalendarData } from "@/feature/reservation/services/getCalendarData";
 import { generateTimeSlots } from "@/helper/utils/time";
 import { createClient } from "@/helper/lib/supabase/server";
 import type { CalendarData } from "@/feature/reservation/types";
+
+export const dynamic = "force-dynamic"; // Always fetch fresh data
 
 const SHOP_ID = 1;
 const BRAND_ID = 1;
@@ -29,7 +32,6 @@ export default async function ReservationPage({
     };
   }
 
-  // Fetch menus and visit sources for the booking sheet
   let menus: Array<{ menu_manage_id: string; name: string; price: number; duration: number }> = [];
   let visitSources: Array<{ id: number; name: string }> = [];
   try {
@@ -60,7 +62,10 @@ export default async function ReservationPage({
       <PageHeader
         title="予約表"
         actions={
-          <ReservationCalendarToolbar currentDate={date} />
+          <div className="flex items-center gap-3">
+            <AggregationButton shopId={SHOP_ID} date={date} />
+            <ReservationCalendarToolbar currentDate={date} />
+          </div>
         }
       />
       <div className="p-4">

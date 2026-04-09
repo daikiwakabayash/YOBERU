@@ -45,36 +45,52 @@ export function ReservationCalendar({
   const totalSlots = timeSlots.length;
   const totalHeight = totalSlots * slotHeightPx;
 
-  // Drag state
+  // Drag state - requires 8px movement threshold before activating
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
   const [dragStaffId, setDragStaffId] = useState<number | null>(null);
   const [dragTop, setDragTop] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
+  const dragStartY = useRef(0);
+  const dragOffsetRef = useRef(0);
+  const pendingDragAppt = useRef<CalendarAppointment | null>(null);
 
-  const handleDragStart = useCallback(
+  const handleMouseDownOnAppt = useCallback(
     (appt: CalendarAppointment, e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
-      if (!rect) return;
-      setDragAppt(appt);
+      if (!rect || !gridRef.current) return;
+      // Store but don't activate drag yet
+      pendingDragAppt.current = appt;
+      dragStartY.current = e.clientY;
+      dragOffsetRef.current = e.clientY - rect.top;
+      setDragTop(rect.top - gridRef.current.getBoundingClientRect().top);
       setDragStaffId(appt.staffId);
-      setDragOffset(e.clientY - rect.top);
-      setDragTop(rect.top - (gridRef.current?.getBoundingClientRect().top ?? 0));
     },
     []
   );
 
   useEffect(() => {
-    if (!dragAppt || !gridRef.current) return;
+    if (!pendingDragAppt.current && !dragAppt) return;
+    if (!gridRef.current) return;
     const gridRect = gridRef.current.getBoundingClientRect();
 
     function handleMouseMove(e: MouseEvent) {
-      const newTop = e.clientY - gridRect.top - dragOffset;
+      // Threshold check - only start dragging after 8px movement
+      if (pendingDragAppt.current && !isDragging) {
+        const dist = Math.abs(e.clientY - dragStartY.current);
+        if (dist > 8) {
+          setDragAppt(pendingDragAppt.current);
+          setIsDragging(true);
+        }
+        return;
+      }
+
+      if (!isDragging) return;
+      const newTop = e.clientY - gridRect.top - dragOffsetRef.current;
       setDragTop(Math.max(0, newTop));
 
-      // Detect staff column
       const staffHeaders = gridRef.current!.querySelectorAll("[data-staff-id]");
       staffHeaders.forEach((el) => {
         const rect = el.getBoundingClientRect();
@@ -85,32 +101,42 @@ export function ReservationCalendar({
     }
 
     async function handleMouseUp() {
-      if (!dragAppt) return;
-      const pixelsPerMinute = slotHeightPx / frameMin;
-      const newMinutes = Math.round(dragTop / pixelsPerMinute / frameMin) * frameMin + startHour;
-      const newStartTime = minutesToTime(newMinutes);
-      const durationMin = timeToMinutes(dragAppt.endAt.slice(11, 16)) - timeToMinutes(dragAppt.startAt.slice(11, 16));
-      const newEndTime = minutesToTime(newMinutes + durationMin);
+      const wasDragging = isDragging;
+      const appt = wasDragging ? dragAppt : null;
 
-      const newStartAt = `${date}T${newStartTime}:00`;
-      const newEndAt = `${date}T${newEndTime}:00`;
-
-      const form = new FormData();
-      form.set("start_at", newStartAt);
-      form.set("end_at", newEndAt);
-      if (dragStaffId && dragStaffId !== dragAppt.staffId) {
-        form.set("staff_id", String(dragStaffId));
+      // If we didn't pass threshold → it's a click, open detail
+      if (!wasDragging && pendingDragAppt.current) {
+        setSelectedAppt(pendingDragAppt.current);
       }
 
-      const result = await updateAppointment(dragAppt.id, form);
-      if ("error" in result && result.error) {
-        toast.error(String(result.error));
-      } else {
-        toast.success(`予約を ${newStartTime} に移動しました`);
+      // If we were dragging → save the new position
+      if (wasDragging && appt) {
+        const pixelsPerMinute = slotHeightPx / frameMin;
+        const newMinutes = Math.round(dragTop / pixelsPerMinute / frameMin) * frameMin + startHour;
+        const newStartTime = minutesToTime(newMinutes);
+        const durationMin = timeToMinutes(appt.endAt.slice(11, 16)) - timeToMinutes(appt.startAt.slice(11, 16));
+        const newEndTime = minutesToTime(newMinutes + durationMin);
+
+        const form = new FormData();
+        form.set("start_at", `${date}T${newStartTime}:00`);
+        form.set("end_at", `${date}T${newEndTime}:00`);
+        if (dragStaffId && dragStaffId !== appt.staffId) {
+          form.set("staff_id", String(dragStaffId));
+        }
+
+        const result = await updateAppointment(appt.id, form);
+        if ("error" in result && result.error) {
+          toast.error(String(result.error));
+        } else {
+          toast.success(`予約を ${newStartTime} に移動しました`);
+        }
       }
 
+      // Reset all drag state
+      pendingDragAppt.current = null;
       setDragAppt(null);
       setDragStaffId(null);
+      setIsDragging(false);
     }
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -119,7 +145,7 @@ export function ReservationCalendar({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragAppt, dragOffset, dragTop, dragStaffId, date, frameMin, slotHeightPx, startHour]);
+  }, [dragAppt, isDragging, dragTop, dragStaffId, date, frameMin, slotHeightPx, startHour]);
 
   useEffect(() => {
     function updateNow() {
@@ -345,11 +371,11 @@ export function ReservationCalendar({
                         zIndex: dragAppt?.id === appt.id ? 50 : 5,
                       }}
                       onClick={(e) => {
-                        if (dragAppt) return;
+                        // Don't open detail if we just finished dragging
+                        if (isDragging) return;
                         e.stopPropagation();
-                        setSelectedAppt(appt);
                       }}
-                      onMouseDown={(e) => handleDragStart(appt, e)}
+                      onMouseDown={(e) => handleMouseDownOnAppt(appt, e)}
                     >
                       {/* Status badge top-right */}
                       {statusBadge && (
