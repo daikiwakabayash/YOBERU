@@ -369,7 +369,7 @@ export function ReservationCalendar({
                         </span>
                         {isNew ? (
                           <span className="rounded bg-red-500 px-1.5 py-0 text-[10px] font-bold text-white">
-                            {appt.source ? `${appt.source}新規` : "新規"}
+                            {appt.source ? `新規（${appt.source}）` : "新規"}
                           </span>
                         ) : (
                           visitLabel && (

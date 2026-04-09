@@ -159,6 +159,22 @@ export function AppointmentDetailSheet({
   // ---- Saving ----
   const [saving, setSaving] = useState(false);
 
+  // ---- Reset form helper ----
+  function resetForm() {
+    setSelectedCustomer(null);
+    setCustomerQuery("");
+    setNewCustomerName("");
+    setNewCustomerPhone("");
+    setIsCreatingCustomer(false);
+    setVisitSourceId(null);
+    setSelectedMenuIds([]);
+    setCustomerRecord("");
+    setAdditionalCharge("0");
+    setPaymentMethod("");
+    setNextDate("");
+    setLineRemind(true);
+  }
+
   // ---- Derived ----
   const startTime =
     appointment?.startAt?.slice(11, 16) ?? newBooking?.time ?? "";
@@ -313,14 +329,18 @@ export function AppointmentDetailSheet({
         customerId = selectedCustomer!.id;
       }
 
-      // Default menu or first available
+      // Calculate end time using string math to avoid timezone issues
       const defaultMenuId = selectedMenuIds[0] || menus[0]?.menu_manage_id || "STR-001";
       const defaultDuration = menus.find(m => m.menu_manage_id === defaultMenuId)?.duration || 60;
 
+      const [startH, startM] = newBooking.time.split(":").map(Number);
+      const endTotalMin = startH * 60 + startM + defaultDuration;
+      const endH = Math.floor(endTotalMin / 60);
+      const endM = endTotalMin % 60;
+      const endTimeStr = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+
       const startAt = `${newBooking.date}T${newBooking.time}:00`;
-      const endDate = new Date(startAt);
-      endDate.setMinutes(endDate.getMinutes() + defaultDuration);
-      const endAt = endDate.toISOString().replace("Z", "");
+      const endAt = `${newBooking.date}T${endTimeStr}:00`;
 
       const form = new FormData();
       form.set("brand_id", String(brandId));
@@ -351,6 +371,7 @@ export function AppointmentDetailSheet({
       }
 
       toast.success("予約を一時保存しました");
+      resetForm();
       onClose();
     } catch (e) {
       toast.error("エラーが発生しました");
@@ -437,7 +458,7 @@ export function AppointmentDetailSheet({
           customerId = selectedCustomer!.id;
         }
 
-        // Build primary menu duration for end_at
+        // Calculate end time using string math to avoid timezone issues
         const primaryMenu = menus.find(
           (m) => m.menu_manage_id === selectedMenuIds[0]
         );
@@ -446,10 +467,14 @@ export function AppointmentDetailSheet({
           .reduce((s, m) => s + m.duration, 0);
         const dur = totalDuration || primaryMenu?.duration || 60;
 
+        const [sH, sM] = newBooking.time.split(":").map(Number);
+        const eTotalMin = sH * 60 + sM + dur;
+        const eH = Math.floor(eTotalMin / 60);
+        const eM = eTotalMin % 60;
+        const eTimeStr = `${String(eH).padStart(2, "0")}:${String(eM).padStart(2, "0")}`;
+
         const startAt = `${newBooking.date}T${newBooking.time}:00`;
-        const endDate = new Date(startAt);
-        endDate.setMinutes(endDate.getMinutes() + dur);
-        const endAt = endDate.toISOString().replace("Z", "");
+        const endAt = `${newBooking.date}T${eTimeStr}:00`;
 
         const form = new FormData();
         form.set("brand_id", String(brandId));
@@ -509,10 +534,12 @@ export function AppointmentDetailSheet({
 
       // --- Create next appointment if date is set ---
       if (nextDate && appointment) {
+        const [nH, nM] = nextStartTime.split(":").map(Number);
+        const nTotalMin = nH * 60 + nM + nextDuration;
+        const nEndH = Math.floor(nTotalMin / 60);
+        const nEndM = nTotalMin % 60;
         const nextStartAt = `${nextDate}T${nextStartTime}:00`;
-        const nextEnd = new Date(nextStartAt);
-        nextEnd.setMinutes(nextEnd.getMinutes() + nextDuration);
-        const nextEndAt = nextEnd.toISOString().replace("Z", "");
+        const nextEndAt = `${nextDate}T${String(nEndH).padStart(2, "0")}:${String(nEndM).padStart(2, "0")}:00`;
 
         const nextForm = new FormData();
         nextForm.set("brand_id", String(brandId));
@@ -542,6 +569,7 @@ export function AppointmentDetailSheet({
         }
       }
 
+      resetForm();
       onClose();
     } catch (err) {
       toast.error("エラーが発生しました");
@@ -761,6 +789,40 @@ export function AppointmentDetailSheet({
 
           <Separator />
 
+          {/* ===== Section: Carte (カルテ) — shown early for new bookings ===== */}
+          {isNew && (
+            <section className="space-y-2">
+              <Label className="text-xs font-bold text-gray-500">カルテ</Label>
+              <Textarea
+                value={customerRecord}
+                onChange={(e) => setCustomerRecord(e.target.value)}
+                rows={4}
+                placeholder="所見・次回への引き継ぎ"
+                className="resize-none"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                患者DBに自動蓄積されます
+              </p>
+            </section>
+          )}
+
+          {isNew && <Separator />}
+
+          {/* ===== Quick save button (new booking only) — right after carte ===== */}
+          {isNew && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-2 border-blue-500 py-5 text-base font-bold text-blue-600 hover:bg-blue-50"
+              onClick={handleQuickSave}
+              disabled={saving}
+            >
+              {saving ? "保存中..." : "一時保存（予約のみ登録）"}
+            </Button>
+          )}
+
+          {isNew && <Separator />}
+
           {/* ===== Section: Menu Selection ===== */}
           <section className="space-y-2">
             <Label className="text-xs font-bold text-gray-500">
@@ -807,22 +869,24 @@ export function AppointmentDetailSheet({
 
           <Separator />
 
-          {/* ===== Section: Carte (カルテ) ===== */}
-          <section className="space-y-2">
-            <Label className="text-xs font-bold text-gray-500">カルテ</Label>
-            <Textarea
-              value={customerRecord}
-              onChange={(e) => setCustomerRecord(e.target.value)}
-              rows={4}
-              placeholder="所見・次回への引き継ぎ"
-              className="resize-none"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              患者DBに自動蓄積されます
-            </p>
-          </section>
+          {/* ===== Section: Carte (カルテ) — existing appointments only ===== */}
+          {!isNew && (
+            <section className="space-y-2">
+              <Label className="text-xs font-bold text-gray-500">カルテ</Label>
+              <Textarea
+                value={customerRecord}
+                onChange={(e) => setCustomerRecord(e.target.value)}
+                rows={4}
+                placeholder="所見・次回への引き継ぎ"
+                className="resize-none"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                患者DBに自動蓄積されます
+              </p>
+            </section>
+          )}
 
-          <Separator />
+          {!isNew && <Separator />}
 
           {/* ===== Section: Billing (お会計) ===== */}
           <section className="space-y-3">
@@ -986,19 +1050,6 @@ export function AppointmentDetailSheet({
           </section>
 
           <Separator />
-
-          {/* ===== Quick save button (new booking only) ===== */}
-          {isNew && (
-            <Button
-              size="lg"
-              variant="outline"
-              className="w-full border-2 border-blue-500 py-5 text-base font-bold text-blue-600 hover:bg-blue-50"
-              onClick={handleQuickSave}
-              disabled={saving}
-            >
-              {saving ? "保存中..." : "一時保存（予約のみ登録）"}
-            </Button>
-          )}
 
           {/* ===== Submit button ===== */}
           <Button
