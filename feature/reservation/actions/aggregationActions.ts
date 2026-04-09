@@ -14,6 +14,20 @@ export async function runDailyAggregation(shopId: number, date: string) {
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = nextDate.toISOString().split("T")[0];
 
+  // Check all appointments have been actioned
+  const { count: unactionedCount } = await supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("shop_id", shopId)
+    .gte("start_at", `${date}T00:00:00`)
+    .lt("start_at", `${nextDateStr}T00:00:00`)
+    .is("deleted_at", null)
+    .in("status", [0, 1]);
+
+  if (unactionedCount && unactionedCount > 0) {
+    return { error: "未対応の予約があります。全ての予約にアクションを行ってから集計してください。" };
+  }
+
   // Get all completed appointments for this date
   const { data: appointments, error } = await supabase
     .from("appointments")

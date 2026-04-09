@@ -25,9 +25,28 @@ export async function getCustomers(
     .order("created_at", { ascending: false });
 
   if (search) {
-    query = query.or(
-      `last_name.ilike.%${search}%,first_name.ilike.%${search}%,last_name_kana.ilike.%${search}%,first_name_kana.ilike.%${search}%,phone_number_1.ilike.%${search}%,code.ilike.%${search}%`
-    );
+    const trimmed = search.trim();
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2) {
+      const p0 = parts[0];
+      const p1 = parts.slice(1).join(" ");
+      query = query.or(
+        [
+          `and(last_name.ilike.%${p0}%,first_name.ilike.%${p1}%)`,
+          `and(last_name.ilike.%${p1}%,first_name.ilike.%${p0}%)`,
+          `last_name.ilike.%${trimmed}%`,
+          `first_name.ilike.%${trimmed}%`,
+          `last_name_kana.ilike.%${trimmed}%`,
+          `first_name_kana.ilike.%${trimmed}%`,
+          `phone_number_1.ilike.%${trimmed}%`,
+          `code.ilike.%${trimmed}%`,
+        ].join(",")
+      );
+    } else {
+      query = query.or(
+        `last_name.ilike.%${trimmed}%,first_name.ilike.%${trimmed}%,last_name_kana.ilike.%${trimmed}%,first_name_kana.ilike.%${trimmed}%,phone_number_1.ilike.%${trimmed}%,code.ilike.%${trimmed}%`
+      );
+    }
   }
 
   if (type !== undefined && type !== null) {
@@ -62,15 +81,38 @@ export async function searchCustomers(
   limit: number = 10
 ): Promise<CustomerSummary[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const trimmed = query.trim();
+  const parts = trimmed.split(/\s+/);
+
+  let baseQuery = supabase
     .from("customers")
     .select("id, code, last_name, first_name, phone_number_1")
     .eq("shop_id", shopId)
-    .is("deleted_at", null)
-    .or(
-      `last_name.ilike.%${query}%,first_name.ilike.%${query}%,last_name_kana.ilike.%${query}%,first_name_kana.ilike.%${query}%,phone_number_1.ilike.%${query}%,code.ilike.%${query}%`
-    )
-    .limit(limit);
+    .is("deleted_at", null);
+
+  if (parts.length >= 2) {
+    // Multi-part search: try both orderings of name parts across last_name/first_name
+    const p0 = parts[0];
+    const p1 = parts.slice(1).join(" ");
+    baseQuery = baseQuery.or(
+      [
+        `and(last_name.ilike.%${p0}%,first_name.ilike.%${p1}%)`,
+        `and(last_name.ilike.%${p1}%,first_name.ilike.%${p0}%)`,
+        `last_name.ilike.%${trimmed}%`,
+        `first_name.ilike.%${trimmed}%`,
+        `last_name_kana.ilike.%${trimmed}%`,
+        `first_name_kana.ilike.%${trimmed}%`,
+        `phone_number_1.ilike.%${trimmed}%`,
+        `code.ilike.%${trimmed}%`,
+      ].join(",")
+    );
+  } else {
+    baseQuery = baseQuery.or(
+      `last_name.ilike.%${trimmed}%,first_name.ilike.%${trimmed}%,last_name_kana.ilike.%${trimmed}%,first_name_kana.ilike.%${trimmed}%,phone_number_1.ilike.%${trimmed}%,code.ilike.%${trimmed}%`
+    );
+  }
+
+  const { data, error } = await baseQuery.limit(limit);
   if (error) throw error;
   return data as CustomerSummary[];
 }
