@@ -43,7 +43,7 @@ export async function getCalendarData(
   const { data: appointments } = await supabase
     .from("appointments")
     .select(
-      "id, staff_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, customers(last_name, first_name)"
+      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count), visit_sources(name)"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${date}T00:00:00`)
@@ -88,15 +88,22 @@ export async function getCalendarData(
     const customer = a.customers as unknown as {
       last_name: string | null;
       first_name: string | null;
+      phone_number_1: string | null;
+      visit_count: number | null;
     } | null;
+    const visitSource = a.visit_sources as unknown as { name: string } | null;
     const menu = menuMap.get(a.menu_manage_id) ?? null;
+    const customerVisitCount = customer?.visit_count ?? a.visit_count ?? 0;
 
     return {
       id: a.id,
       staffId: a.staff_id,
+      customerId: a.customer_id,
+      menuManageId: a.menu_manage_id,
       customerName: customer
-        ? `${customer.last_name ?? ""}${customer.first_name ?? ""}`
+        ? `${customer.last_name ?? ""} ${customer.first_name ?? ""}`.trim()
         : "不明",
+      customerPhone: customer?.phone_number_1 ?? null,
       menuName: menu?.name ?? "不明",
       startAt: a.start_at,
       endAt: a.end_at,
@@ -104,9 +111,13 @@ export async function getCalendarData(
       type: a.type,
       duration: menu?.duration ?? 0,
       memo: a.memo ?? null,
-      isNewCustomer: a.type === 0, // TODO: Check customer's first visit
-      source: null, // TODO: Resolve from forced_links
+      isNewCustomer: customerVisitCount <= 1,
+      visitCount: customerVisitCount,
+      source: visitSource?.name ?? null,
+      visitSourceId: a.visit_source_id ?? null,
       sales: a.sales ?? 0,
+      additionalCharge: a.additional_charge ?? 0,
+      paymentMethod: a.payment_method ?? null,
       customerRecord: a.customer_record ?? null,
     };
   });

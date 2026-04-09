@@ -39,9 +39,19 @@ import {
 import { toast } from "sonner";
 
 interface AppointmentDetailSheetProps {
-  appointment: CalendarAppointment;
+  appointment?: CalendarAppointment | null;
   open: boolean;
   onClose: () => void;
+  newBooking?: {
+    staffId: number;
+    staffName: string;
+    date: string;
+    time: string;
+  } | null;
+  menus?: Array<{ menu_manage_id: string; name: string; price: number; duration: number }>;
+  visitSources?: Array<{ id: number; name: string }>;
+  shopId?: number;
+  brandId?: number;
 }
 
 export function AppointmentDetailSheet({
@@ -49,23 +59,39 @@ export function AppointmentDetailSheet({
   open,
   onClose,
 }: AppointmentDetailSheetProps) {
-  const [status, setStatus] = useState(appointment.status);
-  const [salesAmount, setSalesAmount] = useState(String(appointment.sales || ""));
+  const [status, setStatus] = useState(appointment?.status ?? 0);
+  const [salesAmount, setSalesAmount] = useState(String(appointment?.sales || ""));
   const [customerRecord, setCustomerRecord] = useState(
-    appointment.customerRecord ?? ""
+    appointment?.customerRecord ?? ""
   );
-  const [memo, setMemo] = useState(appointment.memo ?? "");
+  const [memo, setMemo] = useState(appointment?.memo ?? "");
   const [saving, setSaving] = useState(false);
 
-  const startTime = appointment.startAt.slice(11, 16);
-  const endTime = appointment.endAt.slice(11, 16);
-  const startDate = appointment.startAt.slice(0, 10);
+  if (!appointment) {
+    return (
+      <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+        <SheetContent className="w-[440px] overflow-y-auto sm:max-w-[440px]">
+          <SheetHeader>
+            <SheetTitle>新規予約</SheetTitle>
+          </SheetHeader>
+          <div className="py-8 text-center text-muted-foreground">
+            Supabase接続後に予約入力フォームが表示されます
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  const appt = appointment;
+  const startTime = appt.startAt.slice(11, 16);
+  const endTime = appt.endAt.slice(11, 16);
+  const startDate = appt.startAt.slice(0, 10);
 
   const statusColor =
-    APPOINTMENT_STATUS_COLORS[appointment.status] ?? "bg-gray-100 text-gray-800";
+    APPOINTMENT_STATUS_COLORS[appt.status] ?? "bg-gray-100 text-gray-800";
 
   async function handleCheckin() {
-    const result = await checkinAppointment(appointment.id);
+    const result = await checkinAppointment(appt.id);
     if (result.error) toast.error(result.error);
     else {
       toast.success("来店を記録しました");
@@ -75,7 +101,7 @@ export function AppointmentDetailSheet({
 
   async function handleComplete() {
     const amount = Number(salesAmount) || 0;
-    const result = await completeAppointment(appointment.id, amount);
+    const result = await completeAppointment(appt.id, amount);
     if (result.error) toast.error(result.error);
     else {
       toast.success("施術完了しました");
@@ -85,7 +111,7 @@ export function AppointmentDetailSheet({
 
   async function handleCancel() {
     if (!confirm("この予約をキャンセルしますか？")) return;
-    const result = await cancelAppointment(appointment.id);
+    const result = await cancelAppointment(appt.id);
     if (result.error) toast.error(result.error);
     else {
       toast.success("キャンセルしました");
@@ -101,7 +127,7 @@ export function AppointmentDetailSheet({
     formData.set("customer_record", customerRecord);
     formData.set("sales", salesAmount);
     formData.set("status", String(status));
-    const result = await updateAppointment(appointment.id, formData);
+    const result = await updateAppointment(appt.id, formData);
     setSaving(false);
     if ("error" in result && result.error) toast.error(String(result.error));
     else toast.success("保存しました");
@@ -112,11 +138,11 @@ export function AppointmentDetailSheet({
       <SheetContent className="w-[440px] overflow-y-auto sm:max-w-[440px]">
         <SheetHeader className="pb-4">
           <SheetTitle className="flex items-center gap-2">
-            <span>{appointment.customerName}</span>
+            <span>{appt.customerName}</span>
             <Badge className={statusColor}>
-              {APPOINTMENT_STATUS_LABELS[appointment.status] ?? "不明"}
+              {APPOINTMENT_STATUS_LABELS[appt.status] ?? "不明"}
             </Badge>
-            {appointment.isNewCustomer && (
+            {appt.isNewCustomer && (
               <Badge className="bg-emerald-500 text-white">新規</Badge>
             )}
           </SheetTitle>
@@ -129,17 +155,17 @@ export function AppointmentDetailSheet({
             <span className="font-medium">
               {startDate} {startTime} - {endTime}
             </span>
-            <span className="text-gray-400">({appointment.duration}分)</span>
+            <span className="text-gray-400">({appt.duration}分)</span>
           </div>
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-gray-400" />
-            <span>{appointment.menuName}</span>
+            <span>{appt.menuName}</span>
           </div>
-          {appointment.isNewCustomer && appointment.source && (
+          {appt.isNewCustomer && appt.source && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-400">流入経路:</span>
               <Badge variant="outline" className="text-xs">
-                {appointment.source}
+                {appt.source}
               </Badge>
             </div>
           )}

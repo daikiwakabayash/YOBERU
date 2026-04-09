@@ -45,6 +45,7 @@ export interface CalendarAppointment {
   id: number;
   staffId: number;
   customerName: string;
+  customerPhone: string | null;
   menuName: string;
   startAt: string;
   endAt: string;
@@ -53,9 +54,15 @@ export interface CalendarAppointment {
   duration: number;
   memo: string | null;
   isNewCustomer: boolean;
-  source: string | null; // 流入経路 (強制リンク名等)
+  visitCount: number;
+  source: string | null;
+  visitSourceId: number | null;
   sales: number;
+  additionalCharge: number;
+  paymentMethod: string | null;
   customerRecord: string | null;
+  customerId: number;
+  menuManageId: string;
 }
 
 export interface CalendarData {
