@@ -20,6 +20,7 @@ import {
   createAppointment,
   updateAppointment,
   cancelAppointment,
+  getLastCarte,
 } from "../actions/reservationActions";
 import {
   checkinAppointment,
@@ -156,6 +157,12 @@ export function AppointmentDetailSheet({
   const [nextDuration, setNextDuration] = useState(60);
   const [lineRemind, setLineRemind] = useState(true);
 
+  // ---- Previous carte (existing customer) ----
+  const [previousCarte, setPreviousCarte] = useState<string | null>(null);
+  const [previousCarteDate, setPreviousCarteDate] = useState<string | null>(
+    null
+  );
+
   // ---- Saving ----
   const [saving, setSaving] = useState(false);
 
@@ -173,9 +180,12 @@ export function AppointmentDetailSheet({
     setPaymentMethod("");
     setNextDate("");
     setLineRemind(true);
+    setPreviousCarte(null);
+    setPreviousCarteDate(null);
   }
 
   // ---- Derived ----
+  const isExistingCustomer = !!selectedCustomer && !isCreatingCustomer;
   const startTime =
     appointment?.startAt?.slice(11, 16) ?? newBooking?.time ?? "";
   const menuTotal = useMemo(() => {
@@ -216,11 +226,26 @@ export function AppointmentDetailSheet({
     searchDebounce.current = setTimeout(() => doCustomerSearch(value), 300);
   }
 
-  function handleSelectCustomer(c: CustomerSummary) {
+  async function handleSelectCustomer(c: CustomerSummary) {
     setSelectedCustomer(c);
     setCustomerDropdownOpen(false);
     setCustomerQuery("");
     setIsCreatingCustomer(false);
+
+    // Fetch previous carte for existing customers
+    try {
+      const lastCarte = await getLastCarte(c.id);
+      if (lastCarte) {
+        setPreviousCarte(lastCarte.record);
+        setPreviousCarteDate(lastCarte.date);
+      } else {
+        setPreviousCarte(null);
+        setPreviousCarteDate(null);
+      }
+    } catch {
+      setPreviousCarte(null);
+      setPreviousCarteDate(null);
+    }
   }
 
   // Close dropdown on outside click
@@ -398,7 +423,7 @@ export function AppointmentDetailSheet({
         toast.error("電話番号を入力してください");
         return;
       }
-      if (!visitSourceId) {
+      if (isCreatingCustomer && !visitSourceId) {
         toast.error("来店経路を選択してください");
         return;
       }
@@ -541,11 +566,14 @@ export function AppointmentDetailSheet({
         const nextStartAt = `${nextDate}T${nextStartTime}:00`;
         const nextEndAt = `${nextDate}T${String(nEndH).padStart(2, "0")}:${String(nEndM).padStart(2, "0")}:00`;
 
+        const nextStaffId =
+          appointment.staffId || newBooking?.staffId || 0;
+
         const nextForm = new FormData();
         nextForm.set("brand_id", String(brandId));
         nextForm.set("shop_id", String(shopId));
         nextForm.set("customer_id", String(appointment.customerId));
-        nextForm.set("staff_id", String(appointment.staffId));
+        nextForm.set("staff_id", String(nextStaffId));
         nextForm.set(
           "menu_manage_id",
           selectedMenuIds[0] || appointment.menuManageId
@@ -557,6 +585,12 @@ export function AppointmentDetailSheet({
         nextForm.set("is_couple", "false");
         nextForm.set("sales", "0");
         nextForm.set("status", "0");
+        if (appointment.visitSourceId) {
+          nextForm.set(
+            "visit_source_id",
+            String(appointment.visitSourceId)
+          );
+        }
 
         const nextResult = await createAppointment(nextForm);
         if ("error" in nextResult && nextResult.error) {
@@ -723,7 +757,11 @@ export function AppointmentDetailSheet({
               <button
                 type="button"
                 className="ml-auto text-gray-400 hover:text-gray-600"
-                onClick={() => setSelectedCustomer(null)}
+                onClick={() => {
+                  setSelectedCustomer(null);
+                  setPreviousCarte(null);
+                  setPreviousCarteDate(null);
+                }}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -761,38 +799,61 @@ export function AppointmentDetailSheet({
             </section>
           )}
 
-          {/* ===== Section: Visit Source (来店経路) ===== */}
-          <section className="space-y-2">
-            <Label className="text-xs font-bold text-gray-500">
-              来店経路
-              {isNew && <span className="ml-1 text-red-500">*必須</span>}
-            </Label>
-            <div className="flex flex-wrap gap-1.5">
-              {visitSources.map((vs) => (
-                <button
-                  key={vs.id}
-                  type="button"
-                  onClick={() =>
-                    setVisitSourceId(visitSourceId === vs.id ? null : vs.id)
-                  }
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    visitSourceId === vs.id
-                      ? "border-orange-400 bg-orange-500 text-white"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-orange-300 hover:bg-orange-50"
-                  }`}
-                >
-                  {vs.name}
-                </button>
-              ))}
-            </div>
-          </section>
+          {/* ===== Section: Visit Source (来店経路) — only for truly new customers ===== */}
+          {(isCreatingCustomer || (!selectedCustomer && isNew) || !isNew) && (
+            <>
+              <section className="space-y-2">
+                <Label className="text-xs font-bold text-gray-500">
+                  来店経路
+                  {isCreatingCustomer && (
+                    <span className="ml-1 text-red-500">*必須</span>
+                  )}
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {visitSources.map((vs) => (
+                    <button
+                      key={vs.id}
+                      type="button"
+                      onClick={() =>
+                        setVisitSourceId(visitSourceId === vs.id ? null : vs.id)
+                      }
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        visitSourceId === vs.id
+                          ? "border-orange-400 bg-orange-500 text-white"
+                          : "border-gray-200 bg-white text-gray-600 hover:border-orange-300 hover:bg-orange-50"
+                      }`}
+                    >
+                      {vs.name}
+                    </button>
+                  ))}
+                </div>
+              </section>
 
-          <Separator />
+              <Separator />
+            </>
+          )}
 
           {/* ===== Section: Carte (カルテ) — shown early for new bookings ===== */}
           {isNew && (
             <section className="space-y-2">
-              <Label className="text-xs font-bold text-gray-500">カルテ</Label>
+              {/* Previous carte for existing customers */}
+              {isExistingCustomer && previousCarte && (
+                <div className="space-y-1">
+                  <Label className="text-xs font-bold text-gray-500">
+                    前回カルテ
+                    {previousCarteDate &&
+                      ` (${previousCarteDate.replace(/-/g, "/")})`}
+                  </Label>
+                  <div className="whitespace-pre-wrap rounded-md border bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                    {previousCarte}
+                  </div>
+                </div>
+              )}
+              <Label className="text-xs font-bold text-gray-500">
+                {isExistingCustomer && previousCarte
+                  ? "今回のカルテ"
+                  : "カルテ"}
+              </Label>
               <Textarea
                 value={customerRecord}
                 onChange={(e) => setCustomerRecord(e.target.value)}

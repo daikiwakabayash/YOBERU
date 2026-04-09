@@ -89,6 +89,24 @@ export async function cancelAppointment(id: number) {
   return { success: true };
 }
 
+export async function getLastCarte(customerId: number) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("appointments")
+    .select("customer_record, start_at")
+    .eq("customer_id", customerId)
+    .eq("status", 2)
+    .is("deleted_at", null)
+    .not("customer_record", "is", null)
+    .order("start_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  return data
+    ? { record: data.customer_record as string, date: (data.start_at as string)?.slice(0, 10) }
+    : null;
+}
+
 export async function deleteAppointment(id: number) {
   const supabase = await createClient();
 
