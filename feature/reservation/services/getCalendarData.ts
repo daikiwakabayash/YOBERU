@@ -43,7 +43,7 @@ export async function getCalendarData(
   const { data: appointments } = await supabase
     .from("appointments")
     .select(
-      "id, staff_id, start_at, end_at, status, type, menu_manage_id, customers(last_name, first_name), menus!appointments_menu_manage_id_fkey(name, duration)"
+      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count), visit_sources(name)"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${date}T00:00:00`)
@@ -51,6 +51,25 @@ export async function getCalendarData(
     .is("cancelled_at", null)
     .is("deleted_at", null)
     .order("start_at");
+
+  // Fetch menus separately (menu_manage_id is VARCHAR, no FK join)
+  const menuManageIds = [
+    ...new Set((appointments ?? []).map((a) => a.menu_manage_id)),
+  ];
+  let menuMap = new Map<string, { name: string; duration: number }>();
+  if (menuManageIds.length > 0) {
+    const { data: menus } = await supabase
+      .from("menus")
+      .select("menu_manage_id, name, duration")
+      .in("menu_manage_id", menuManageIds)
+      .is("deleted_at", null);
+    menuMap = new Map(
+      (menus ?? []).map((m) => [
+        m.menu_manage_id,
+        { name: m.name, duration: m.duration },
+      ])
+    );
+  }
 
   // 4. Build staff list with shift info
   const staffs = effectiveShifts.map((s) => ({
@@ -69,24 +88,37 @@ export async function getCalendarData(
     const customer = a.customers as unknown as {
       last_name: string | null;
       first_name: string | null;
+      phone_number_1: string | null;
+      visit_count: number | null;
     } | null;
-    const menu = a.menus as unknown as {
-      name: string;
-      duration: number;
-    } | null;
+    const visitSource = a.visit_sources as unknown as { name: string } | null;
+    const menu = menuMap.get(a.menu_manage_id) ?? null;
+    const customerVisitCount = customer?.visit_count ?? a.visit_count ?? 0;
 
     return {
       id: a.id,
       staffId: a.staff_id,
+      customerId: a.customer_id,
+      menuManageId: a.menu_manage_id,
       customerName: customer
-        ? `${customer.last_name ?? ""}${customer.first_name ?? ""}`
+        ? `${customer.last_name ?? ""} ${customer.first_name ?? ""}`.trim()
         : "不明",
+      customerPhone: customer?.phone_number_1 ?? null,
       menuName: menu?.name ?? "不明",
       startAt: a.start_at,
       endAt: a.end_at,
       status: a.status,
       type: a.type,
       duration: menu?.duration ?? 0,
+      memo: a.memo ?? null,
+      isNewCustomer: customerVisitCount <= 1,
+      visitCount: customerVisitCount,
+      source: visitSource?.name ?? null,
+      visitSourceId: a.visit_source_id ?? null,
+      sales: a.sales ?? 0,
+      additionalCharge: a.additional_charge ?? 0,
+      paymentMethod: a.payment_method ?? null,
+      customerRecord: a.customer_record ?? null,
     };
   });
 

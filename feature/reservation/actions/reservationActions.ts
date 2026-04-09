@@ -54,6 +54,11 @@ export async function updateAppointment(id: number, formData: FormData) {
     updateData.customer_record = raw.customer_record;
   if (raw.sales !== undefined) updateData.sales = Number(raw.sales);
   if (raw.status !== undefined) updateData.status = Number(raw.status);
+  if (raw.visit_source_id)
+    updateData.visit_source_id = Number(raw.visit_source_id);
+  if (raw.payment_method) updateData.payment_method = raw.payment_method;
+  if (raw.additional_charge !== undefined)
+    updateData.additional_charge = Number(raw.additional_charge);
 
   const { error } = await supabase
     .from("appointments")

@@ -45,12 +45,24 @@ export interface CalendarAppointment {
   id: number;
   staffId: number;
   customerName: string;
+  customerPhone: string | null;
   menuName: string;
   startAt: string;
   endAt: string;
   status: number;
   type: number;
   duration: number;
+  memo: string | null;
+  isNewCustomer: boolean;
+  visitCount: number;
+  source: string | null;
+  visitSourceId: number | null;
+  sales: number;
+  additionalCharge: number;
+  paymentMethod: string | null;
+  customerRecord: string | null;
+  customerId: number;
+  menuManageId: string;
 }
 
 export interface CalendarData {
