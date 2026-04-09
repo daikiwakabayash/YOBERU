@@ -33,3 +33,30 @@ export function timeRangesOverlap(
 ): boolean {
   return start1 < end2 && start2 < end1;
 }
+
+/**
+ * Convert "HH:MM" string to minutes from midnight
+ */
+export function timeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Convert minutes from midnight to "HH:MM" string
+ */
+export function minutesToTime(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Calculate how many time slots a duration spans
+ */
+export function durationToSlotCount(
+  durationMinutes: number,
+  frameMin: number
+): number {
+  return Math.ceil(durationMinutes / frameMin);
+}
