@@ -260,6 +260,106 @@ export function AppointmentDetailSheet({
   }
 
   // -----------------------------------------------------------------------
+  // Quick save: 一時保存 (名前+電話+メモ+経路のみで予約作成)
+  // -----------------------------------------------------------------------
+  async function handleQuickSave() {
+    if (!newBooking) return;
+
+    if (!isCreatingCustomer && !selectedCustomer) {
+      toast.error("顧客を選択または新規作成してください");
+      return;
+    }
+    if (isCreatingCustomer && !newCustomerName.trim()) {
+      toast.error("名前を入力してください");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let customerId: number;
+
+      if (isCreatingCustomer) {
+        const custForm = new FormData();
+        custForm.set("brand_id", String(brandId));
+        custForm.set("shop_id", String(shopId));
+        const nameParts = newCustomerName.trim().split(/\s+/);
+        custForm.set("last_name", nameParts[0] ?? "");
+        custForm.set("first_name", nameParts.slice(1).join(" ") || "");
+        custForm.set("phone_number_1", newCustomerPhone);
+        custForm.set("type", "0");
+        custForm.set("gender", "0");
+
+        const { createCustomer } = await import(
+          "@/feature/customer/actions/customerActions"
+        );
+        const custResult = await createCustomer(custForm);
+        if ("error" in custResult && custResult.error) {
+          toast.error(
+            typeof custResult.error === "string"
+              ? custResult.error
+              : "顧客作成に失敗しました"
+          );
+          setSaving(false);
+          return;
+        }
+        const matches = await searchCustomers(shopId, newCustomerPhone, 1);
+        if (!matches.length) {
+          toast.error("顧客の作成後に取得できませんでした");
+          setSaving(false);
+          return;
+        }
+        customerId = matches[0].id;
+      } else {
+        customerId = selectedCustomer!.id;
+      }
+
+      // Default menu or first available
+      const defaultMenuId = selectedMenuIds[0] || menus[0]?.menu_manage_id || "STR-001";
+      const defaultDuration = menus.find(m => m.menu_manage_id === defaultMenuId)?.duration || 60;
+
+      const startAt = `${newBooking.date}T${newBooking.time}:00`;
+      const endDate = new Date(startAt);
+      endDate.setMinutes(endDate.getMinutes() + defaultDuration);
+      const endAt = endDate.toISOString().replace("Z", "");
+
+      const form = new FormData();
+      form.set("brand_id", String(brandId));
+      form.set("shop_id", String(shopId));
+      form.set("customer_id", String(customerId));
+      form.set("staff_id", String(newBooking.staffId));
+      form.set("menu_manage_id", defaultMenuId);
+      form.set("type", "0");
+      form.set("start_at", startAt);
+      form.set("end_at", endAt);
+      form.set("memo", customerRecord);
+      form.set("is_couple", "false");
+      form.set("sales", "0");
+      form.set("status", "0"); // 待機 status
+      if (visitSourceId) {
+        form.set("visit_source_id", String(visitSourceId));
+      }
+
+      const result = await createAppointment(form);
+      if ("error" in result && result.error) {
+        toast.error(
+          typeof result.error === "string"
+            ? result.error
+            : "予約作成に失敗しました"
+        );
+        setSaving(false);
+        return;
+      }
+
+      toast.success("予約を一時保存しました");
+      onClose();
+    } catch (e) {
+      toast.error("エラーが発生しました");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Main submit: 会計を確定する
   // -----------------------------------------------------------------------
   async function handleSubmit() {
@@ -886,6 +986,19 @@ export function AppointmentDetailSheet({
           </section>
 
           <Separator />
+
+          {/* ===== Quick save button (new booking only) ===== */}
+          {isNew && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-2 border-blue-500 py-5 text-base font-bold text-blue-600 hover:bg-blue-50"
+              onClick={handleQuickSave}
+              disabled={saving}
+            >
+              {saving ? "保存中..." : "一時保存（予約のみ登録）"}
+            </Button>
+          )}
 
           {/* ===== Submit button ===== */}
           <Button

@@ -1,76 +1,317 @@
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { CustomerForm } from "@/feature/customer/components/CustomerForm";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { getCustomer } from "@/feature/customer/services/getCustomers";
-import { getStaffs } from "@/feature/staff/services/getStaffs";
+import { createClient } from "@/helper/lib/supabase/server";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  Phone,
+  Mail,
+  MapPin,
+  Calendar,
+  UserCog,
+  FileText,
+  BarChart3,
+} from "lucide-react";
+
+const TYPE_LABELS: Record<number, { label: string; color: string }> = {
+  0: { label: "一般", color: "bg-gray-100 text-gray-700" },
+  1: { label: "会員", color: "bg-blue-100 text-blue-700" },
+  2: { label: "退会", color: "bg-red-100 text-red-700" },
+};
+
+const GENDER_LABELS: Record<number, string> = {
+  0: "男性",
+  1: "女性",
+  2: "その他",
+};
 
 interface CustomerDetailPageProps {
   params: Promise<{ customerId: string }>;
 }
 
-export default async function CustomerDetailPage({ params }: CustomerDetailPageProps) {
+export default async function CustomerDetailPage({
+  params,
+}: CustomerDetailPageProps) {
   const { customerId } = await params;
   const id = Number(customerId);
   if (isNaN(id)) notFound();
 
-  let customer;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let customer: any;
   try {
     customer = await getCustomer(id);
   } catch {
     notFound();
   }
 
-  let staffs: { id: number; name: string }[] = [];
+  // Fetch appointment history
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let appointments: any[] = [];
   try {
-    const staffData = await getStaffs(customer.shop_id);
-    staffs = staffData.map((s: { id: number; name: string }) => ({
-      id: s.id,
-      name: s.name,
-    }));
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("appointments")
+      .select("id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)")
+      .eq("customer_id", id)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: false })
+      .limit(50);
+    appointments = data ?? [];
+
+    // Fetch menu names
+    const menuIds = [...new Set(appointments.map((a) => a.menu_manage_id as string))];
+    if (menuIds.length > 0) {
+      const { data: menus } = await supabase
+        .from("menus")
+        .select("menu_manage_id, name")
+        .in("menu_manage_id", menuIds);
+      const menuMap = new Map((menus ?? []).map((m) => [m.menu_manage_id, m.name]));
+      appointments = appointments.map((a) => ({
+        ...a,
+        menu_name: menuMap.get(a.menu_manage_id as string) ?? "不明",
+      }));
+    }
   } catch {
-    // If fetching fails, show form with empty staff list
+    // Supabase not connected
   }
 
-  const fullName = [customer.last_name, customer.first_name]
-    .filter(Boolean)
-    .join(" ") || "顧客";
+  const fullName =
+    [customer.last_name, customer.first_name].filter(Boolean).join(" ") || "顧客";
+  const kanaName =
+    [customer.last_name_kana, customer.first_name_kana].filter(Boolean).join(" ") || "";
 
-  const initialData = {
-    id: customer.id,
-    brand_id: customer.brand_id,
-    shop_id: customer.shop_id,
-    type: customer.type ?? 0,
-    last_name: customer.last_name ?? "",
-    first_name: customer.first_name ?? "",
-    last_name_kana: customer.last_name_kana ?? "",
-    first_name_kana: customer.first_name_kana ?? "",
-    phone_number_1: customer.phone_number_1 ?? "",
-    phone_number_2: customer.phone_number_2 ?? "",
-    email: customer.email ?? "",
-    zip_code: customer.zip_code ?? "",
-    address: customer.address ?? "",
-    gender: customer.gender ?? 0,
-    birth_date: customer.birth_date ?? "",
-    staff_id: customer.staff_id ?? null,
-    customer_tag_id: customer.customer_tag_id ?? null,
-    occupation: customer.occupation ?? "",
-    is_send_dm: customer.is_send_dm ?? false,
-    is_send_mail: customer.is_send_mail ?? false,
-    is_send_line: customer.is_send_line ?? false,
-    line_id: customer.line_id ?? "",
-    description: customer.description ?? "",
-  };
+  const typeInfo = TYPE_LABELS[(customer.type as number) ?? 0] ?? TYPE_LABELS[0];
+  const totalSales = appointments
+    .filter((a) => a.status === 2)
+    .reduce((sum, a) => sum + ((a.sales as number) || 0), 0);
+  const visitCount = appointments.filter((a) => a.status === 2).length;
 
   return (
     <div>
-      <PageHeader title="顧客詳細" description={fullName} />
-      <div className="p-6">
-        <CustomerForm
-          brandId={customer.brand_id}
-          shopId={customer.shop_id}
-          staffs={staffs}
-          initialData={initialData}
-        />
+      <PageHeader
+        title={fullName}
+        description={`顧客コード: ${customer.code ?? "-"}`}
+        actions={
+          <Link href="/customer">
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              顧客一覧に戻る
+            </Button>
+          </Link>
+        }
+      />
+
+      <div className="space-y-6 p-6">
+        {/* Summary Cards */}
+        <div className="grid gap-4 sm:grid-cols-4">
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm text-muted-foreground">来院回数</div>
+              <div className="text-2xl font-bold">{visitCount}回</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm text-muted-foreground">累計売上</div>
+              <div className="text-2xl font-bold">
+                ¥{totalSales.toLocaleString()}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm text-muted-foreground">ステータス</div>
+              <Badge className={`mt-1 ${typeInfo.color}`}>{typeInfo.label}</Badge>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm text-muted-foreground">最終来院</div>
+              <div className="text-lg font-bold">
+                {appointments.length > 0
+                  ? (appointments[0].start_at as string).slice(0, 10)
+                  : "-"}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Left: Customer Info */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle className="text-base">基本情報</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <div className="font-medium text-lg">{fullName}</div>
+                {kanaName && (
+                  <div className="text-muted-foreground">{kanaName}</div>
+                )}
+              </div>
+              <Separator />
+              {customer.phone_number_1 && (
+                <div className="flex items-center gap-2">
+                  <Phone className="h-4 w-4 text-gray-400" />
+                  <span>{customer.phone_number_1 as string}</span>
+                </div>
+              )}
+              {customer.email && (
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-gray-400" />
+                  <span>{customer.email as string}</span>
+                </div>
+              )}
+              {customer.address && (
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-gray-400" />
+                  <span>
+                    {customer.zip_code && `〒${customer.zip_code} `}
+                    {customer.address as string}
+                  </span>
+                </div>
+              )}
+              <Separator />
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-gray-400">性別:</span>{" "}
+                  {GENDER_LABELS[(customer.gender as number) ?? 0]}
+                </div>
+                <div>
+                  <span className="text-gray-400">生年月日:</span>{" "}
+                  {(customer.birth_date as string) || "-"}
+                </div>
+                <div>
+                  <span className="text-gray-400">職業:</span>{" "}
+                  {(customer.occupation as string) || "-"}
+                </div>
+                <div>
+                  <span className="text-gray-400">LINE:</span>{" "}
+                  {(customer.line_id as string) || "-"}
+                </div>
+              </div>
+              {customer.description && (
+                <>
+                  <Separator />
+                  <div>
+                    <span className="text-gray-400 text-xs">メモ</span>
+                    <p className="mt-1 whitespace-pre-wrap text-sm">
+                      {customer.description as string}
+                    </p>
+                  </div>
+                </>
+              )}
+              <Separator />
+              <Link href={`/customer/${id}/history`}>
+                <Button variant="outline" size="sm" className="w-full">
+                  <FileText className="mr-2 h-4 w-4" />
+                  編集する
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          {/* Right: Visit History + Carte */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Calendar className="h-4 w-4" />
+                来院履歴・カルテ
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {appointments.length === 0 ? (
+                <p className="py-8 text-center text-muted-foreground">
+                  来院履歴がありません
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {appointments.map((appt) => {
+                    const date = (appt.start_at as string).slice(0, 10);
+                    const time = (appt.start_at as string).slice(11, 16);
+                    const endTime = (appt.end_at as string).slice(11, 16);
+                    const staff = appt.staffs as { name: string } | null;
+                    const sales = (appt.sales as number) || 0;
+                    const status = appt.status as number;
+                    const carte = appt.customer_record as string | null;
+                    const menuName = (appt as Record<string, unknown>).menu_name as string ?? "不明";
+                    const isCancelled = status === 3 || status === 99;
+
+                    return (
+                      <div
+                        key={appt.id as number}
+                        className={`rounded-lg border p-4 ${isCancelled ? "opacity-50" : ""}`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold">{date}</span>
+                              <span className="text-sm text-gray-500">
+                                {time}-{endTime}
+                              </span>
+                              <Badge variant="outline" className="text-xs">
+                                {menuName}
+                              </Badge>
+                              {isCancelled && (
+                                <Badge className="bg-red-100 text-red-600 text-xs">
+                                  キャンセル
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="mt-1 flex items-center gap-3 text-sm text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <UserCog className="h-3 w-3" />
+                                {staff?.name ?? "-"}
+                              </span>
+                              {sales > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <BarChart3 className="h-3 w-3" />
+                                  ¥{sales.toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Carte content */}
+                        {carte && (
+                          <div className="mt-3 rounded bg-gray-50 p-3 text-sm">
+                            <div className="mb-1 text-xs font-medium text-gray-400">
+                              カルテ
+                            </div>
+                            <p className="whitespace-pre-wrap text-gray-700">
+                              {carte}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Memo */}
+                        {appt.memo && (
+                          <div className="mt-2 text-xs text-gray-400">
+                            メモ: {appt.memo as string}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
