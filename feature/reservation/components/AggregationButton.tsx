@@ -13,12 +13,18 @@ import { BarChart3 } from "lucide-react";
 import { runDailyAggregation } from "../actions/aggregationActions";
 import { toast } from "sonner";
 
+interface Appointment {
+  id: number;
+  status: number;
+}
+
 interface AggregationButtonProps {
   shopId: number;
   date: string;
+  appointments?: Appointment[];
 }
 
-export function AggregationButton({ shopId, date }: AggregationButtonProps) {
+export function AggregationButton({ shopId, date, appointments = [] }: AggregationButtonProps) {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{
@@ -33,6 +39,17 @@ export function AggregationButton({ shopId, date }: AggregationButtonProps) {
   const displayDate = `${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
 
   async function handleRun() {
+    // Pre-check: all appointments must be actioned (status 2, 3, or 99)
+    const unactioned = appointments.filter(
+      (a) => a.status === 0 || a.status === 1
+    );
+    if (unactioned.length > 0) {
+      toast.error(
+        "未対応の予約があります。全ての予約に対してアクション（会計完了またはキャンセル）を行ってください。"
+      );
+      return;
+    }
+
     setRunning(true);
     const res = await runDailyAggregation(shopId, date);
     setRunning(false);

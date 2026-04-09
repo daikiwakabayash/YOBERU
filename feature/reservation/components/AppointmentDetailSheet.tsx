@@ -23,7 +23,6 @@ import {
   getLastCarte,
 } from "../actions/reservationActions";
 import {
-  checkinAppointment,
   completeAppointment,
 } from "@/feature/reception/actions/receptionActions";
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
@@ -58,9 +57,7 @@ interface AppointmentDetailSheetProps {
 // Status helpers
 // ---------------------------------------------------------------------------
 const STATUS_BADGE: Record<number, { label: string; cls: string }> = {
-  0: { label: "待機", cls: "border-orange-400 text-orange-600 bg-orange-50" },
-  1: { label: "施術中", cls: "border-green-500 text-green-700 bg-green-50" },
-  2: { label: "完了", cls: "border-gray-300 text-gray-500 bg-gray-50" },
+  2: { label: "会計完了", cls: "border-gray-300 text-gray-500 bg-gray-50" },
   3: { label: "キャンセル", cls: "border-red-300 text-red-500 bg-red-50" },
 };
 
@@ -77,22 +74,6 @@ const PLAN_CARDS = [
   { name: "通い放題", price: 35200, unit: "月" },
 ] as const;
 
-// ---------------------------------------------------------------------------
-// Generate time options for selects
-// ---------------------------------------------------------------------------
-function generateTimeOptions(): string[] {
-  const opts: string[] = [];
-  for (let h = 9; h <= 21; h++) {
-    for (const m of [0, 15, 30, 45]) {
-      if (h === 21 && m > 0) break;
-      opts.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-    }
-  }
-  return opts;
-}
-
-const TIME_OPTIONS = generateTimeOptions();
-const DURATION_OPTIONS = [15, 30, 45, 60, 75, 90, 120];
 
 // ===========================================================================
 // Component
@@ -151,12 +132,6 @@ export function AppointmentDetailSheet({
     appointment?.paymentMethod ?? ""
   );
 
-  // ---- Next appointment ----
-  const [nextDate, setNextDate] = useState("");
-  const [nextStartTime, setNextStartTime] = useState("10:00");
-  const [nextDuration, setNextDuration] = useState(60);
-  const [lineRemind, setLineRemind] = useState(true);
-
   // ---- Previous carte (existing customer) ----
   const [previousCarte, setPreviousCarte] = useState<string | null>(null);
   const [previousCarteDate, setPreviousCarteDate] = useState<string | null>(
@@ -178,8 +153,6 @@ export function AppointmentDetailSheet({
     setCustomerRecord("");
     setAdditionalCharge("0");
     setPaymentMethod("");
-    setNextDate("");
-    setLineRemind(true);
     setPreviousCarte(null);
     setPreviousCarteDate(null);
   }
@@ -276,17 +249,6 @@ export function AppointmentDetailSheet({
   // -----------------------------------------------------------------------
   // Actions
   // -----------------------------------------------------------------------
-  async function handleCheckin() {
-    if (!appointment) return;
-    const result = await checkinAppointment(appointment.id);
-    if (result.error) {
-      toast.error(result.error);
-    } else {
-      toast.success("来店を記録しました");
-      setStatus(1);
-    }
-  }
-
   async function handleCancel() {
     if (!appointment) return;
     if (!confirm("この予約をキャンセルしますか？")) return;
@@ -557,52 +519,6 @@ export function AppointmentDetailSheet({
         toast.success("会計を確定しました");
       }
 
-      // --- Create next appointment if date is set ---
-      if (nextDate && appointment) {
-        const [nH, nM] = nextStartTime.split(":").map(Number);
-        const nTotalMin = nH * 60 + nM + nextDuration;
-        const nEndH = Math.floor(nTotalMin / 60);
-        const nEndM = nTotalMin % 60;
-        const nextStartAt = `${nextDate}T${nextStartTime}:00`;
-        const nextEndAt = `${nextDate}T${String(nEndH).padStart(2, "0")}:${String(nEndM).padStart(2, "0")}:00`;
-
-        const nextStaffId =
-          appointment.staffId || newBooking?.staffId || 0;
-
-        const nextForm = new FormData();
-        nextForm.set("brand_id", String(brandId));
-        nextForm.set("shop_id", String(shopId));
-        nextForm.set("customer_id", String(appointment.customerId));
-        nextForm.set("staff_id", String(nextStaffId));
-        nextForm.set(
-          "menu_manage_id",
-          selectedMenuIds[0] || appointment.menuManageId
-        );
-        nextForm.set("type", "0");
-        nextForm.set("start_at", nextStartAt);
-        nextForm.set("end_at", nextEndAt);
-        nextForm.set("memo", "");
-        nextForm.set("is_couple", "false");
-        nextForm.set("sales", "0");
-        nextForm.set("status", "0");
-        if (appointment.visitSourceId) {
-          nextForm.set(
-            "visit_source_id",
-            String(appointment.visitSourceId)
-          );
-        }
-
-        const nextResult = await createAppointment(nextForm);
-        if ("error" in nextResult && nextResult.error) {
-          toast.error("次回予約の作成に失敗しました");
-        } else {
-          toast.success("次回予約を作成しました");
-          if (lineRemind) {
-            toast.info("LINEリマインドが設定されました");
-          }
-        }
-      }
-
       resetForm();
       onClose();
     } catch (err) {
@@ -616,7 +532,7 @@ export function AppointmentDetailSheet({
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
-  const statusInfo = STATUS_BADGE[status] ?? STATUS_BADGE[0];
+  const statusInfo = STATUS_BADGE[status] ?? null;
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -629,7 +545,7 @@ export function AppointmentDetailSheet({
           <div className="flex items-center justify-between">
             <SheetTitle className="text-base font-bold">
               {isNew ? (
-                "新規予約"
+                isCreatingCustomer ? "新規予約" : isExistingCustomer ? "予約登録" : "新規予約"
               ) : (
                 <span className="flex items-center gap-2 text-sm">
                   <span className="font-black text-gray-900">
@@ -650,12 +566,14 @@ export function AppointmentDetailSheet({
                 </span>
               )}
             </SheetTitle>
-            <Badge
-              variant="outline"
-              className={`ml-2 shrink-0 text-xs ${statusInfo.cls}`}
-            >
-              {statusInfo.label}
-            </Badge>
+            {statusInfo && (
+              <Badge
+                variant="outline"
+                className={`ml-2 shrink-0 text-xs ${statusInfo.cls}`}
+              >
+                {statusInfo.label}
+              </Badge>
+            )}
           </div>
         </SheetHeader>
 
@@ -663,14 +581,7 @@ export function AppointmentDetailSheet({
           {/* ------- Status action buttons (existing) ------- */}
           {!isNew && status === 0 && (
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={handleCheckin}
-                className="flex-1 bg-green-600 hover:bg-green-700"
-              >
-                来店（チェックイン）
-              </Button>
-              <Button size="sm" variant="outline" onClick={handleCancel}>
+              <Button size="sm" variant="outline" onClick={handleCancel} className="flex-1">
                 キャンセル
               </Button>
             </div>
@@ -799,8 +710,8 @@ export function AppointmentDetailSheet({
             </section>
           )}
 
-          {/* ===== Section: Visit Source (来店経路) — only for truly new customers ===== */}
-          {(isCreatingCustomer || (!selectedCustomer && isNew) || !isNew) && (
+          {/* ===== Section: Visit Source (来店経路) — only for new customers or existing appointments ===== */}
+          {(isCreatingCustomer || !isNew) && (
             <>
               <section className="space-y-2">
                 <Label className="text-xs font-bold text-gray-500">
@@ -1048,66 +959,6 @@ export function AppointmentDetailSheet({
                 </button>
               ))}
             </div>
-          </section>
-
-          <Separator />
-
-          {/* ===== Section: Next Appointment ===== */}
-          <section className="space-y-3">
-            <Label className="text-xs font-bold text-gray-500">次回予約</Label>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <Label className="text-[11px] text-gray-400">日付</Label>
-                <Input
-                  type="date"
-                  value={nextDate}
-                  onChange={(e) => setNextDate(e.target.value)}
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[11px] text-gray-400">開始時間</Label>
-                <select
-                  value={nextStartTime}
-                  onChange={(e) => setNextStartTime(e.target.value)}
-                  className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs"
-                >
-                  {TIME_OPTIONS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[11px] text-gray-400">施術時間</Label>
-                <select
-                  value={nextDuration}
-                  onChange={(e) => setNextDuration(Number(e.target.value))}
-                  className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs"
-                >
-                  {DURATION_OPTIONS.map((d) => (
-                    <option key={d} value={d}>
-                      {d}分
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <label className="flex items-center gap-2">
-              <Checkbox
-                checked={lineRemind}
-                onCheckedChange={(v) => setLineRemind(!!v)}
-              />
-              <span className="text-xs text-gray-700">
-                LINEリマインド送信
-              </span>
-            </label>
-            {nextDate && (
-              <p className="text-[11px] text-muted-foreground">
-                ① 予約確定時 ② 来院前日12:00
-              </p>
-            )}
           </section>
 
           <Separator />

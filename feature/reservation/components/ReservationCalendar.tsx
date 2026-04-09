@@ -18,7 +18,13 @@ interface ReservationCalendarProps {
 
 const SLOT_HEIGHT = 44;
 const TIME_COL_WIDTH = 76;
-const STAFF_COL_WIDTH = 260;
+// Dynamic column width: wider with fewer staffs, narrower with more
+function getStaffColWidth(staffCount: number): number {
+  if (staffCount <= 4) return 260;
+  if (staffCount <= 5) return 220;
+  if (staffCount <= 6) return 190;
+  return 170; // 7+ staffs
+}
 
 export function ReservationCalendar({
   data,
@@ -183,6 +189,7 @@ export function ReservationCalendar({
   }
 
   const gridCols = workingStaffs.length;
+  const STAFF_COL_WIDTH = getStaffColWidth(gridCols);
   const sheetOpen = !!selectedAppt || !!newBooking;
 
   return (
@@ -318,7 +325,6 @@ export function ReservationCalendar({
                   // Colors based on customer type + status
                   const isNew = appt.isNewCustomer || appt.visitCount <= 1;
                   const isPast = appt.status === 2;
-                  const isInProgress = appt.status === 1;
                   const isCancelled = appt.status === 3 || appt.status === 99;
 
                   let borderColor = "border-blue-300";
@@ -331,22 +337,15 @@ export function ReservationCalendar({
                     bgColor = "bg-orange-50/50";
                   }
                   if (isPast) {
-                    statusBadge = "完了";
+                    statusBadge = "会計完了";
                     statusBadgeColor = "bg-gray-100 text-gray-500";
                     bgColor = "bg-gray-50";
                     borderColor = "border-gray-200";
-                  } else if (isInProgress) {
-                    statusBadge = "施術中";
-                    statusBadgeColor = "bg-green-100 text-green-700";
-                    borderColor = "border-green-400";
                   } else if (isCancelled) {
                     statusBadge = "キャンセル";
                     statusBadgeColor = "bg-red-100 text-red-600";
                     borderColor = "border-red-200";
                     bgColor = "bg-red-50/30";
-                  } else if (appt.status === 0) {
-                    statusBadge = "待機";
-                    statusBadgeColor = "bg-orange-100 text-orange-700";
                   }
 
                   // Visit count badge
