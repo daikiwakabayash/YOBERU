@@ -1,12 +1,8 @@
-import { PageHeader } from "@/components/layout/PageHeader";
+import { MenuCategoryList } from "@/feature/menu/components/MenuCategoryList";
 
 export default function MenuCategoryListPage() {
-  return (
-    <div>
-      <PageHeader title="メニューカテゴリ一覧" />
-      <div className="p-6">
-        <p className="text-muted-foreground">準備中</p>
-      </div>
-    </div>
-  );
+  // TODO: brandId should come from the authenticated user's session
+  const brandId = 1;
+
+  return <MenuCategoryList brandId={brandId} />;
 }
