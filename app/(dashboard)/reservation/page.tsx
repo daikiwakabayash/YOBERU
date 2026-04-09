@@ -24,39 +24,39 @@ export default async function ReservationPage({
   const viewMode = params.view === "week" ? "week" : "day";
   const selectedStaffId = params.staff ? Number(params.staff) : null;
 
-  // Common data: menus and visit sources
+  // Fetch common data in parallel
   let menus: Array<{ menu_manage_id: string; name: string; price: number; duration: number }> = [];
   let visitSources: Array<{ id: number; name: string }> = [];
   let allStaffs: Array<{ id: number; name: string }> = [];
 
   try {
     const supabase = await createClient();
-    const { data: menuData } = await supabase
-      .from("menus")
-      .select("menu_manage_id, name, price, duration")
-      .eq("shop_id", SHOP_ID)
-      .eq("status", true)
-      .is("deleted_at", null)
-      .order("sort_number");
-    menus = menuData ?? [];
-
-    const { data: sourceData } = await supabase
-      .from("visit_sources")
-      .select("id, name")
-      .eq("shop_id", SHOP_ID)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .order("sort_number");
-    visitSources = sourceData ?? [];
-
-    const { data: staffData } = await supabase
-      .from("staffs")
-      .select("id, name")
-      .eq("shop_id", SHOP_ID)
-      .is("deleted_at", null)
-      .eq("is_public", true)
-      .order("allocate_order", { ascending: true, nullsFirst: false });
-    allStaffs = staffData ?? [];
+    const [menuRes, sourceRes, staffRes] = await Promise.all([
+      supabase
+        .from("menus")
+        .select("menu_manage_id, name, price, duration")
+        .eq("shop_id", SHOP_ID)
+        .eq("status", true)
+        .is("deleted_at", null)
+        .order("sort_number"),
+      supabase
+        .from("visit_sources")
+        .select("id, name")
+        .eq("shop_id", SHOP_ID)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("sort_number"),
+      supabase
+        .from("staffs")
+        .select("id, name")
+        .eq("shop_id", SHOP_ID)
+        .is("deleted_at", null)
+        .eq("is_public", true)
+        .order("allocate_order", { ascending: true, nullsFirst: false }),
+    ]);
+    menus = menuRes.data ?? [];
+    visitSources = sourceRes.data ?? [];
+    allStaffs = staffRes.data ?? [];
   } catch {
     // Tables may not exist yet
   }
