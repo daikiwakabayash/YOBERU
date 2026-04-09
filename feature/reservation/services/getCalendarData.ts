@@ -43,7 +43,7 @@ export async function getCalendarData(
   const { data: appointments } = await supabase
     .from("appointments")
     .select(
-      "id, staff_id, start_at, end_at, status, type, menu_manage_id, customers(last_name, first_name), menus!appointments_menu_manage_id_fkey(name, duration)"
+      "id, staff_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, customers(last_name, first_name), menus!appointments_menu_manage_id_fkey(name, duration)"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${date}T00:00:00`)
@@ -87,6 +87,11 @@ export async function getCalendarData(
       status: a.status,
       type: a.type,
       duration: menu?.duration ?? 0,
+      memo: a.memo ?? null,
+      isNewCustomer: a.type === 0, // TODO: Check customer's first visit
+      source: null, // TODO: Resolve from forced_links
+      sales: a.sales ?? 0,
+      customerRecord: a.customer_record ?? null,
     };
   });
 

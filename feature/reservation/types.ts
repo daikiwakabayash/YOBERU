@@ -51,6 +51,11 @@ export interface CalendarAppointment {
   status: number;
   type: number;
   duration: number;
+  memo: string | null;
+  isNewCustomer: boolean;
+  source: string | null; // 流入経路 (強制リンク名等)
+  sales: number;
+  customerRecord: string | null;
 }
 
 export interface CalendarData {
