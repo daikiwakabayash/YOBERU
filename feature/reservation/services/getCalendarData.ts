@@ -43,7 +43,7 @@ export async function getCalendarData(
   const { data: appointments } = await supabase
     .from("appointments")
     .select(
-      "id, staff_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, customers(last_name, first_name), menus!appointments_menu_manage_id_fkey(name, duration)"
+      "id, staff_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, customers(last_name, first_name)"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${date}T00:00:00`)
@@ -51,6 +51,25 @@ export async function getCalendarData(
     .is("cancelled_at", null)
     .is("deleted_at", null)
     .order("start_at");
+
+  // Fetch menus separately (menu_manage_id is VARCHAR, no FK join)
+  const menuManageIds = [
+    ...new Set((appointments ?? []).map((a) => a.menu_manage_id)),
+  ];
+  let menuMap = new Map<string, { name: string; duration: number }>();
+  if (menuManageIds.length > 0) {
+    const { data: menus } = await supabase
+      .from("menus")
+      .select("menu_manage_id, name, duration")
+      .in("menu_manage_id", menuManageIds)
+      .is("deleted_at", null);
+    menuMap = new Map(
+      (menus ?? []).map((m) => [
+        m.menu_manage_id,
+        { name: m.name, duration: m.duration },
+      ])
+    );
+  }
 
   // 4. Build staff list with shift info
   const staffs = effectiveShifts.map((s) => ({
@@ -70,10 +89,7 @@ export async function getCalendarData(
       last_name: string | null;
       first_name: string | null;
     } | null;
-    const menu = a.menus as unknown as {
-      name: string;
-      duration: number;
-    } | null;
+    const menu = menuMap.get(a.menu_manage_id) ?? null;
 
     return {
       id: a.id,

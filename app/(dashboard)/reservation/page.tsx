@@ -4,7 +4,11 @@ import { ReservationCalendarToolbar } from "@/feature/reservation/components/Res
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Plus } from "lucide-react";
+import { getCalendarData } from "@/feature/reservation/services/getCalendarData";
+import { generateTimeSlots } from "@/helper/utils/time";
 import type { CalendarData } from "@/feature/reservation/types";
+
+const SHOP_ID = 1; // TODO: Get from session
 
 export default async function ReservationPage({
   searchParams,
@@ -14,13 +18,18 @@ export default async function ReservationPage({
   const params = await searchParams;
   const date = params.date || new Date().toISOString().split("T")[0];
 
-  // TODO: Fetch from Supabase via getCalendarData(shopId, date)
-  const emptyData: CalendarData = {
-    staffs: [],
-    appointments: [],
-    timeSlots: [],
-    frameMin: 15,
-  };
+  let data: CalendarData;
+  try {
+    data = await getCalendarData(SHOP_ID, date);
+  } catch {
+    // Supabase not connected or no data - show empty calendar with time slots
+    data = {
+      staffs: [],
+      appointments: [],
+      timeSlots: generateTimeSlots(9, 21, 15),
+      frameMin: 15,
+    };
+  }
 
   return (
     <div>
@@ -39,7 +48,7 @@ export default async function ReservationPage({
         }
       />
       <div className="p-6">
-        <ReservationCalendar data={emptyData} date={date} />
+        <ReservationCalendar data={data} date={date} />
       </div>
     </div>
   );
