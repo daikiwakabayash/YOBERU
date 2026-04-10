@@ -12,6 +12,7 @@ interface ReservationCalendarProps {
   date: string;
   menus?: Array<{ menu_manage_id: string; name: string; price: number; duration: number }>;
   visitSources?: Array<{ id: number; name: string }>;
+  paymentMethods?: Array<{ code: string; name: string }>;
   shopId?: number;
   brandId?: number;
 }
@@ -25,6 +26,7 @@ export function ReservationCalendar({
   date,
   menus = [],
   visitSources = [],
+  paymentMethods = [],
   shopId = 1,
   brandId = 1,
 }: ReservationCalendarProps) {
@@ -450,6 +452,7 @@ export function ReservationCalendar({
         newBooking={newBooking}
         menus={menus}
         visitSources={visitSources}
+        paymentMethods={paymentMethods}
         shopId={shopId}
         brandId={brandId}
       />

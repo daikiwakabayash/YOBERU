@@ -13,6 +13,7 @@ interface WeeklyReservationCalendarProps {
   data: WeeklyCalendarData;
   menus?: Array<{ menu_manage_id: string; name: string; price: number; duration: number }>;
   visitSources?: Array<{ id: number; name: string }>;
+  paymentMethods?: Array<{ code: string; name: string }>;
   shopId?: number;
   brandId?: number;
   staffId?: number | null;
@@ -26,6 +27,7 @@ export function WeeklyReservationCalendar({
   data,
   menus = [],
   visitSources = [],
+  paymentMethods = [],
   shopId = 1,
   brandId = 1,
   staffId,
@@ -438,6 +440,7 @@ export function WeeklyReservationCalendar({
         newBooking={newBooking}
         menus={menus}
         visitSources={visitSources}
+        paymentMethods={paymentMethods}
         shopId={shopId}
         brandId={brandId}
       />

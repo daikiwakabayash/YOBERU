@@ -1,0 +1,367 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "sonner";
+import type { BookingLink } from "../types";
+import {
+  createBookingLink,
+  updateBookingLink,
+} from "../actions/bookingLinkActions";
+
+interface BookingLinkFormProps {
+  brandId: number;
+  menus: Array<{
+    menu_manage_id: string;
+    name: string;
+    price: number;
+    duration: number;
+    category_name?: string | null;
+  }>;
+  visitSources: Array<{ id: number; name: string }>;
+  initialData?: BookingLink;
+}
+
+export function BookingLinkForm({
+  brandId,
+  menus,
+  visitSources,
+  initialData,
+}: BookingLinkFormProps) {
+  const router = useRouter();
+  const isEdit = !!initialData;
+
+  const [slug, setSlug] = useState(initialData?.slug ?? "");
+  const [title, setTitle] = useState(initialData?.title ?? "");
+  const [memo, setMemo] = useState(initialData?.memo ?? "");
+  const [language, setLanguage] = useState(initialData?.language ?? "ja");
+  const [selectedMenuIds, setSelectedMenuIds] = useState<string[]>(
+    initialData?.menu_manage_ids ?? []
+  );
+  const [aliasMenuName, setAliasMenuName] = useState(
+    initialData?.alias_menu_name ?? ""
+  );
+  const [staffMode, setStaffMode] = useState(initialData?.staff_mode ?? 0);
+  const [requireCancelPolicy, setRequireCancelPolicy] = useState(
+    initialData?.require_cancel_policy ?? true
+  );
+  const [cancelPolicyText, setCancelPolicyText] = useState(
+    initialData?.cancel_policy_text ?? ""
+  );
+  const [showLineButton, setShowLineButton] = useState(
+    initialData?.show_line_button ?? false
+  );
+  const [lineButtonText, setLineButtonText] = useState(
+    initialData?.line_button_text ?? ""
+  );
+  const [lineButtonUrl, setLineButtonUrl] = useState(
+    initialData?.line_button_url ?? ""
+  );
+  const [visitSourceId, setVisitSourceId] = useState<number | null>(
+    initialData?.visit_source_id ?? null
+  );
+  const [saving, setSaving] = useState(false);
+
+  // Group menus by category
+  const menusByCategory = menus.reduce<Record<string, typeof menus>>(
+    (acc, m) => {
+      const key = m.category_name ?? "その他";
+      (acc[key] ??= []).push(m);
+      return acc;
+    },
+    {}
+  );
+
+  function toggleMenu(id: string) {
+    setSelectedMenuIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  async function handleSubmit() {
+    if (!slug.trim() || !title.trim()) {
+      toast.error("タイトルとURLスラッグを入力してください");
+      return;
+    }
+    setSaving(true);
+    const form = new FormData();
+    form.set("brand_id", String(brandId));
+    form.set("shop_id", "1"); // TODO: multi-shop selection
+    form.set("slug", slug.trim());
+    form.set("title", title.trim());
+    form.set("memo", memo);
+    form.set("language", language);
+    form.set("menu_manage_ids", JSON.stringify(selectedMenuIds));
+    form.set("alias_menu_name", aliasMenuName);
+    form.set("staff_mode", String(staffMode));
+    form.set("require_cancel_policy", requireCancelPolicy ? "true" : "false");
+    form.set("cancel_policy_text", cancelPolicyText);
+    form.set("show_line_button", showLineButton ? "true" : "false");
+    form.set("line_button_text", lineButtonText);
+    form.set("line_button_url", lineButtonUrl);
+    if (visitSourceId) form.set("visit_source_id", String(visitSourceId));
+
+    const result = isEdit
+      ? await updateBookingLink(initialData!.id, form)
+      : await createBookingLink(form);
+
+    setSaving(false);
+    if ("error" in result && result.error) {
+      toast.error(
+        typeof result.error === "string"
+          ? result.error
+          : "保存に失敗しました（入力を確認してください）"
+      );
+      return;
+    }
+    toast.success(isEdit ? "更新しました" : "作成しました");
+    router.push("/booking-link");
+  }
+
+  const publicUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/book/${slug || "<slug>"}`
+      : `/book/${slug || "<slug>"}`;
+
+  return (
+    <div className="space-y-6">
+      {/* Basic info */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">基本情報</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>言語指定</Label>
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="h-9 w-48 rounded-md border px-2 text-sm"
+            >
+              <option value="ja">日本語/Japanese</option>
+              <option value="en">英語/English</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label>
+              タイトル <span className="text-red-500">(必須)</span>
+            </Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="例: 東京①：META 肩こり¥2000"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>
+              URLスラッグ <span className="text-red-500">(必須)</span>
+            </Label>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">/book/</span>
+              <Input
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                placeholder="tokyo1.meta.katakori"
+                className="flex-1"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              使用可能な文字: a-z, 0-9, ., _, -
+            </p>
+            <p className="text-xs text-muted-foreground">
+              公開URL: <code>{publicUrl}</code>
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>メモ</Label>
+            <Textarea
+              value={memo ?? ""}
+              onChange={(e) => setMemo(e.target.value)}
+              rows={2}
+              placeholder="管理メモ"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Menu selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">メニュー選択（1つ以上）</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {Object.entries(menusByCategory).length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              メニューが登録されていません。
+            </p>
+          ) : (
+            Object.entries(menusByCategory).map(([category, items]) => (
+              <div key={category} className="space-y-2">
+                <div className="text-sm font-bold">{category}</div>
+                <div className="flex flex-wrap gap-2">
+                  {items.map((m) => {
+                    const selected = selectedMenuIds.includes(m.menu_manage_id);
+                    return (
+                      <button
+                        key={m.menu_manage_id}
+                        type="button"
+                        onClick={() => toggleMenu(m.menu_manage_id)}
+                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                          selected
+                            ? "border-blue-500 bg-blue-50 text-blue-700"
+                            : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        {m.name} ({m.duration}分) ¥{m.price.toLocaleString()}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+          {selectedMenuIds.length === 1 && (
+            <div className="space-y-2">
+              <Label>メニュー別名（任意）</Label>
+              <Input
+                value={aliasMenuName ?? ""}
+                onChange={(e) => setAliasMenuName(e.target.value)}
+                placeholder="メニュー名を変えたい場合のみ入力"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Staff mode */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">スタッフ指名</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {[
+            { value: 0, label: "スタッフ指名が可能な予約" },
+            { value: 1, label: "スタッフ指名又はお任せ選択が可能な予約" },
+            { value: 2, label: "スタッフ指名不可（お任せのみ）の予約" },
+          ].map((opt) => (
+            <label key={opt.value} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="staff_mode"
+                checked={staffMode === opt.value}
+                onChange={() => setStaffMode(opt.value)}
+              />
+              <span className="text-sm">{opt.label}</span>
+            </label>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Cancel policy */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">キャンセルポリシー確認</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className="flex items-center gap-2">
+            <Switch
+              checked={requireCancelPolicy}
+              onCheckedChange={setRequireCancelPolicy}
+            />
+            <span className="text-sm">
+              {requireCancelPolicy ? "必要" : "不要"}
+            </span>
+          </label>
+          {requireCancelPolicy && (
+            <div className="space-y-2">
+              <Label>文章</Label>
+              <Textarea
+                value={cancelPolicyText ?? ""}
+                onChange={(e) => setCancelPolicyText(e.target.value)}
+                rows={3}
+                placeholder="例: 予約の2時間前までにご連絡ください..."
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* LINE button */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">LINEボタン追加</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className="flex items-center gap-2">
+            <Switch checked={showLineButton} onCheckedChange={setShowLineButton} />
+            <span className="text-sm">{showLineButton ? "必要" : "不要"}</span>
+          </label>
+          {showLineButton && (
+            <>
+              <div className="space-y-2">
+                <Label>ボタン文言</Label>
+                <Input
+                  value={lineButtonText ?? ""}
+                  onChange={(e) => setLineButtonText(e.target.value)}
+                  placeholder="LINEで相談する"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>LINE URL</Label>
+                <Input
+                  value={lineButtonUrl ?? ""}
+                  onChange={(e) => setLineButtonUrl(e.target.value)}
+                  placeholder="https://line.me/..."
+                />
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Visit source */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">媒体選択（来店経路）</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <select
+            value={visitSourceId ?? ""}
+            onChange={(e) =>
+              setVisitSourceId(e.target.value ? Number(e.target.value) : null)
+            }
+            className="h-9 w-64 rounded-md border px-2 text-sm"
+          >
+            <option value="">— 媒体なし —</option>
+            {visitSources.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-2 text-xs text-muted-foreground">
+            このリンクから予約した顧客はこの媒体で自動タグ付けされます。
+          </p>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      <div className="flex gap-2">
+        <Button onClick={handleSubmit} disabled={saving}>
+          {saving ? "保存中..." : isEdit ? "更新する" : "作成する"}
+        </Button>
+        <Button variant="outline" onClick={() => router.push("/booking-link")}>
+          キャンセル
+        </Button>
+      </div>
+    </div>
+  );
+}

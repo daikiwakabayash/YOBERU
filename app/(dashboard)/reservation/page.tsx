@@ -24,10 +24,8 @@ export default async function ReservationPage({
 
   const supabase = await createClient();
 
-  // Parallel fetch: staff list + menus + visit sources + calendar data
-  // For week view without explicit staff, we need staff list first — but we
-  // optimistically start the week data fetch using the URL staff (or null).
-  const [staffRes, menuRes, sourceRes, dayData, weekDataEarly] =
+  // Parallel fetch: staff list + menus + visit sources + payment methods + calendar data
+  const [staffRes, menuRes, sourceRes, paymentRes, dayData, weekDataEarly] =
     await Promise.all([
       supabase
         .from("staffs")
@@ -50,6 +48,13 @@ export default async function ReservationPage({
         .eq("is_active", true)
         .is("deleted_at", null)
         .order("sort_number"),
+      supabase
+        .from("payment_methods")
+        .select("code, name")
+        .eq("shop_id", SHOP_ID)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("sort_number"),
       viewMode === "day"
         ? getCalendarData(SHOP_ID, date).catch(() => null)
         : Promise.resolve(null),
@@ -66,6 +71,8 @@ export default async function ReservationPage({
     duration: number;
   }> = menuRes.data ?? [];
   const visitSources: Array<{ id: number; name: string }> = sourceRes.data ?? [];
+  const paymentMethods: Array<{ code: string; name: string }> =
+    paymentRes.data ?? [];
 
   // Auto-select first staff if week view and no staff selected
   const effectiveStaffId =
@@ -111,6 +118,7 @@ export default async function ReservationPage({
             data={weekData}
             menus={menus}
             visitSources={visitSources}
+            paymentMethods={paymentMethods}
             shopId={SHOP_ID}
             brandId={BRAND_ID}
             staffId={effectiveStaffId}
@@ -147,6 +155,7 @@ export default async function ReservationPage({
           date={date}
           menus={menus}
           visitSources={visitSources}
+          paymentMethods={paymentMethods}
           shopId={SHOP_ID}
           brandId={BRAND_ID}
         />

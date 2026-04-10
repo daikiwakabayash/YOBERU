@@ -50,6 +50,7 @@ interface AppointmentDetailSheetProps {
     duration: number;
   }>;
   visitSources: Array<{ id: number; name: string }>;
+  paymentMethods?: Array<{ code: string; name: string }>;
   shopId: number;
   brandId: number;
 }
@@ -63,13 +64,6 @@ const STATUS_BADGE: Record<number, { label: string; cls: string }> = {
   2: { label: "完了", cls: "border-gray-300 text-gray-500 bg-gray-50" },
   3: { label: "キャンセル", cls: "border-red-300 text-red-500 bg-red-50" },
 };
-
-const PAYMENT_METHODS = [
-  { value: "square", label: "Square" },
-  { value: "cash", label: "現金" },
-  { value: "card", label: "カード" },
-  { value: "paypay", label: "PayPay" },
-] as const;
 
 const PLAN_CARDS = [
   { name: "月4回", price: 15400, unit: "月" },
@@ -87,10 +81,21 @@ export function AppointmentDetailSheet({
   newBooking,
   menus,
   visitSources,
+  paymentMethods,
   shopId,
   brandId,
 }: AppointmentDetailSheetProps) {
   const isNew = !appointment;
+
+  // Fallback to built-in list if master data not provided
+  const effectivePaymentMethods =
+    paymentMethods && paymentMethods.length > 0
+      ? paymentMethods
+      : [
+          { code: "cash", name: "現金" },
+          { code: "credit", name: "クレジット" },
+          { code: "paypay", name: "PayPay" },
+        ];
 
   // ---- Customer state (new booking) ----
   const [customerQuery, setCustomerQuery] = useState("");
@@ -850,19 +855,19 @@ export function AppointmentDetailSheet({
             <Label className="text-xs font-bold text-gray-500">
               支払い方法
             </Label>
-            <div className="grid grid-cols-4 gap-2">
-              {PAYMENT_METHODS.map((pm) => (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {effectivePaymentMethods.map((pm) => (
                 <button
-                  key={pm.value}
+                  key={pm.code}
                   type="button"
-                  onClick={() => setPaymentMethod(pm.value)}
+                  onClick={() => setPaymentMethod(pm.code)}
                   className={`rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                    paymentMethod === pm.value
+                    paymentMethod === pm.code
                       ? "border-blue-400 bg-blue-500 text-white"
                       : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
                   }`}
                 >
-                  {pm.label}
+                  {pm.name}
                 </button>
               ))}
             </div>
