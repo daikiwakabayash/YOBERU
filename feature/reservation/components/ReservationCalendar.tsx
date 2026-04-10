@@ -50,6 +50,9 @@ export function ReservationCalendar({
   const [dragOffset, setDragOffset] = useState(0);
   const [dragStaffId, setDragStaffId] = useState<number | null>(null);
   const [dragTop, setDragTop] = useState(0);
+  const [isDraggingReal, setIsDraggingReal] = useState(false);
+  const hasMovedRef = useRef(false);
+  const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const gridRef = useRef<HTMLDivElement>(null);
 
   const handleDragStart = useCallback(
@@ -58,6 +61,8 @@ export function ReservationCalendar({
       e.stopPropagation();
       const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
       if (!rect) return;
+      hasMovedRef.current = false;
+      dragStartPosRef.current = { x: e.clientX, y: e.clientY };
       setDragAppt(appt);
       setDragStaffId(appt.staffId);
       setDragOffset(e.clientY - rect.top);
@@ -69,8 +74,17 @@ export function ReservationCalendar({
   useEffect(() => {
     if (!dragAppt || !gridRef.current) return;
     const gridRect = gridRef.current.getBoundingClientRect();
+    const DRAG_THRESHOLD = 5; // pixels
 
     function handleMouseMove(e: MouseEvent) {
+      const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
+      const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
+      if (!hasMovedRef.current && (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD)) {
+        hasMovedRef.current = true;
+        setIsDraggingReal(true);
+      }
+      if (!hasMovedRef.current) return;
+
       const newTop = e.clientY - gridRect.top - dragOffset;
       setDragTop(Math.max(0, newTop));
 
@@ -86,6 +100,16 @@ export function ReservationCalendar({
 
     async function handleMouseUp() {
       if (!dragAppt) return;
+
+      // If mouse didn't move significantly, treat as a click: open detail sheet
+      if (!hasMovedRef.current) {
+        setSelectedAppt(dragAppt);
+        setDragAppt(null);
+        setDragStaffId(null);
+        setIsDraggingReal(false);
+        return;
+      }
+
       const pixelsPerMinute = slotHeightPx / frameMin;
       const newMinutes = Math.round(dragTop / pixelsPerMinute / frameMin) * frameMin + startHour;
       const newStartTime = minutesToTime(newMinutes);
@@ -111,6 +135,7 @@ export function ReservationCalendar({
 
       setDragAppt(null);
       setDragStaffId(null);
+      setIsDraggingReal(false);
     }
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -330,24 +355,20 @@ export function ReservationCalendar({
                       ? `${appt.visitCount}回目`
                       : null;
 
+                  const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
                   return (
                     <div
                       key={appt.id}
                       data-appt={appt.id}
                       className={`absolute left-1.5 right-1.5 rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg ${
-                        dragAppt?.id === appt.id
+                        isBeingDragged
                           ? "cursor-grabbing opacity-60 z-50"
                           : "cursor-grab"
                       }`}
                       style={{
-                        top: dragAppt?.id === appt.id ? dragTop : top,
+                        top: isBeingDragged ? dragTop : top,
                         height,
-                        zIndex: dragAppt?.id === appt.id ? 50 : 5,
-                      }}
-                      onClick={(e) => {
-                        if (dragAppt) return;
-                        e.stopPropagation();
-                        setSelectedAppt(appt);
+                        zIndex: isBeingDragged ? 50 : 5,
                       }}
                       onMouseDown={(e) => handleDragStart(appt, e)}
                     >

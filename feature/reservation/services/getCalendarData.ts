@@ -1,9 +1,9 @@
 "use server";
 
 import { createClient } from "@/helper/lib/supabase/server";
-import { generateTimeSlots } from "@/helper/utils/time";
+import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
 import type { CalendarData, CalendarAppointment } from "../types";
-import { toLocalDateString } from "@/helper/utils/time";
+import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
 
 /**
  * Aggregation service for the reservation calendar page.
@@ -15,43 +15,30 @@ export async function getCalendarData(
 ): Promise<CalendarData> {
   const supabase = await createClient();
 
-  // 1. Get shop settings (frame_min)
-  const { data: shop } = await supabase
-    .from("shops")
-    .select("frame_min")
-    .eq("id", shopId)
-    .single();
-
-  const frameMin = shop?.frame_min ?? 15;
-
-  // 2. Get effective shifts for this date
-  const { getEffectiveShifts } = await import(
-    "@/feature/shift/services/getStaffShifts"
-  );
-  let effectiveShifts: Awaited<ReturnType<typeof getEffectiveShifts>> = [];
-  try {
-    effectiveShifts = await getEffectiveShifts(shopId, date);
-  } catch {
-    // If no shifts data, return empty
-  }
-
-  // 3. Get appointments for this date
-  const endDate = date; // Same day
+  // Calculate next day for range query
   const nextDate = new Date(date + "T00:00:00");
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = toLocalDateString(nextDate);
 
-  const { data: appointments } = await supabase
-    .from("appointments")
-    .select(
-      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count), visit_sources(name)"
-    )
-    .eq("shop_id", shopId)
-    .gte("start_at", `${date}T00:00:00`)
-    .lt("start_at", `${nextDateStr}T00:00:00`)
-    .is("cancelled_at", null)
-    .is("deleted_at", null)
-    .order("start_at");
+  // Parallel: shop settings + effective shifts + appointments
+  const [shopRes, effectiveShifts, apptRes] = await Promise.all([
+    supabase.from("shops").select("frame_min").eq("id", shopId).single(),
+    getEffectiveShifts(shopId, date).catch(() => []),
+    supabase
+      .from("appointments")
+      .select(
+        "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count), visit_sources(name)"
+      )
+      .eq("shop_id", shopId)
+      .gte("start_at", `${date}T00:00:00`)
+      .lt("start_at", `${nextDateStr}T00:00:00`)
+      .is("cancelled_at", null)
+      .is("deleted_at", null)
+      .order("start_at"),
+  ]);
+
+  const frameMin = shopRes.data?.frame_min ?? 15;
+  const appointments = apptRes.data;
 
   // Fetch menus separately (menu_manage_id is VARCHAR, no FK join)
   const menuManageIds = [

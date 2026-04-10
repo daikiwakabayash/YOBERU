@@ -22,46 +22,50 @@ export default async function ReservationPage({
   const viewMode = params.view === "week" ? "week" : "day";
   const staffId = params.staff ? Number(params.staff) : null;
 
-  // Fetch staff list (needed for both views - toolbar staff dropdown)
   const supabase = await createClient();
-  let allStaffs: Array<{ id: number; name: string }> = [];
-  try {
-    const { data: staffData } = await supabase
-      .from("staffs")
-      .select("id, name")
-      .eq("shop_id", SHOP_ID)
-      .is("deleted_at", null)
-      .eq("is_public", true)
-      .order("allocate_order", { ascending: true, nullsFirst: false });
-    allStaffs = staffData ?? [];
-  } catch {
-    // Staff fetch failed
-  }
 
-  // Fetch menus and visit sources (shared)
-  let menus: Array<{ menu_manage_id: string; name: string; price: number; duration: number }> = [];
-  let visitSources: Array<{ id: number; name: string }> = [];
-  try {
-    const { data: menuData } = await supabase
-      .from("menus")
-      .select("menu_manage_id, name, price, duration")
-      .eq("shop_id", SHOP_ID)
-      .eq("status", true)
-      .is("deleted_at", null)
-      .order("sort_number");
-    menus = menuData ?? [];
+  // Parallel fetch: staff list + menus + visit sources + calendar data
+  // For week view without explicit staff, we need staff list first — but we
+  // optimistically start the week data fetch using the URL staff (or null).
+  const [staffRes, menuRes, sourceRes, dayData, weekDataEarly] =
+    await Promise.all([
+      supabase
+        .from("staffs")
+        .select("id, name")
+        .eq("shop_id", SHOP_ID)
+        .is("deleted_at", null)
+        .eq("is_public", true)
+        .order("allocate_order", { ascending: true, nullsFirst: false }),
+      supabase
+        .from("menus")
+        .select("menu_manage_id, name, price, duration")
+        .eq("shop_id", SHOP_ID)
+        .eq("status", true)
+        .is("deleted_at", null)
+        .order("sort_number"),
+      supabase
+        .from("visit_sources")
+        .select("id, name")
+        .eq("shop_id", SHOP_ID)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("sort_number"),
+      viewMode === "day"
+        ? getCalendarData(SHOP_ID, date).catch(() => null)
+        : Promise.resolve(null),
+      viewMode === "week" && staffId
+        ? getWeeklyCalendarData(SHOP_ID, date, staffId).catch(() => null)
+        : Promise.resolve(null),
+    ]);
 
-    const { data: sourceData } = await supabase
-      .from("visit_sources")
-      .select("id, name")
-      .eq("shop_id", SHOP_ID)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .order("sort_number");
-    visitSources = sourceData ?? [];
-  } catch {
-    // Tables may not exist yet
-  }
+  const allStaffs: Array<{ id: number; name: string }> = staffRes.data ?? [];
+  const menus: Array<{
+    menu_manage_id: string;
+    name: string;
+    price: number;
+    duration: number;
+  }> = menuRes.data ?? [];
+  const visitSources: Array<{ id: number; name: string }> = sourceRes.data ?? [];
 
   // Auto-select first staff if week view and no staff selected
   const effectiveStaffId =
@@ -70,10 +74,16 @@ export default async function ReservationPage({
       : staffId;
 
   if (viewMode === "week") {
-    let weekData: WeeklyCalendarData;
-    try {
-      weekData = await getWeeklyCalendarData(SHOP_ID, date, effectiveStaffId);
-    } catch {
+    let weekData: WeeklyCalendarData | null = weekDataEarly;
+    // If staff was auto-selected (not in URL), fetch now
+    if (!weekData && effectiveStaffId) {
+      try {
+        weekData = await getWeeklyCalendarData(SHOP_ID, date, effectiveStaffId);
+      } catch {
+        weekData = null;
+      }
+    }
+    if (!weekData) {
       weekData = {
         appointments: [],
         timeSlots: generateTimeSlots(9, 21, 15),
@@ -111,17 +121,12 @@ export default async function ReservationPage({
   }
 
   // Day view (default)
-  let data: CalendarData;
-  try {
-    data = await getCalendarData(SHOP_ID, date);
-  } catch {
-    data = {
-      staffs: [],
-      appointments: [],
-      timeSlots: generateTimeSlots(9, 21, 15),
-      frameMin: 15,
-    };
-  }
+  const data: CalendarData = dayData ?? {
+    staffs: [],
+    appointments: [],
+    timeSlots: generateTimeSlots(9, 21, 15),
+    frameMin: 15,
+  };
 
   return (
     <div>

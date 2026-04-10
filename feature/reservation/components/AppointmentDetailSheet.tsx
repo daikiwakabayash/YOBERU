@@ -27,6 +27,7 @@ import {
 } from "@/feature/reception/actions/receptionActions";
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
 import type { CustomerSummary } from "@/feature/customer/types";
+import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -318,9 +319,10 @@ export function AppointmentDetailSheet({
       const defaultDuration = menus.find(m => m.menu_manage_id === defaultMenuId)?.duration || 60;
 
       const startAt = `${newBooking.date}T${newBooking.time}:00`;
-      const endDate = new Date(startAt);
-      endDate.setMinutes(endDate.getMinutes() + defaultDuration);
-      const endAt = endDate.toISOString().replace("Z", "");
+      const endTime = minutesToTime(
+        timeToMinutes(newBooking.time) + defaultDuration
+      );
+      const endAt = `${newBooking.date}T${endTime}:00`;
 
       const form = new FormData();
       form.set("brand_id", String(brandId));
@@ -447,9 +449,8 @@ export function AppointmentDetailSheet({
         const dur = totalDuration || primaryMenu?.duration || 60;
 
         const startAt = `${newBooking.date}T${newBooking.time}:00`;
-        const endDate = new Date(startAt);
-        endDate.setMinutes(endDate.getMinutes() + dur);
-        const endAt = endDate.toISOString().replace("Z", "");
+        const endTime = minutesToTime(timeToMinutes(newBooking.time) + dur);
+        const endAt = `${newBooking.date}T${endTime}:00`;
 
         const form = new FormData();
         form.set("brand_id", String(brandId));
@@ -510,9 +511,10 @@ export function AppointmentDetailSheet({
       // --- Create next appointment if date is set ---
       if (nextDate && appointment) {
         const nextStartAt = `${nextDate}T${nextStartTime}:00`;
-        const nextEnd = new Date(nextStartAt);
-        nextEnd.setMinutes(nextEnd.getMinutes() + nextDuration);
-        const nextEndAt = nextEnd.toISOString().replace("Z", "");
+        const nextEndTime = minutesToTime(
+          timeToMinutes(nextStartTime) + nextDuration
+        );
+        const nextEndAt = `${nextDate}T${nextEndTime}:00`;
 
         const nextForm = new FormData();
         nextForm.set("brand_id", String(brandId));

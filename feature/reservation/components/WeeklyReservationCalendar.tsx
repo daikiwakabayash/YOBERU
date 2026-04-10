@@ -52,6 +52,9 @@ export function WeeklyReservationCalendar({
   const [dragOffset, setDragOffset] = useState(0);
   const [dragDate, setDragDate] = useState<string | null>(null);
   const [dragTop, setDragTop] = useState(0);
+  const [isDraggingReal, setIsDraggingReal] = useState(false);
+  const hasMovedRef = useRef(false);
+  const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const gridRef = useRef<HTMLDivElement>(null);
 
   const handleDragStart = useCallback(
@@ -62,6 +65,8 @@ export function WeeklyReservationCalendar({
       if (!rect) return;
       // Determine the date of this appointment from its startAt
       const apptDate = appt.startAt.slice(0, 10);
+      hasMovedRef.current = false;
+      dragStartPosRef.current = { x: e.clientX, y: e.clientY };
       setDragAppt(appt);
       setDragDate(apptDate);
       setDragOffset(e.clientY - rect.top);
@@ -73,8 +78,17 @@ export function WeeklyReservationCalendar({
   useEffect(() => {
     if (!dragAppt || !gridRef.current) return;
     const gridRect = gridRef.current.getBoundingClientRect();
+    const DRAG_THRESHOLD = 5;
 
     function handleMouseMove(e: MouseEvent) {
+      const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
+      const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
+      if (!hasMovedRef.current && (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD)) {
+        hasMovedRef.current = true;
+        setIsDraggingReal(true);
+      }
+      if (!hasMovedRef.current) return;
+
       const newTop = e.clientY - gridRect.top - dragOffset;
       setDragTop(Math.max(0, newTop));
 
@@ -90,6 +104,16 @@ export function WeeklyReservationCalendar({
 
     async function handleMouseUp() {
       if (!dragAppt || !dragDate) return;
+
+      // Click (no movement): open detail sheet
+      if (!hasMovedRef.current) {
+        setSelectedAppt(dragAppt);
+        setDragAppt(null);
+        setDragDate(null);
+        setIsDraggingReal(false);
+        return;
+      }
+
       const pixelsPerMinute = slotHeightPx / frameMin;
       const newMinutes = Math.round(dragTop / pixelsPerMinute / frameMin) * frameMin + startHour;
       const newStartTime = minutesToTime(newMinutes);
@@ -113,6 +137,7 @@ export function WeeklyReservationCalendar({
 
       setDragAppt(null);
       setDragDate(null);
+      setIsDraggingReal(false);
     }
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -299,7 +324,7 @@ export function WeeklyReservationCalendar({
                   const top = minutesFromStart * pixelsPerMinute + 2;
                   const height = durationMinutes * pixelsPerMinute - 4;
 
-                  const isDragging = dragAppt?.id === appt.id;
+                  const isDragging = isDraggingReal && dragAppt?.id === appt.id;
 
                   // Colors based on customer type + status
                   const isNew = appt.isNewCustomer || appt.visitCount <= 1;
@@ -345,11 +370,6 @@ export function WeeklyReservationCalendar({
                         top: isDragging ? dragTop : top,
                         height,
                         zIndex: isDragging ? 50 : 5,
-                      }}
-                      onClick={(e) => {
-                        if (dragAppt) return;
-                        e.stopPropagation();
-                        setSelectedAppt(appt);
                       }}
                       onMouseDown={(e) => handleDragStart(appt, e)}
                     >

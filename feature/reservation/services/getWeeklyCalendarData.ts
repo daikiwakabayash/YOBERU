@@ -23,16 +23,7 @@ export async function getWeeklyCalendarData(
 ): Promise<WeeklyCalendarData> {
   const supabase = await createClient();
 
-  // 1. Get shop settings
-  const { data: shop } = await supabase
-    .from("shops")
-    .select("frame_min")
-    .eq("id", shopId)
-    .single();
-
-  const frameMin = shop?.frame_min ?? 15;
-
-  // 2. Calculate week range (Mon-Sun)
+  // Calculate week range (Mon-Sun)
   const baseDateObj = new Date(baseDate + "T00:00:00");
   const weekDateObjs = getWeekDates(baseDateObj);
   const weekDates = weekDateObjs.map((d) => toLocalDateString(d));
@@ -41,8 +32,8 @@ export async function getWeeklyCalendarData(
   lastDay.setDate(lastDay.getDate() + 1);
   const weekEndExclusive = toLocalDateString(lastDay);
 
-  // 3. Fetch appointments for the week
-  let query = supabase
+  // Build appointments query
+  let apptQuery = supabase
     .from("appointments")
     .select(
       "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count), visit_sources(name)"
@@ -55,12 +46,25 @@ export async function getWeeklyCalendarData(
     .order("start_at");
 
   if (staffId) {
-    query = query.eq("staff_id", staffId);
+    apptQuery = apptQuery.eq("staff_id", staffId);
   }
 
-  const { data: appointments } = await query;
+  // Parallel: shop + appointments + staff name
+  const [shopRes, apptRes, staffRes] = await Promise.all([
+    supabase.from("shops").select("frame_min").eq("id", shopId).single(),
+    apptQuery,
+    staffId
+      ? supabase.from("staffs").select("name").eq("id", staffId).single()
+      : Promise.resolve({ data: null }),
+  ]);
 
-  // 4. Fetch menus
+  const frameMin = shopRes.data?.frame_min ?? 15;
+  const appointments = apptRes.data;
+  const staffName: string | null = staffRes.data
+    ? (staffRes.data as { name: string }).name
+    : null;
+
+  // Fetch menus for the found appointments
   const menuManageIds = [
     ...new Set((appointments ?? []).map((a) => a.menu_manage_id)),
   ];
@@ -77,17 +81,6 @@ export async function getWeeklyCalendarData(
         { name: m.name, duration: m.duration },
       ])
     );
-  }
-
-  // 5. Get staff name if filtered
-  let staffName: string | null = null;
-  if (staffId) {
-    const { data: staff } = await supabase
-      .from("staffs")
-      .select("name")
-      .eq("id", staffId)
-      .single();
-    staffName = staff?.name ?? null;
   }
 
   // 6. Build appointment list
