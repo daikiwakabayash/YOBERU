@@ -10,13 +10,14 @@ import {
   Building2,
   Clock,
   LayoutDashboard,
-  Receipt,
   BarChart3,
   Settings,
   ChevronLeft,
   ChevronRight,
   Layers,
   Grid3X3,
+  Link2,
+  CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -26,7 +27,7 @@ const navigation = [
     label: "予約管理",
     items: [
       { name: "予約表", href: "/reservation", icon: CalendarDays },
-      { name: "受付", href: "/reception", icon: Receipt },
+      { name: "強制リンク作成", href: "/booking-link", icon: Link2 },
     ],
   },
   {
@@ -43,6 +44,7 @@ const navigation = [
       { name: "メニューカテゴリ", href: "/menu-category", icon: Layers },
       { name: "メニュー", href: "/menu", icon: Utensils },
       { name: "設備", href: "/facility", icon: Grid3X3 },
+      { name: "支払方法", href: "/payment-method", icon: CreditCard },
     ],
   },
   {

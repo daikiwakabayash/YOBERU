@@ -2,45 +2,69 @@
 
 import { createClient } from "@/helper/lib/supabase/server";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
-import type { CalendarData, CalendarAppointment } from "../types";
-import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
+import { getWeekDates } from "@/helper/utils/weekday";
+import type { CalendarAppointment } from "../types";
+
+export interface WeeklyCalendarData {
+  appointments: CalendarAppointment[];
+  timeSlots: string[];
+  frameMin: number;
+  weekDates: string[]; // ["2026-04-06", "2026-04-07", ..., "2026-04-12"]
+  staffName: string | null;
+}
 
 /**
- * Aggregation service for the reservation calendar page.
- * Fetches all data needed to render the day-view calendar in one call.
+ * Fetch calendar data for a full week, optionally filtered by staff.
  */
-export async function getCalendarData(
+export async function getWeeklyCalendarData(
   shopId: number,
-  date: string
-): Promise<CalendarData> {
+  baseDate: string,
+  staffId?: number | null
+): Promise<WeeklyCalendarData> {
   const supabase = await createClient();
 
-  // Calculate next day for range query
-  const nextDate = new Date(date + "T00:00:00");
-  nextDate.setDate(nextDate.getDate() + 1);
-  const nextDateStr = toLocalDateString(nextDate);
+  // Calculate week range (Mon-Sun)
+  const baseDateObj = new Date(baseDate + "T00:00:00");
+  const weekDateObjs = getWeekDates(baseDateObj);
+  const weekDates = weekDateObjs.map((d) => toLocalDateString(d));
+  const weekStart = weekDates[0];
+  const lastDay = new Date(weekDateObjs[6]);
+  lastDay.setDate(lastDay.getDate() + 1);
+  const weekEndExclusive = toLocalDateString(lastDay);
 
-  // Parallel: shop settings + effective shifts + appointments
-  const [shopRes, effectiveShifts, apptRes] = await Promise.all([
+  // Build appointments query
+  let apptQuery = supabase
+    .from("appointments")
+    .select(
+      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count), visit_sources(name)"
+    )
+    .eq("shop_id", shopId)
+    .gte("start_at", `${weekStart}T00:00:00`)
+    .lt("start_at", `${weekEndExclusive}T00:00:00`)
+    .is("cancelled_at", null)
+    .is("deleted_at", null)
+    .order("start_at");
+
+  if (staffId) {
+    apptQuery = apptQuery.eq("staff_id", staffId);
+  }
+
+  // Parallel: shop + appointments + staff name
+  const [shopRes, apptRes, staffRes] = await Promise.all([
     supabase.from("shops").select("frame_min").eq("id", shopId).single(),
-    getEffectiveShifts(shopId, date).catch(() => []),
-    supabase
-      .from("appointments")
-      .select(
-        "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count), visit_sources(name)"
-      )
-      .eq("shop_id", shopId)
-      .gte("start_at", `${date}T00:00:00`)
-      .lt("start_at", `${nextDateStr}T00:00:00`)
-      .is("cancelled_at", null)
-      .is("deleted_at", null)
-      .order("start_at"),
+    apptQuery,
+    staffId
+      ? supabase.from("staffs").select("name").eq("id", staffId).single()
+      : Promise.resolve({ data: null }),
   ]);
 
   const frameMin = shopRes.data?.frame_min ?? 15;
   const appointments = apptRes.data;
+  const staffName: string | null = staffRes.data
+    ? (staffRes.data as { name: string }).name
+    : null;
 
-  // Fetch menus separately (menu_manage_id is VARCHAR, no FK join)
+  // Fetch menus for the found appointments
   const menuManageIds = [
     ...new Set((appointments ?? []).map((a) => a.menu_manage_id)),
   ];
@@ -59,17 +83,7 @@ export async function getCalendarData(
     );
   }
 
-  // 4. Build staff list with shift info
-  const staffs = effectiveShifts.map((s) => ({
-    id: s.staffId,
-    name: s.staffName,
-    isWorking: !!s.startTime,
-    shiftStart: s.startTime,
-    shiftEnd: s.endTime,
-    shiftColor: s.abbreviationColor,
-  }));
-
-  // 5. Build appointment list
+  // 6. Build appointment list
   const calendarAppointments: CalendarAppointment[] = (
     appointments ?? []
   ).map((a) => {
@@ -110,13 +124,14 @@ export async function getCalendarData(
     };
   });
 
-  // 6. Generate time slots (default 9:00 - 21:00)
+  // 7. Generate time slots
   const timeSlots = generateTimeSlots(9, 21, frameMin);
 
   return {
-    staffs,
     appointments: calendarAppointments,
     timeSlots,
     frameMin,
+    weekDates,
+    staffName,
   };
 }

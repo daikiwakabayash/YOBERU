@@ -43,8 +43,14 @@ export async function createCustomer(formData: FormData) {
     }
   }
 
+  // Convert empty strings to null for DB compatibility
+  const cleanedData: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed.data)) {
+    cleanedData[key] = value === "" ? null : value;
+  }
+
   const insertData: Record<string, unknown> = {
-    ...parsed.data,
+    ...cleanedData,
     code: nextCode,
   };
 
@@ -76,9 +82,15 @@ export async function updateCustomer(id: number, formData: FormData) {
     return { error: parsed.error.flatten().fieldErrors };
   }
 
+  // Convert empty strings to null for DB compatibility
+  const cleanedData: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed.data)) {
+    cleanedData[key] = value === "" ? null : value;
+  }
+
   const { error } = await supabase
     .from("customers")
-    .update(parsed.data)
+    .update(cleanedData)
     .eq("id", id);
   if (error) return { error: error.message };
 

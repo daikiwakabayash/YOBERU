@@ -30,6 +30,9 @@ export async function createMenuCategory(formData: FormData) {
   if (error) return { error: error.message };
 
   revalidatePath("/menu-category");
+  revalidatePath("/menu");
+  revalidatePath("/reservation");
+  revalidatePath("/booking-link");
   redirect("/menu-category");
 }
 
@@ -55,6 +58,9 @@ export async function updateMenuCategory(id: number, formData: FormData) {
   if (error) return { error: error.message };
 
   revalidatePath("/menu-category");
+  revalidatePath("/menu");
+  revalidatePath("/reservation");
+  revalidatePath("/booking-link");
   redirect("/menu-category");
 }
 
@@ -66,6 +72,9 @@ export async function deleteMenuCategory(id: number) {
     .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/menu-category");
+  revalidatePath("/menu");
+  revalidatePath("/reservation");
+  revalidatePath("/booking-link");
   return { success: true };
 }
 
@@ -115,6 +124,8 @@ export async function createMenu(formData: FormData) {
   if (error) return { error: error.message };
 
   revalidatePath("/menu");
+  revalidatePath("/reservation");
+  revalidatePath("/booking-link");
   redirect("/menu");
 }
 
@@ -147,6 +158,8 @@ export async function updateMenu(id: number, formData: FormData) {
   if (error) return { error: error.message };
 
   revalidatePath("/menu");
+  revalidatePath("/reservation");
+  revalidatePath("/booking-link");
   redirect("/menu");
 }
 
@@ -158,5 +171,7 @@ export async function deleteMenu(id: number) {
     .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/menu");
+  revalidatePath("/reservation");
+  revalidatePath("/booking-link");
   return { success: true };
 }

@@ -52,6 +52,13 @@ export function minutesToTime(minutes: number): string {
 }
 
 /**
+ * Format a Date as "YYYY-MM-DD" in local timezone (avoids UTC shift from toISOString)
+ */
+export function toLocalDateString(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
  * Calculate how many time slots a duration spans
  */
 export function durationToSlotCount(

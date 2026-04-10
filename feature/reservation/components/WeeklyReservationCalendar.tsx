@@ -1,36 +1,38 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import type { CalendarData, CalendarAppointment } from "../types";
-import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
+import type { CalendarAppointment } from "../types";
+import type { WeeklyCalendarData } from "../services/getWeeklyCalendarData";
+import { timeToMinutes, minutesToTime, toLocalDateString } from "@/helper/utils/time";
+import { WEEKDAY_LABELS_JP } from "@/helper/utils/weekday";
 import { AppointmentDetailSheet } from "./AppointmentDetailSheet";
 import { updateAppointment } from "../actions/reservationActions";
 import { toast } from "sonner";
 
-interface ReservationCalendarProps {
-  data: CalendarData;
-  date: string;
+interface WeeklyReservationCalendarProps {
+  data: WeeklyCalendarData;
   menus?: Array<{ menu_manage_id: string; name: string; price: number; duration: number }>;
   visitSources?: Array<{ id: number; name: string }>;
   paymentMethods?: Array<{ code: string; name: string }>;
   shopId?: number;
   brandId?: number;
+  staffId?: number | null;
 }
 
 const SLOT_HEIGHT = 44;
 const TIME_COL_WIDTH = 76;
-const STAFF_COL_WIDTH = 260;
+const DAY_COL_MIN_WIDTH = 180;
 
-export function ReservationCalendar({
+export function WeeklyReservationCalendar({
   data,
-  date,
   menus = [],
   visitSources = [],
   paymentMethods = [],
   shopId = 1,
   brandId = 1,
-}: ReservationCalendarProps) {
-  const { staffs, appointments, timeSlots, frameMin } = data;
+  staffId,
+}: WeeklyReservationCalendarProps) {
+  const { appointments, timeSlots, frameMin, weekDates } = data;
   const [selectedAppt, setSelectedAppt] = useState<CalendarAppointment | null>(null);
   const [newBooking, setNewBooking] = useState<{
     staffId: number;
@@ -40,17 +42,17 @@ export function ReservationCalendar({
   } | null>(null);
   const [nowMinutes, setNowMinutes] = useState<number | null>(null);
 
-  // Grid calculations (needed by drag handlers, so declare early)
-  const workingStaffs = staffs.filter((s) => s.isWorking);
+  // Grid calculations
   const slotHeightPx = (SLOT_HEIGHT * 30) / (frameMin || 30);
   const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
   const totalSlots = timeSlots.length;
   const totalHeight = totalSlots * slotHeightPx;
+  const today = toLocalDateString(new Date());
 
   // Drag state
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
-  const [dragStaffId, setDragStaffId] = useState<number | null>(null);
+  const [dragDate, setDragDate] = useState<string | null>(null);
   const [dragTop, setDragTop] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
   const hasMovedRef = useRef(false);
@@ -63,10 +65,12 @@ export function ReservationCalendar({
       e.stopPropagation();
       const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
       if (!rect) return;
+      // Determine the date of this appointment from its startAt
+      const apptDate = appt.startAt.slice(0, 10);
       hasMovedRef.current = false;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
       setDragAppt(appt);
-      setDragStaffId(appt.staffId);
+      setDragDate(apptDate);
       setDragOffset(e.clientY - rect.top);
       setDragTop(rect.top - (gridRef.current?.getBoundingClientRect().top ?? 0));
     },
@@ -76,7 +80,7 @@ export function ReservationCalendar({
   useEffect(() => {
     if (!dragAppt || !gridRef.current) return;
     const gridRect = gridRef.current.getBoundingClientRect();
-    const DRAG_THRESHOLD = 5; // pixels
+    const DRAG_THRESHOLD = 5;
 
     function handleMouseMove(e: MouseEvent) {
       const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
@@ -90,24 +94,24 @@ export function ReservationCalendar({
       const newTop = e.clientY - gridRect.top - dragOffset;
       setDragTop(Math.max(0, newTop));
 
-      // Detect staff column
-      const staffHeaders = gridRef.current!.querySelectorAll("[data-staff-id]");
-      staffHeaders.forEach((el) => {
+      // Detect which day column the cursor is over
+      const dayCols = gridRef.current!.querySelectorAll("[data-date]");
+      dayCols.forEach((el) => {
         const rect = el.getBoundingClientRect();
         if (e.clientX >= rect.left && e.clientX <= rect.right) {
-          setDragStaffId(Number(el.getAttribute("data-staff-id")));
+          setDragDate(el.getAttribute("data-date"));
         }
       });
     }
 
     async function handleMouseUp() {
-      if (!dragAppt) return;
+      if (!dragAppt || !dragDate) return;
 
-      // If mouse didn't move significantly, treat as a click: open detail sheet
+      // Click (no movement): open detail sheet
       if (!hasMovedRef.current) {
         setSelectedAppt(dragAppt);
         setDragAppt(null);
-        setDragStaffId(null);
+        setDragDate(null);
         setIsDraggingReal(false);
         return;
       }
@@ -118,25 +122,23 @@ export function ReservationCalendar({
       const durationMin = timeToMinutes(dragAppt.endAt.slice(11, 16)) - timeToMinutes(dragAppt.startAt.slice(11, 16));
       const newEndTime = minutesToTime(newMinutes + durationMin);
 
-      const newStartAt = `${date}T${newStartTime}:00`;
-      const newEndAt = `${date}T${newEndTime}:00`;
+      const newStartAt = `${dragDate}T${newStartTime}:00`;
+      const newEndAt = `${dragDate}T${newEndTime}:00`;
 
       const form = new FormData();
       form.set("start_at", newStartAt);
       form.set("end_at", newEndAt);
-      if (dragStaffId && dragStaffId !== dragAppt.staffId) {
-        form.set("staff_id", String(dragStaffId));
-      }
 
       const result = await updateAppointment(dragAppt.id, form);
       if ("error" in result && result.error) {
         toast.error(String(result.error));
       } else {
-        toast.success(`予約を ${newStartTime} に移動しました`);
+        const dateLabel = `${Number(dragDate.split("-")[1])}/${Number(dragDate.split("-")[2])}`;
+        toast.success(`予約を ${dateLabel} ${newStartTime} に移動しました`);
       }
 
       setDragAppt(null);
-      setDragStaffId(null);
+      setDragDate(null);
       setIsDraggingReal(false);
     }
 
@@ -146,8 +148,9 @@ export function ReservationCalendar({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragAppt, dragOffset, dragTop, dragStaffId, date, frameMin, slotHeightPx, startHour]);
+  }, [dragAppt, dragOffset, dragTop, dragDate, frameMin, slotHeightPx, startHour]);
 
+  // Current time tracker
   useEffect(() => {
     function updateNow() {
       const now = new Date();
@@ -158,12 +161,14 @@ export function ReservationCalendar({
     return () => clearInterval(interval);
   }, []);
 
-  const appointmentsByStaff = useMemo(() => {
-    const map = new Map<number, CalendarAppointment[]>();
+  // Group appointments by date
+  const appointmentsByDate = useMemo(() => {
+    const map = new Map<string, CalendarAppointment[]>();
     for (const appt of appointments) {
-      const list = map.get(appt.staffId) || [];
+      const dateKey = appt.startAt.slice(0, 10);
+      const list = map.get(dateKey) || [];
       list.push(appt);
-      map.set(appt.staffId, list);
+      map.set(dateKey, list);
     }
     return map;
   }, [appointments]);
@@ -175,24 +180,24 @@ export function ReservationCalendar({
     return (offsetMin / frameMin) * slotHeightPx;
   }, [nowMinutes, startHour, totalSlots, frameMin, slotHeightPx]);
 
-  if (workingStaffs.length === 0) {
+  if (weekDates.length === 0) {
     return (
       <div className="rounded-2xl border bg-white p-12 text-center text-muted-foreground">
-        本日の出勤スタッフがいません
+        週データを取得できませんでした
       </div>
     );
   }
 
-  const gridCols = workingStaffs.length;
+  const gridCols = weekDates.length; // 7
   const sheetOpen = !!selectedAppt || !!newBooking;
 
   return (
     <>
       <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
-        {/* Sticky header */}
+        {/* Sticky header - day columns */}
         <div
           className="sticky top-0 z-20 flex border-b bg-white/95 backdrop-blur-sm"
-          style={{ minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH }}
+          style={{ minWidth: TIME_COL_WIDTH + gridCols * DAY_COL_MIN_WIDTH }}
         >
           <div
             className="flex shrink-0 items-center justify-center border-r text-xs font-medium text-gray-400"
@@ -200,27 +205,48 @@ export function ReservationCalendar({
           >
             時間
           </div>
-          {workingStaffs.map((staff) => (
-            <div
-              key={staff.id}
-              className="flex shrink-0 flex-col items-center justify-center border-r py-3"
-              style={{ width: STAFF_COL_WIDTH }}
-            >
-              {/* Staff avatar circle */}
+          {weekDates.map((dateStr) => {
+            const d = new Date(dateStr + "T00:00:00");
+            const dayLabel = WEEKDAY_LABELS_JP[d.getDay()];
+            const month = d.getMonth() + 1;
+            const day = d.getDate();
+            const isToday = dateStr === today;
+            const isSunday = d.getDay() === 0;
+            const isSaturday = d.getDay() === 6;
+
+            return (
               <div
-                className="mb-1 flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white"
-                style={{ backgroundColor: staff.shiftColor || "#6366f1" }}
+                key={dateStr}
+                className={`flex shrink-0 flex-col items-center justify-center border-r py-3 ${
+                  isToday ? "bg-blue-50" : ""
+                }`}
+                style={{ width: DAY_COL_MIN_WIDTH, flex: 1 }}
               >
-                {staff.name.slice(0, 1)}
-              </div>
-              <div className="text-sm font-bold text-gray-900">{staff.name}</div>
-              {staff.shiftStart && staff.shiftEnd && (
-                <div className="text-[11px] text-gray-400">
-                  {staff.shiftStart.slice(0, 5)}-{staff.shiftEnd.slice(0, 5)}
+                <div
+                  className={`text-sm font-medium ${
+                    isToday
+                      ? "text-blue-600"
+                      : isSunday
+                        ? "text-red-500"
+                        : isSaturday
+                          ? "text-blue-500"
+                          : "text-gray-500"
+                  }`}
+                >
+                  {dayLabel}
                 </div>
-              )}
-            </div>
-          ))}
+                <div
+                  className={`text-lg font-bold ${
+                    isToday
+                      ? "text-blue-600"
+                      : "text-gray-900"
+                  }`}
+                >
+                  {month}/{day}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Grid body */}
@@ -228,7 +254,7 @@ export function ReservationCalendar({
           ref={gridRef}
           className="relative flex"
           style={{
-            minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH,
+            minWidth: TIME_COL_WIDTH + gridCols * DAY_COL_MIN_WIDTH,
             height: totalHeight,
           }}
         >
@@ -254,67 +280,53 @@ export function ReservationCalendar({
             })}
           </div>
 
-          {/* Staff columns */}
-          {workingStaffs.map((staff) => {
-            const staffAppts = appointmentsByStaff.get(staff.id) || [];
-            const shiftStartMin = staff.shiftStart
-              ? timeToMinutes(staff.shiftStart.slice(0, 5))
-              : null;
-            const shiftEndMin = staff.shiftEnd
-              ? timeToMinutes(staff.shiftEnd.slice(0, 5))
-              : null;
+          {/* Day columns */}
+          {weekDates.map((dateStr) => {
+            const dayAppts = appointmentsByDate.get(dateStr) || [];
+            const isToday = dateStr === today;
 
             return (
               <div
-                key={staff.id}
-                data-staff-id={staff.id}
-                className="relative shrink-0 border-r"
-                style={{ width: STAFF_COL_WIDTH }}
+                key={dateStr}
+                data-date={dateStr}
+                className={`relative shrink-0 border-r ${isToday ? "bg-blue-50/30" : ""}`}
+                style={{ width: DAY_COL_MIN_WIDTH, flex: 1 }}
               >
                 {/* Grid lines + clickable cells */}
                 {timeSlots.map((slot, idx) => {
                   const isHour = slot.endsWith(":00");
-                  const slotMin = timeToMinutes(slot);
-                  const isInShift =
-                    shiftStartMin !== null &&
-                    shiftEndMin !== null &&
-                    slotMin >= shiftStartMin &&
-                    slotMin < shiftEndMin;
-
                   return (
                     <div
                       key={slot}
                       className={`absolute w-full border-b ${
                         isHour ? "border-gray-200" : "border-gray-100/60"
-                      } ${!isInShift ? "bg-gray-50/60" : "cursor-pointer hover:bg-blue-50/30"}`}
+                      } cursor-pointer hover:bg-blue-50/30`}
                       style={{ top: idx * slotHeightPx, height: slotHeightPx }}
-                      onClick={
-                        isInShift
-                          ? () =>
-                              setNewBooking({
-                                staffId: staff.id,
-                                staffName: staff.name,
-                                date,
-                                time: slot,
-                              })
-                          : undefined
-                      }
+                      onClick={() => {
+                        if (staffId) {
+                          setNewBooking({
+                            staffId,
+                            staffName: data.staffName ?? "",
+                            date: dateStr,
+                            time: slot,
+                          });
+                        }
+                      }}
                     />
                   );
                 })}
 
                 {/* Appointment blocks */}
-                {staffAppts.map((appt) => {
+                {dayAppts.map((appt) => {
                   const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
                   const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
-                  // Use minute-based positioning for pixel-perfect alignment
                   const minutesFromStart = apptStartMin - startHour;
                   const durationMinutes = apptEndMin - apptStartMin;
                   const pixelsPerMinute = slotHeightPx / frameMin;
                   const top = minutesFromStart * pixelsPerMinute + 2;
                   const height = durationMinutes * pixelsPerMinute - 4;
-                  const startTime = appt.startAt.slice(11, 16);
-                  const endTime = appt.endAt.slice(11, 16);
+
+                  const isDragging = isDraggingReal && dragAppt?.id === appt.id;
 
                   // Colors based on customer type + status
                   const isNew = appt.isNewCustomer || appt.visitCount <= 1;
@@ -332,7 +344,7 @@ export function ReservationCalendar({
                     bgColor = "bg-orange-50/50";
                   }
                   if (isPast) {
-                    statusBadge = "完了";
+                    statusBadge = "会計完了";
                     statusBadgeColor = "bg-gray-100 text-gray-500";
                     bgColor = "bg-gray-50";
                     borderColor = "border-gray-200";
@@ -345,76 +357,52 @@ export function ReservationCalendar({
                     statusBadgeColor = "bg-red-100 text-red-600";
                     borderColor = "border-red-200";
                     bgColor = "bg-red-50/30";
-                  } else if (appt.status === 0) {
-                    statusBadge = "待機";
-                    statusBadgeColor = "bg-orange-100 text-orange-700";
                   }
 
-                  // Visit count badge
-                  const visitLabel = isNew
-                    ? null
-                    : appt.visitCount > 0
-                      ? `${appt.visitCount}回目`
-                      : null;
-
-                  const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
                   return (
                     <div
                       key={appt.id}
                       data-appt={appt.id}
-                      className={`absolute left-1.5 right-1.5 rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg ${
-                        isBeingDragged
+                      className={`absolute left-1.5 right-1.5 rounded-lg border-2 ${borderColor} ${bgColor} px-2 py-1.5 transition-shadow hover:shadow-lg ${
+                        isDragging
                           ? "cursor-grabbing opacity-60 z-50"
                           : "cursor-grab"
                       }`}
                       style={{
-                        top: isBeingDragged ? dragTop : top,
+                        top: isDragging ? dragTop : top,
                         height,
-                        zIndex: isBeingDragged ? 50 : 5,
+                        zIndex: isDragging ? 50 : 5,
                       }}
                       onMouseDown={(e) => handleDragStart(appt, e)}
                     >
-                      {/* Status badge top-right */}
+                      {/* Status badge */}
                       {statusBadge && (
-                        <div className="absolute right-1.5 top-1.5">
+                        <div className="absolute right-1 top-1">
                           <span
-                            className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${statusBadgeColor}`}
+                            className={`rounded px-1 py-0.5 text-[9px] font-bold ${statusBadgeColor}`}
                           >
                             {statusBadge}
                           </span>
                         </div>
                       )}
 
-                      {/* Customer name + visit badge */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[14px] font-black text-gray-900 leading-tight">
+                      {/* Customer name */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-[13px] font-black text-gray-900 leading-tight truncate">
                           {appt.customerName}
                         </span>
-                        {isNew ? (
-                          <span className="rounded bg-red-500 px-1.5 py-0 text-[10px] font-bold text-white">
-                            {appt.source ? `${appt.source}新規` : "新規"}
+                        {isNew && (
+                          <span className="shrink-0 rounded bg-red-500 px-1 py-0 text-[9px] font-bold text-white">
+                            新規
                           </span>
-                        ) : (
-                          visitLabel && (
-                            <span className="rounded bg-blue-500 px-1.5 py-0 text-[10px] font-bold text-white">
-                              {visitLabel}
-                            </span>
-                          )
                         )}
                       </div>
 
                       {/* Menu + duration */}
-                      <div className="mt-0.5 text-[12px] text-gray-600">
+                      <div className="mt-0.5 text-[11px] text-gray-600 truncate">
                         {appt.menuName}
                         {appt.duration > 0 && `（${appt.duration}分）`}
                       </div>
-
-                      {/* Source for new customers */}
-                      {isNew && appt.source && (
-                        <div className="text-[11px] text-gray-400">
-                          {appt.source}
-                        </div>
-                      )}
                     </div>
                   );
                 })}

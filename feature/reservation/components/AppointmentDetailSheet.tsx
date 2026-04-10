@@ -27,6 +27,7 @@ import {
 } from "@/feature/reception/actions/receptionActions";
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
 import type { CustomerSummary } from "@/feature/customer/types";
+import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ interface AppointmentDetailSheetProps {
     duration: number;
   }>;
   visitSources: Array<{ id: number; name: string }>;
+  paymentMethods?: Array<{ code: string; name: string }>;
   shopId: number;
   brandId: number;
 }
@@ -63,35 +65,11 @@ const STATUS_BADGE: Record<number, { label: string; cls: string }> = {
   3: { label: "キャンセル", cls: "border-red-300 text-red-500 bg-red-50" },
 };
 
-const PAYMENT_METHODS = [
-  { value: "square", label: "Square" },
-  { value: "cash", label: "現金" },
-  { value: "card", label: "カード" },
-  { value: "paypay", label: "PayPay" },
-] as const;
-
 const PLAN_CARDS = [
   { name: "月4回", price: 15400, unit: "月" },
   { name: "月8回", price: 26400, unit: "月" },
   { name: "通い放題", price: 35200, unit: "月" },
 ] as const;
-
-// ---------------------------------------------------------------------------
-// Generate time options for selects
-// ---------------------------------------------------------------------------
-function generateTimeOptions(): string[] {
-  const opts: string[] = [];
-  for (let h = 9; h <= 21; h++) {
-    for (const m of [0, 15, 30, 45]) {
-      if (h === 21 && m > 0) break;
-      opts.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-    }
-  }
-  return opts;
-}
-
-const TIME_OPTIONS = generateTimeOptions();
-const DURATION_OPTIONS = [15, 30, 45, 60, 75, 90, 120];
 
 // ===========================================================================
 // Component
@@ -103,10 +81,21 @@ export function AppointmentDetailSheet({
   newBooking,
   menus,
   visitSources,
+  paymentMethods,
   shopId,
   brandId,
 }: AppointmentDetailSheetProps) {
   const isNew = !appointment;
+
+  // Fallback to built-in list if master data not provided
+  const effectivePaymentMethods =
+    paymentMethods && paymentMethods.length > 0
+      ? paymentMethods
+      : [
+          { code: "cash", name: "現金" },
+          { code: "credit", name: "クレジット" },
+          { code: "paypay", name: "PayPay" },
+        ];
 
   // ---- Customer state (new booking) ----
   const [customerQuery, setCustomerQuery] = useState("");
@@ -149,12 +138,6 @@ export function AppointmentDetailSheet({
   const [paymentMethod, setPaymentMethod] = useState<string>(
     appointment?.paymentMethod ?? ""
   );
-
-  // ---- Next appointment ----
-  const [nextDate, setNextDate] = useState("");
-  const [nextStartTime, setNextStartTime] = useState("10:00");
-  const [nextDuration, setNextDuration] = useState(60);
-  const [lineRemind, setLineRemind] = useState(true);
 
   // ---- Saving ----
   const [saving, setSaving] = useState(false);
@@ -318,9 +301,10 @@ export function AppointmentDetailSheet({
       const defaultDuration = menus.find(m => m.menu_manage_id === defaultMenuId)?.duration || 60;
 
       const startAt = `${newBooking.date}T${newBooking.time}:00`;
-      const endDate = new Date(startAt);
-      endDate.setMinutes(endDate.getMinutes() + defaultDuration);
-      const endAt = endDate.toISOString().replace("Z", "");
+      const endTime = minutesToTime(
+        timeToMinutes(newBooking.time) + defaultDuration
+      );
+      const endAt = `${newBooking.date}T${endTime}:00`;
 
       const form = new FormData();
       form.set("brand_id", String(brandId));
@@ -447,9 +431,8 @@ export function AppointmentDetailSheet({
         const dur = totalDuration || primaryMenu?.duration || 60;
 
         const startAt = `${newBooking.date}T${newBooking.time}:00`;
-        const endDate = new Date(startAt);
-        endDate.setMinutes(endDate.getMinutes() + dur);
-        const endAt = endDate.toISOString().replace("Z", "");
+        const endTime = minutesToTime(timeToMinutes(newBooking.time) + dur);
+        const endAt = `${newBooking.date}T${endTime}:00`;
 
         const form = new FormData();
         form.set("brand_id", String(brandId));
@@ -505,41 +488,6 @@ export function AppointmentDetailSheet({
         await updateAppointment(appointment.id, form);
         setStatus(2);
         toast.success("会計を確定しました");
-      }
-
-      // --- Create next appointment if date is set ---
-      if (nextDate && appointment) {
-        const nextStartAt = `${nextDate}T${nextStartTime}:00`;
-        const nextEnd = new Date(nextStartAt);
-        nextEnd.setMinutes(nextEnd.getMinutes() + nextDuration);
-        const nextEndAt = nextEnd.toISOString().replace("Z", "");
-
-        const nextForm = new FormData();
-        nextForm.set("brand_id", String(brandId));
-        nextForm.set("shop_id", String(shopId));
-        nextForm.set("customer_id", String(appointment.customerId));
-        nextForm.set("staff_id", String(appointment.staffId));
-        nextForm.set(
-          "menu_manage_id",
-          selectedMenuIds[0] || appointment.menuManageId
-        );
-        nextForm.set("type", "0");
-        nextForm.set("start_at", nextStartAt);
-        nextForm.set("end_at", nextEndAt);
-        nextForm.set("memo", "");
-        nextForm.set("is_couple", "false");
-        nextForm.set("sales", "0");
-        nextForm.set("status", "0");
-
-        const nextResult = await createAppointment(nextForm);
-        if ("error" in nextResult && nextResult.error) {
-          toast.error("次回予約の作成に失敗しました");
-        } else {
-          toast.success("次回予約を作成しました");
-          if (lineRemind) {
-            toast.info("LINEリマインドが設定されました");
-          }
-        }
       }
 
       onClose();
@@ -907,82 +855,22 @@ export function AppointmentDetailSheet({
             <Label className="text-xs font-bold text-gray-500">
               支払い方法
             </Label>
-            <div className="grid grid-cols-4 gap-2">
-              {PAYMENT_METHODS.map((pm) => (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {effectivePaymentMethods.map((pm) => (
                 <button
-                  key={pm.value}
+                  key={pm.code}
                   type="button"
-                  onClick={() => setPaymentMethod(pm.value)}
+                  onClick={() => setPaymentMethod(pm.code)}
                   className={`rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                    paymentMethod === pm.value
+                    paymentMethod === pm.code
                       ? "border-blue-400 bg-blue-500 text-white"
                       : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
                   }`}
                 >
-                  {pm.label}
+                  {pm.name}
                 </button>
               ))}
             </div>
-          </section>
-
-          <Separator />
-
-          {/* ===== Section: Next Appointment ===== */}
-          <section className="space-y-3">
-            <Label className="text-xs font-bold text-gray-500">次回予約</Label>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <Label className="text-[11px] text-gray-400">日付</Label>
-                <Input
-                  type="date"
-                  value={nextDate}
-                  onChange={(e) => setNextDate(e.target.value)}
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[11px] text-gray-400">開始時間</Label>
-                <select
-                  value={nextStartTime}
-                  onChange={(e) => setNextStartTime(e.target.value)}
-                  className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs"
-                >
-                  {TIME_OPTIONS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[11px] text-gray-400">施術時間</Label>
-                <select
-                  value={nextDuration}
-                  onChange={(e) => setNextDuration(Number(e.target.value))}
-                  className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs"
-                >
-                  {DURATION_OPTIONS.map((d) => (
-                    <option key={d} value={d}>
-                      {d}分
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <label className="flex items-center gap-2">
-              <Checkbox
-                checked={lineRemind}
-                onCheckedChange={(v) => setLineRemind(!!v)}
-              />
-              <span className="text-xs text-gray-700">
-                LINEリマインド送信
-              </span>
-            </label>
-            {nextDate && (
-              <p className="text-[11px] text-muted-foreground">
-                ① 予約確定時 ② 来院前日12:00
-              </p>
-            )}
           </section>
 
           <Separator />
