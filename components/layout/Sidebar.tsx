@@ -10,7 +10,6 @@ import {
   Building2,
   Clock,
   LayoutDashboard,
-  Receipt,
   BarChart3,
   Settings,
   ChevronLeft,
@@ -26,7 +25,6 @@ const navigation = [
     label: "予約管理",
     items: [
       { name: "予約表", href: "/reservation", icon: CalendarDays },
-      { name: "受付", href: "/reception", icon: Receipt },
     ],
   },
   {

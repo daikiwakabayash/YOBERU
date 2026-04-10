@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
@@ -12,6 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface ReservationCalendarToolbarProps {
   currentDate: string;
@@ -67,18 +76,41 @@ export function ReservationCalendarToolbar({
     if (staffId) router.push(buildUrl({ staff: staffId }));
   }
 
+  const [aggregateOpen, setAggregateOpen] = useState(false);
+
+  function confirmAggregate() {
+    setAggregateOpen(false);
+    router.push(`/sales?start=${currentDate}&end=${currentDate}`);
+  }
+
   return (
     <div className="flex items-center gap-2">
-      {/* Aggregate button */}
+      {/* Aggregate button with confirmation dialog */}
       <Button
         variant="outline"
         size="sm"
         className="gap-1.5"
-        onClick={() => router.push("/sales")}
+        onClick={() => setAggregateOpen(true)}
       >
         <BarChart3 className="h-4 w-4" />
         集計実行
       </Button>
+      <Dialog open={aggregateOpen} onOpenChange={setAggregateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>集計を実行しますか？</DialogTitle>
+            <DialogDescription>
+              {displayDate} の売上・予約件数・スタッフ別実績を集計して、売上ダッシュボードに表示します。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAggregateOpen(false)}>
+              キャンセル
+            </Button>
+            <Button onClick={confirmAggregate}>集計する</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Navigation */}
       {viewMode === "day" ? (

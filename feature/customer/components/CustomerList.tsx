@@ -148,7 +148,11 @@ export function CustomerList({ customers, totalCount }: CustomerListProps) {
               const typeInfo = TYPE_LABELS[customer.type] ?? TYPE_LABELS[0];
 
               return (
-                <TableRow key={customer.id}>
+                <TableRow
+                  key={customer.id}
+                  className="cursor-pointer hover:bg-gray-50"
+                  onClick={() => router.push(`/customer/${customer.id}`)}
+                >
                   <TableCell className="font-mono text-sm">
                     {customer.code}
                   </TableCell>
@@ -157,10 +161,13 @@ export function CustomerList({ customers, totalCount }: CustomerListProps) {
                   <TableCell className="text-center">
                     <Badge variant={typeInfo.variant}>{typeInfo.label}</Badge>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell
+                    className="text-right"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <div className="flex justify-end gap-1">
                       <Link href={`/customer/${customer.id}`}>
-                        <Button variant="ghost" size="sm" title="詳細">
+                        <Button variant="ghost" size="sm" title="カルテ・詳細">
                           <Eye className="h-4 w-4" />
                         </Button>
                       </Link>

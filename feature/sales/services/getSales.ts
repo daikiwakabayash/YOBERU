@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/helper/lib/supabase/server";
+import { toLocalDateString } from "@/helper/utils/time";
 
 interface SalesData {
   totalSales: number;
@@ -29,9 +30,9 @@ export async function getSalesSummary(
   endDate: string
 ): Promise<SalesData> {
   const supabase = await createClient();
-  const nextDate = new Date(endDate);
+  const nextDate = new Date(endDate + "T00:00:00");
   nextDate.setDate(nextDate.getDate() + 1);
-  const nextDateStr = nextDate.toISOString().split("T")[0];
+  const nextDateStr = toLocalDateString(nextDate);
 
   const { data: appointments } = await supabase
     .from("appointments")
