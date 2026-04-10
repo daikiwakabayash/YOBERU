@@ -429,8 +429,15 @@ export function WeeklyReservationCalendar({
         </div>
       </div>
 
-      {/* Booking / Detail Sheet */}
+      {/* Booking / Detail Sheet — key forces remount on selection change */}
       <AppointmentDetailSheet
+        key={
+          selectedAppt
+            ? `appt-${selectedAppt.id}`
+            : newBooking
+              ? `new-${newBooking.date}-${newBooking.time}-${newBooking.staffId}`
+              : "closed"
+        }
         open={sheetOpen}
         onClose={() => {
           setSelectedAppt(null);

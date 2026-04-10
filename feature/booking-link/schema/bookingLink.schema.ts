@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+export const reminderSettingSchema = z.object({
+  type: z.enum(["email", "sms", "line"]),
+  offset_days: z.coerce.number().int().min(0).max(30),
+  send_time: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/, "HH:MM 形式で入力してください"),
+  template: z.string().max(2000).default(""),
+  subject: z.string().max(200).optional().default(""),
+  enabled: z.boolean().default(true),
+});
+
 export const bookingLinkSchema = z.object({
   brand_id: z.number().int().positive(),
   shop_id: z.number().int().nullable(),
@@ -20,6 +31,8 @@ export const bookingLinkSchema = z.object({
   line_button_text: z.string().optional().nullable(),
   line_button_url: z.string().url().optional().nullable().or(z.literal("")),
   visit_source_id: z.number().int().optional().nullable(),
+  reminder_settings: z.array(reminderSettingSchema).default([]),
 });
 
 export type BookingLinkFormValues = z.infer<typeof bookingLinkSchema>;
+export type ReminderSettingValues = z.infer<typeof reminderSettingSchema>;
