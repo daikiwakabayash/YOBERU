@@ -56,6 +56,8 @@ export interface CalendarAppointment {
   isNewCustomer: boolean;
   visitCount: number;
   source: string | null;
+  sourceColor: string | null;
+  sourceTextColor: string | null;
   visitSourceId: number | null;
   sales: number;
   additionalCharge: number;

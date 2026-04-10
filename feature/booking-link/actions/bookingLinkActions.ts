@@ -250,13 +250,43 @@ export async function submitPublicBooking(formData: FormData) {
     customerId = inserted.data.id as number;
   }
 
-  // 2. Create appointment
+  // 2. Determine staff: use designated staff if provided, otherwise auto-assign
+  //    by allocate_order (lowest number = highest priority).
+  const { checkStaffAvailability, autoAssignStaff } = await import(
+    "@/feature/reservation/actions/reservationActions"
+  );
+
+  let finalStaffId: number | null = staffId;
+  if (finalStaffId) {
+    // Designated staff: verify available
+    const check = await checkStaffAvailability({
+      shopId,
+      staffId: finalStaffId,
+      startAt,
+      endAt,
+    });
+    if (!check.available) {
+      return {
+        error: "選択されたスタッフのその時間帯は既に埋まっています",
+      };
+    }
+  } else {
+    // Auto-assign
+    finalStaffId = await autoAssignStaff({ shopId, startAt, endAt });
+    if (!finalStaffId) {
+      return {
+        error: "その時間帯に対応可能なスタッフがいません",
+      };
+    }
+  }
+
+  // 3. Create appointment
   const code = `APT-${shopId}-${Date.now()}`;
   const apptInsert = await supabase.from("appointments").insert({
     brand_id: brandId,
     shop_id: shopId,
     customer_id: customerId,
-    staff_id: staffId ?? 1, // Default to first staff if not assignable
+    staff_id: finalStaffId,
     menu_manage_id: menuManageId,
     code,
     type: 0,

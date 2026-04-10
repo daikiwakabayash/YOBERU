@@ -52,10 +52,25 @@ export function minutesToTime(minutes: number): string {
 }
 
 /**
- * Format a Date as "YYYY-MM-DD" in local timezone (avoids UTC shift from toISOString)
+ * Format a Date as "YYYY-MM-DD" in Asia/Tokyo timezone.
+ *
+ * This is critical for correct date rendering because:
+ * - Vercel (and most cloud hosts) run Node.js in UTC.
+ * - `d.getFullYear()` / `getMonth()` / `getDate()` use the server's local TZ.
+ * - Between 00:00-08:59 JST the UTC date is the previous day, so the naive
+ *   approach shows yesterday in Japan mornings.
+ *
+ * We always format in Asia/Tokyo to ensure "today in Japan" is computed
+ * consistently on the server.
  */
-export function toLocalDateString(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export function toLocalDateString(d: Date = new Date()): string {
+  // 'en-CA' locale returns YYYY-MM-DD format; timeZone forces Asia/Tokyo.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
 }
 
 /**

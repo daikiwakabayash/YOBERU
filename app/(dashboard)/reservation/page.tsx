@@ -71,10 +71,10 @@ export default async function ReservationPage({
           .is("deleted_at", null)
           .order("sort_number")
       ),
-      safeQuery<{ id: number; name: string }>(
+      safeQuery<{ id: number; name: string; color: string | null; label_text_color: string | null }>(
         supabase
           .from("visit_sources")
-          .select("id, name")
+          .select("id, name, color, label_text_color")
           .eq("shop_id", SHOP_ID)
           .eq("is_active", true)
           .is("deleted_at", null)

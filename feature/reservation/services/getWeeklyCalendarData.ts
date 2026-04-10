@@ -36,7 +36,7 @@ export async function getWeeklyCalendarData(
   let apptQuery = supabase
     .from("appointments")
     .select(
-      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count), visit_sources(name)"
+      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count)"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${weekStart}T00:00:00`)
@@ -83,6 +83,31 @@ export async function getWeeklyCalendarData(
     );
   }
 
+  // Fetch visit sources with colors
+  let sourceMap = new Map<
+    number,
+    { name: string; color: string | null; label_text_color: string | null }
+  >();
+  try {
+    const { data: sources } = await supabase
+      .from("visit_sources")
+      .select("id, name, color, label_text_color")
+      .eq("shop_id", shopId)
+      .is("deleted_at", null);
+    sourceMap = new Map(
+      (sources ?? []).map((s) => [
+        s.id as number,
+        {
+          name: s.name as string,
+          color: (s.color as string | null) ?? null,
+          label_text_color: (s.label_text_color as string | null) ?? null,
+        },
+      ])
+    );
+  } catch {
+    // Column may not exist yet
+  }
+
   // 6. Build appointment list
   const calendarAppointments: CalendarAppointment[] = (
     appointments ?? []
@@ -93,7 +118,9 @@ export async function getWeeklyCalendarData(
       phone_number_1: string | null;
       visit_count: number | null;
     } | null;
-    const visitSource = a.visit_sources as unknown as { name: string } | null;
+    const sourceInfo = a.visit_source_id
+      ? sourceMap.get(a.visit_source_id as number)
+      : null;
     const menu = menuMap.get(a.menu_manage_id) ?? null;
     const customerVisitCount = customer?.visit_count ?? a.visit_count ?? 0;
 
@@ -115,7 +142,9 @@ export async function getWeeklyCalendarData(
       memo: a.memo ?? null,
       isNewCustomer: customerVisitCount <= 1,
       visitCount: customerVisitCount,
-      source: visitSource?.name ?? null,
+      source: sourceInfo?.name ?? null,
+      sourceColor: sourceInfo?.color ?? null,
+      sourceTextColor: sourceInfo?.label_text_color ?? null,
       visitSourceId: a.visit_source_id ?? null,
       sales: a.sales ?? 0,
       additionalCharge: a.additional_charge ?? 0,

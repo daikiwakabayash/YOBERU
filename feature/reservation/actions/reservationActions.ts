@@ -4,6 +4,139 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { appointmentSchema } from "../schema/reservation.schema";
 import { revalidatePath } from "next/cache";
 
+/**
+ * Check if a new or updated appointment would overlap an existing one
+ * for the same staff. Returns the overlapping appointment (with customer
+ * name) if any, or null if the slot is free.
+ *
+ * An "overlap" is defined as two appointments for the same staff_id whose
+ * [start_at, end_at) intervals intersect:
+ *   A.start < B.end AND B.start < A.end
+ *
+ * Cancelled (cancelled_at not null) and deleted (deleted_at not null)
+ * appointments are excluded.
+ */
+export async function checkStaffAvailability(params: {
+  shopId: number;
+  staffId: number;
+  startAt: string;
+  endAt: string;
+  excludeAppointmentId?: number | null;
+}): Promise<{
+  available: boolean;
+  conflict?: { id: number; start_at: string; end_at: string; customer_name: string | null };
+}> {
+  const supabase = await createClient();
+  const { shopId, staffId, startAt, endAt, excludeAppointmentId } = params;
+
+  let query = supabase
+    .from("appointments")
+    .select(
+      "id, start_at, end_at, customers(last_name, first_name)"
+    )
+    .eq("shop_id", shopId)
+    .eq("staff_id", staffId)
+    .is("cancelled_at", null)
+    .is("deleted_at", null)
+    // Range overlap condition: A.start < B.end AND B.start < A.end
+    // Expressed: existing.start_at < endAt AND existing.end_at > startAt
+    .lt("start_at", endAt)
+    .gt("end_at", startAt);
+
+  if (excludeAppointmentId != null) {
+    query = query.neq("id", excludeAppointmentId);
+  }
+
+  const { data, error } = await query.limit(1);
+  if (error) {
+    // If the query itself errors, fall back to "available" to avoid
+    // blocking all bookings when something is misconfigured.
+    return { available: true };
+  }
+
+  const conflict = (data ?? [])[0] as unknown as
+    | {
+        id: number;
+        start_at: string;
+        end_at: string;
+        customers:
+          | { last_name: string | null; first_name: string | null }
+          | Array<{ last_name: string | null; first_name: string | null }>
+          | null;
+      }
+    | undefined;
+
+  if (!conflict) return { available: true };
+
+  // Supabase may return customers as an object or a single-element array
+  // depending on the inferred schema; handle both.
+  const customer = Array.isArray(conflict.customers)
+    ? conflict.customers[0] ?? null
+    : conflict.customers;
+  const name =
+    `${customer?.last_name ?? ""} ${customer?.first_name ?? ""}`.trim() ||
+    null;
+  return {
+    available: false,
+    conflict: {
+      id: conflict.id,
+      start_at: conflict.start_at,
+      end_at: conflict.end_at,
+      customer_name: name,
+    },
+  };
+}
+
+/**
+ * Assign the best available staff for an "お任せ" (no designation) booking.
+ * Returns the staff id, or null if no staff is available.
+ *
+ * Strategy: fetch all public staffs for the shop ordered by allocate_order
+ * (lower = higher priority). For each, check availability in [startAt, endAt).
+ * Return the first available staff.
+ */
+export async function autoAssignStaff(params: {
+  shopId: number;
+  startAt: string;
+  endAt: string;
+}): Promise<number | null> {
+  const supabase = await createClient();
+  const { shopId, startAt, endAt } = params;
+
+  const { data: staffs } = await supabase
+    .from("staffs")
+    .select("id")
+    .eq("shop_id", shopId)
+    .eq("is_public", true)
+    .is("deleted_at", null)
+    .order("allocate_order", { ascending: true, nullsFirst: false });
+
+  for (const s of staffs ?? []) {
+    const check = await checkStaffAvailability({
+      shopId,
+      staffId: s.id as number,
+      startAt,
+      endAt,
+    });
+    if (check.available) return s.id as number;
+  }
+  return null;
+}
+
+function formatTime(iso: string): string {
+  // "2026-04-11T10:30:00" -> "10:30"
+  return iso.slice(11, 16);
+}
+
+function conflictMessage(conflict: {
+  customer_name: string | null;
+  start_at: string;
+  end_at: string;
+}): string {
+  const who = conflict.customer_name ?? "別の予約";
+  return `${formatTime(conflict.start_at)}〜${formatTime(conflict.end_at)} に「${who}」の予約が既に入っています`;
+}
+
 export async function createAppointment(formData: FormData) {
   const supabase = await createClient();
   const raw = Object.fromEntries(formData.entries());
@@ -22,6 +155,17 @@ export async function createAppointment(formData: FormData) {
 
   if (!parsed.success) {
     return { error: parsed.error.flatten().fieldErrors };
+  }
+
+  // Overlap check: the same staff cannot be double-booked
+  const check = await checkStaffAvailability({
+    shopId: parsed.data.shop_id,
+    staffId: parsed.data.staff_id,
+    startAt: parsed.data.start_at,
+    endAt: parsed.data.end_at,
+  });
+  if (!check.available && check.conflict) {
+    return { error: conflictMessage(check.conflict) };
   }
 
   // Generate unique appointment code
@@ -59,6 +203,28 @@ export async function updateAppointment(id: number, formData: FormData) {
   if (raw.payment_method) updateData.payment_method = raw.payment_method;
   if (raw.additional_charge !== undefined)
     updateData.additional_charge = Number(raw.additional_charge);
+
+  // If time or staff changed, verify no overlap
+  if (updateData.staff_id || updateData.start_at || updateData.end_at) {
+    // Look up current row to know current shop/staff/time
+    const { data: current } = await supabase
+      .from("appointments")
+      .select("shop_id, staff_id, start_at, end_at")
+      .eq("id", id)
+      .single();
+    if (current) {
+      const check = await checkStaffAvailability({
+        shopId: current.shop_id as number,
+        staffId: (updateData.staff_id as number) ?? (current.staff_id as number),
+        startAt: (updateData.start_at as string) ?? (current.start_at as string),
+        endAt: (updateData.end_at as string) ?? (current.end_at as string),
+        excludeAppointmentId: id,
+      });
+      if (!check.available && check.conflict) {
+        return { error: conflictMessage(check.conflict) };
+      }
+    }
+  }
 
   const { error } = await supabase
     .from("appointments")

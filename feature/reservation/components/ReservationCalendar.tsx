@@ -391,7 +391,13 @@ export function ReservationCalendar({
                           {appt.customerName}
                         </span>
                         {isNew ? (
-                          <span className="rounded bg-red-500 px-1.5 py-0 text-[10px] font-bold text-white">
+                          <span
+                            className="rounded px-1.5 py-0 text-[10px] font-bold"
+                            style={{
+                              backgroundColor: appt.sourceColor ?? "#ef4444",
+                              color: appt.sourceTextColor ?? "#ffffff",
+                            }}
+                          >
                             {appt.source ? `${appt.source}新規` : "新規"}
                           </span>
                         ) : (
