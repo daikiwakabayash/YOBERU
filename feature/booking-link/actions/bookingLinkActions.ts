@@ -122,6 +122,8 @@ export async function submitPublicBooking(formData: FormData) {
   const endAt = String(raw.end_at);
   const lastName = String(raw.last_name || "");
   const firstName = String(raw.first_name || "");
+  const lastNameKana = String(raw.last_name_kana || "") || null;
+  const firstNameKana = String(raw.first_name_kana || "") || null;
   const phone = String(raw.phone || "");
   const email = String(raw.email || "") || null;
   const utmSource = String(raw.utm_source || "") || null;
@@ -165,6 +167,8 @@ export async function submitPublicBooking(formData: FormData) {
         code: nextCode,
         last_name: lastName,
         first_name: firstName || null,
+        last_name_kana: lastNameKana,
+        first_name_kana: firstNameKana,
         phone_number_1: phone,
         email,
         type: 0,
