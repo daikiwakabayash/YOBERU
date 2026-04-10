@@ -30,15 +30,25 @@ export async function createBookingLink(formData: FormData) {
   const supabase = await createClient();
   const raw = Object.fromEntries(formData.entries());
   const parsed = parseForm(raw);
-  if (!parsed.success) return { error: parsed.error.flatten().fieldErrors };
+  if (!parsed.success) {
+    return { error: parsed.error.flatten().fieldErrors };
+  }
 
   // Convert empty strings to null
   const insertData = Object.fromEntries(
     Object.entries(parsed.data).map(([k, v]) => [k, v === "" ? null : v])
   );
 
-  const { error } = await supabase.from("booking_links").insert(insertData);
-  if (error) return { error: error.message };
+  try {
+    const { error } = await supabase.from("booking_links").insert(insertData);
+    if (error) {
+      return { error: error.message };
+    }
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : "データベースエラー",
+    };
+  }
   revalidatePath("/booking-link");
   return { success: true };
 }
@@ -82,12 +92,24 @@ export async function submitPublicBooking(formData: FormData) {
   const raw = Object.fromEntries(formData.entries());
 
   const slug = String(raw.slug);
-  const link = await supabase
-    .from("booking_links")
-    .select("*")
-    .eq("slug", slug)
-    .is("deleted_at", null)
-    .single();
+
+  // Lookup booking link (may fail if table missing)
+  let link;
+  try {
+    link = await supabase
+      .from("booking_links")
+      .select("*")
+      .eq("slug", slug)
+      .is("deleted_at", null)
+      .single();
+  } catch (err) {
+    return {
+      error:
+        err instanceof Error && err.message.includes("does not exist")
+          ? "データベースのセットアップが必要です"
+          : "予約リンクの読み込みに失敗しました",
+    };
+  }
   if (link.error || !link.data) {
     return { error: "予約リンクが無効です" };
   }

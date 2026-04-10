@@ -12,6 +12,25 @@ import type { WeeklyCalendarData } from "@/feature/reservation/services/getWeekl
 const SHOP_ID = 1;
 const BRAND_ID = 1;
 
+// Disable caching so master updates reflect immediately
+export const dynamic = "force-dynamic";
+
+/**
+ * Safe query helper — returns empty array on error so missing tables
+ * don't break the whole page.
+ */
+async function safeQuery<T>(
+  query: PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  try {
+    const result = await query;
+    if (result.error) return [];
+    return result.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export default async function ReservationPage({
   searchParams,
 }: {
@@ -24,37 +43,50 @@ export default async function ReservationPage({
 
   const supabase = await createClient();
 
-  // Parallel fetch: staff list + menus + visit sources + payment methods + calendar data
-  const [staffRes, menuRes, sourceRes, paymentRes, dayData, weekDataEarly] =
+  // Parallel fetch: each query is independent & resilient to missing tables
+  const [allStaffs, menus, visitSources, paymentMethods, dayData, weekDataEarly] =
     await Promise.all([
-      supabase
-        .from("staffs")
-        .select("id, name")
-        .eq("shop_id", SHOP_ID)
-        .is("deleted_at", null)
-        .eq("is_public", true)
-        .order("allocate_order", { ascending: true, nullsFirst: false }),
-      supabase
-        .from("menus")
-        .select("menu_manage_id, name, price, duration")
-        .eq("shop_id", SHOP_ID)
-        .eq("status", true)
-        .is("deleted_at", null)
-        .order("sort_number"),
-      supabase
-        .from("visit_sources")
-        .select("id, name")
-        .eq("shop_id", SHOP_ID)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .order("sort_number"),
-      supabase
-        .from("payment_methods")
-        .select("code, name")
-        .eq("shop_id", SHOP_ID)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .order("sort_number"),
+      safeQuery<{ id: number; name: string }>(
+        supabase
+          .from("staffs")
+          .select("id, name")
+          .eq("shop_id", SHOP_ID)
+          .is("deleted_at", null)
+          .eq("is_public", true)
+          .order("allocate_order", { ascending: true, nullsFirst: false })
+      ),
+      safeQuery<{
+        menu_manage_id: string;
+        name: string;
+        price: number;
+        duration: number;
+      }>(
+        supabase
+          .from("menus")
+          .select("menu_manage_id, name, price, duration")
+          .eq("brand_id", BRAND_ID)
+          .or(`shop_id.is.null,shop_id.eq.${SHOP_ID}`)
+          .is("deleted_at", null)
+          .order("sort_number")
+      ),
+      safeQuery<{ id: number; name: string }>(
+        supabase
+          .from("visit_sources")
+          .select("id, name")
+          .eq("shop_id", SHOP_ID)
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("sort_number")
+      ),
+      safeQuery<{ code: string; name: string }>(
+        supabase
+          .from("payment_methods")
+          .select("code, name")
+          .eq("shop_id", SHOP_ID)
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("sort_number")
+      ),
       viewMode === "day"
         ? getCalendarData(SHOP_ID, date).catch(() => null)
         : Promise.resolve(null),
@@ -62,17 +94,6 @@ export default async function ReservationPage({
         ? getWeeklyCalendarData(SHOP_ID, date, staffId).catch(() => null)
         : Promise.resolve(null),
     ]);
-
-  const allStaffs: Array<{ id: number; name: string }> = staffRes.data ?? [];
-  const menus: Array<{
-    menu_manage_id: string;
-    name: string;
-    price: number;
-    duration: number;
-  }> = menuRes.data ?? [];
-  const visitSources: Array<{ id: number; name: string }> = sourceRes.data ?? [];
-  const paymentMethods: Array<{ code: string; name: string }> =
-    paymentRes.data ?? [];
 
   // Auto-select first staff if week view and no staff selected
   const effectiveStaffId =
@@ -82,7 +103,6 @@ export default async function ReservationPage({
 
   if (viewMode === "week") {
     let weekData: WeeklyCalendarData | null = weekDataEarly;
-    // If staff was auto-selected (not in URL), fetch now
     if (!weekData && effectiveStaffId) {
       try {
         weekData = await getWeeklyCalendarData(SHOP_ID, date, effectiveStaffId);

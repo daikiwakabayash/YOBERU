@@ -3,9 +3,23 @@ import { getBookingLinkBySlug } from "@/feature/booking-link/services/getBooking
 import { createClient } from "@/helper/lib/supabase/server";
 import { PublicBookingForm } from "@/feature/booking-link/components/PublicBookingForm";
 
+export const dynamic = "force-dynamic";
+
 interface PublicBookingPageProps {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ utm_source?: string }>;
+}
+
+async function safeQuery<T>(
+  query: PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  try {
+    const result = await query;
+    if (result.error) return [];
+    return result.data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export default async function PublicBookingPage({
@@ -26,42 +40,49 @@ export default async function PublicBookingPage({
       ? link.menu_manage_ids
       : [];
 
-  let menus: Array<{
-    menu_manage_id: string;
-    name: string;
-    price: number;
-    duration: number;
-  }> = [];
-  if (menuIds.length > 0) {
-    const { data } = await supabase
-      .from("menus")
-      .select("menu_manage_id, name, price, duration")
-      .in("menu_manage_id", menuIds)
-      .is("deleted_at", null)
-      .order("sort_number");
-    menus = data ?? [];
-  }
+  const menus = menuIds.length > 0
+    ? await safeQuery<{
+        menu_manage_id: string;
+        name: string;
+        price: number;
+        duration: number;
+      }>(
+        supabase
+          .from("menus")
+          .select("menu_manage_id, name, price, duration")
+          .in("menu_manage_id", menuIds)
+          .is("deleted_at", null)
+          .order("sort_number")
+      )
+    : [];
 
-  // Load shop info
-  const { data: shop } = await supabase
-    .from("shops")
-    .select("id, name")
-    .eq("id", link.shop_id ?? 1)
-    .is("deleted_at", null)
-    .single();
+  // Load shop info (single row query)
+  let shop: { id: number; name: string } | null = null;
+  try {
+    const { data } = await supabase
+      .from("shops")
+      .select("id, name")
+      .eq("id", link.shop_id ?? 1)
+      .is("deleted_at", null)
+      .single();
+    shop = data;
+  } catch {
+    shop = null;
+  }
 
   // Load staffs (if staff designation is allowed)
-  let staffs: Array<{ id: number; name: string }> = [];
-  if (link.staff_mode !== 2 && shop) {
-    const { data } = await supabase
-      .from("staffs")
-      .select("id, name")
-      .eq("shop_id", shop.id)
-      .eq("is_public", true)
-      .is("deleted_at", null)
-      .order("allocate_order", { ascending: true, nullsFirst: false });
-    staffs = data ?? [];
-  }
+  const staffs =
+    link.staff_mode !== 2 && shop
+      ? await safeQuery<{ id: number; name: string }>(
+          supabase
+            .from("staffs")
+            .select("id, name")
+            .eq("shop_id", shop.id)
+            .eq("is_public", true)
+            .is("deleted_at", null)
+            .order("allocate_order", { ascending: true, nullsFirst: false })
+        )
+      : [];
 
   return (
     <div className="min-h-screen bg-gray-50">

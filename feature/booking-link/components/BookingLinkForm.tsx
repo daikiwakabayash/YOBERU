@@ -114,11 +114,28 @@ export function BookingLinkForm({
 
     setSaving(false);
     if ("error" in result && result.error) {
-      toast.error(
+      const errStr =
         typeof result.error === "string"
           ? result.error
-          : "保存に失敗しました（入力を確認してください）"
-      );
+          : JSON.stringify(result.error);
+      if (
+        errStr.includes("does not exist") ||
+        errStr.includes("schema cache") ||
+        errStr.includes("booking_links")
+      ) {
+        toast.error(
+          "データベースのセットアップが必要です。一覧画面から案内に従ってSQLを実行してください。",
+          { duration: 8000 }
+        );
+      } else if (errStr.includes("duplicate") || errStr.includes("unique")) {
+        toast.error("このURLスラッグはすでに使用されています");
+      } else {
+        toast.error(
+          typeof result.error === "string"
+            ? result.error
+            : "保存に失敗しました（入力を確認してください）"
+        );
+      }
       return;
     }
     toast.success(isEdit ? "更新しました" : "作成しました");

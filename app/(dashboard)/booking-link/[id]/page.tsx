@@ -7,8 +7,22 @@ import { createClient } from "@/helper/lib/supabase/server";
 const SHOP_ID = 1;
 const BRAND_ID = 1;
 
+export const dynamic = "force-dynamic";
+
 interface BookingLinkEditPageProps {
   params: Promise<{ id: string }>;
+}
+
+async function safeQuery<T>(
+  query: PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  try {
+    const result = await query;
+    if (result.error) return [];
+    return result.data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export default async function BookingLinkEditPage({
@@ -23,52 +37,53 @@ export default async function BookingLinkEditPage({
 
   const supabase = await createClient();
 
-  const [menuRes, sourceRes, categoryRes] = await Promise.all([
-    supabase
-      .from("menus")
-      .select("menu_manage_id, name, price, duration, menu_category_id")
-      .eq("shop_id", SHOP_ID)
-      .eq("status", true)
-      .is("deleted_at", null)
-      .order("sort_number"),
-    supabase
-      .from("visit_sources")
-      .select("id, name")
-      .eq("shop_id", SHOP_ID)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .order("sort_number"),
-    supabase
-      .from("menu_categories")
-      .select("id, name")
-      .eq("shop_id", SHOP_ID)
-      .is("deleted_at", null)
-      .order("sort_number"),
-  ]);
-
-  const categoryMap = new Map(
-    (categoryRes.data ?? []).map(
-      (c: { id: number; name: string }) => [c.id, c.name]
-    )
-  );
-
-  const menus = (menuRes.data ?? []).map(
-    (m: {
+  const [menuData, sourceData, categoryData] = await Promise.all([
+    safeQuery<{
       menu_manage_id: string;
       name: string;
       price: number;
       duration: number;
-      menu_category_id: number | null;
-    }) => ({
-      menu_manage_id: m.menu_manage_id,
-      name: m.name,
-      price: m.price,
-      duration: m.duration,
-      category_name: m.menu_category_id
-        ? categoryMap.get(m.menu_category_id) ?? null
-        : null,
-    })
-  );
+      category_id: number | null;
+    }>(
+      supabase
+        .from("menus")
+        .select("menu_manage_id, name, price, duration, category_id")
+        .eq("brand_id", BRAND_ID)
+        .or(`shop_id.is.null,shop_id.eq.${SHOP_ID}`)
+        .is("deleted_at", null)
+        .order("sort_number")
+    ),
+    safeQuery<{ id: number; name: string }>(
+      supabase
+        .from("visit_sources")
+        .select("id, name")
+        .eq("shop_id", SHOP_ID)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("sort_number")
+    ),
+    safeQuery<{ id: number; name: string }>(
+      supabase
+        .from("menu_categories")
+        .select("id, name")
+        .eq("brand_id", BRAND_ID)
+        .or(`shop_id.is.null,shop_id.eq.${SHOP_ID}`)
+        .is("deleted_at", null)
+        .order("sort_number")
+    ),
+  ]);
+
+  const categoryMap = new Map(categoryData.map((c) => [c.id, c.name]));
+
+  const menus = menuData.map((m) => ({
+    menu_manage_id: m.menu_manage_id,
+    name: m.name,
+    price: m.price,
+    duration: m.duration,
+    category_name: m.category_id
+      ? categoryMap.get(m.category_id) ?? null
+      : null,
+  }));
 
   return (
     <div>
@@ -77,7 +92,7 @@ export default async function BookingLinkEditPage({
         <BookingLinkForm
           brandId={BRAND_ID}
           menus={menus}
-          visitSources={sourceRes.data ?? []}
+          visitSources={sourceData}
           initialData={link}
         />
       </div>
