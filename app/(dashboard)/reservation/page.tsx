@@ -2,12 +2,14 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { ReservationCalendar } from "@/feature/reservation/components/ReservationCalendar";
 import { WeeklyReservationCalendar } from "@/feature/reservation/components/WeeklyReservationCalendar";
 import { ReservationCalendarToolbar } from "@/feature/reservation/components/ReservationCalendarToolbar";
+import { DateResetOnReload } from "@/feature/reservation/components/DateResetOnReload";
 import { getCalendarData } from "@/feature/reservation/services/getCalendarData";
 import { getWeeklyCalendarData } from "@/feature/reservation/services/getWeeklyCalendarData";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
 import { createClient } from "@/helper/lib/supabase/server";
 import type { CalendarData } from "@/feature/reservation/types";
 import type { WeeklyCalendarData } from "@/feature/reservation/services/getWeeklyCalendarData";
+import { Suspense } from "react";
 
 const SHOP_ID = 1;
 const BRAND_ID = 1;
@@ -122,6 +124,9 @@ export default async function ReservationPage({
 
     return (
       <div>
+        <Suspense fallback={null}>
+          <DateResetOnReload />
+        </Suspense>
         <PageHeader
           title="予約表"
           actions={
@@ -158,6 +163,9 @@ export default async function ReservationPage({
 
   return (
     <div>
+      <Suspense fallback={null}>
+        <DateResetOnReload />
+      </Suspense>
       <PageHeader
         title="予約表"
         actions={

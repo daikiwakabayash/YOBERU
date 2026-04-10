@@ -441,8 +441,16 @@ export function ReservationCalendar({
         </div>
       </div>
 
-      {/* Booking / Detail Sheet */}
+      {/* Booking / Detail Sheet — key forces remount on selection change
+          so initial form state is re-derived from the new appointment. */}
       <AppointmentDetailSheet
+        key={
+          selectedAppt
+            ? `appt-${selectedAppt.id}`
+            : newBooking
+              ? `new-${newBooking.date}-${newBooking.time}-${newBooking.staffId}`
+              : "closed"
+        }
         open={sheetOpen}
         onClose={() => {
           setSelectedAppt(null);

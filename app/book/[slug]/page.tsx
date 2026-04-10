@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getBookingLinkBySlug } from "@/feature/booking-link/services/getBookingLinks";
 import { createClient } from "@/helper/lib/supabase/server";
-import { PublicBookingForm } from "@/feature/booking-link/components/PublicBookingForm";
+import { PublicBookingWizard } from "@/feature/booking-link/components/PublicBookingWizard";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,20 @@ async function safeQuery<T>(
   }
 }
 
+export interface PublicShop {
+  id: number;
+  name: string;
+  area_id: number | null;
+  zip_code: string | null;
+  address: string | null;
+  nearest_station_access: string | null;
+}
+
+export interface PublicArea {
+  id: number;
+  name: string;
+}
+
 export default async function PublicBookingPage({
   params,
   searchParams,
@@ -34,50 +48,75 @@ export default async function PublicBookingPage({
 
   const supabase = await createClient();
 
-  // Load menus from the link's menu_manage_ids
+  // Load menus from link's menu_manage_ids
   const menuIds =
     Array.isArray(link.menu_manage_ids) && link.menu_manage_ids.length > 0
       ? link.menu_manage_ids
       : [];
 
-  const menus = menuIds.length > 0
-    ? await safeQuery<{
-        menu_manage_id: string;
-        name: string;
-        price: number;
-        duration: number;
-      }>(
-        supabase
-          .from("menus")
-          .select("menu_manage_id, name, price, duration")
-          .in("menu_manage_id", menuIds)
-          .is("deleted_at", null)
-          .order("sort_number")
-      )
-    : [];
+  const menus =
+    menuIds.length > 0
+      ? await safeQuery<{
+          menu_manage_id: string;
+          name: string;
+          price: number;
+          duration: number;
+        }>(
+          supabase
+            .from("menus")
+            .select("menu_manage_id, name, price, duration")
+            .in("menu_manage_id", menuIds)
+            .is("deleted_at", null)
+            .order("sort_number")
+        )
+      : [];
 
-  // Load shop info (single row query)
-  let shop: { id: number; name: string } | null = null;
-  try {
-    const { data } = await supabase
-      .from("shops")
-      .select("id, name")
-      .eq("id", link.shop_id ?? 1)
-      .is("deleted_at", null)
-      .single();
-    shop = data;
-  } catch {
-    shop = null;
+  // Load shops - filtered by brand_id, and if shop_id specified on link, only that one
+  let shops: PublicShop[] = [];
+  if (link.shop_id) {
+    shops = await safeQuery<PublicShop>(
+      supabase
+        .from("shops")
+        .select("id, name, area_id, zip_code, address, nearest_station_access")
+        .eq("id", link.shop_id)
+        .is("deleted_at", null)
+    );
+  } else {
+    shops = await safeQuery<PublicShop>(
+      supabase
+        .from("shops")
+        .select("id, name, area_id, zip_code, address, nearest_station_access")
+        .eq("brand_id", link.brand_id)
+        .eq("is_public", true)
+        .is("deleted_at", null)
+        .order("sort_number")
+    );
   }
 
-  // Load staffs (if staff designation is allowed)
+  // Load areas referenced by shops
+  const areaIds = Array.from(
+    new Set(shops.map((s) => s.area_id).filter((id): id is number => id != null))
+  );
+  const areas: PublicArea[] =
+    areaIds.length > 0
+      ? await safeQuery<PublicArea>(
+          supabase
+            .from("areas")
+            .select("id, name")
+            .in("id", areaIds)
+            .order("sort_number")
+        )
+      : [];
+
+  // Load all staffs for the shops (group by shop_id on client)
+  const shopIds = shops.map((s) => s.id);
   const staffs =
-    link.staff_mode !== 2 && shop
-      ? await safeQuery<{ id: number; name: string }>(
+    shopIds.length > 0
+      ? await safeQuery<{ id: number; name: string; shop_id: number }>(
           supabase
             .from("staffs")
-            .select("id, name")
-            .eq("shop_id", shop.id)
+            .select("id, name, shop_id")
+            .in("shop_id", shopIds)
             .eq("is_public", true)
             .is("deleted_at", null)
             .order("allocate_order", { ascending: true, nullsFirst: false })
@@ -85,36 +124,25 @@ export default async function PublicBookingPage({
       : [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-2xl px-4 py-8">
-        {/* Header */}
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">
-            {link.alias_menu_name ?? link.title}
-          </h1>
-          {shop && (
-            <p className="mt-1 text-sm text-gray-600">{shop.name}</p>
-          )}
-        </div>
-
-        {/* Form */}
-        <PublicBookingForm
-          link={{
-            slug: link.slug,
-            title: link.title,
-            staff_mode: link.staff_mode,
-            require_cancel_policy: link.require_cancel_policy,
-            cancel_policy_text: link.cancel_policy_text,
-            show_line_button: link.show_line_button,
-            line_button_text: link.line_button_text,
-            line_button_url: link.line_button_url,
-          }}
-          shopId={shop?.id ?? link.shop_id ?? 1}
-          menus={menus}
-          staffs={staffs}
-          utmSource={utm_source ?? null}
-        />
-      </div>
+    <div className="min-h-screen bg-white">
+      <PublicBookingWizard
+        link={{
+          slug: link.slug,
+          title: link.title,
+          staff_mode: link.staff_mode,
+          require_cancel_policy: link.require_cancel_policy,
+          cancel_policy_text: link.cancel_policy_text,
+          show_line_button: link.show_line_button,
+          line_button_text: link.line_button_text,
+          line_button_url: link.line_button_url,
+          alias_menu_name: link.alias_menu_name,
+        }}
+        areas={areas}
+        shops={shops}
+        staffs={staffs}
+        menus={menus}
+        utmSource={utm_source ?? null}
+      />
     </div>
   );
 }

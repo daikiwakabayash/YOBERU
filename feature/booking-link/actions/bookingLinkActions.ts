@@ -23,6 +23,9 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
     line_button_text: raw.line_button_text || null,
     line_button_url: raw.line_button_url || null,
     visit_source_id: raw.visit_source_id ? Number(raw.visit_source_id) : null,
+    reminder_settings: raw.reminder_settings
+      ? JSON.parse(String(raw.reminder_settings))
+      : [],
   });
 }
 
@@ -71,6 +74,70 @@ export async function updateBookingLink(id: number, formData: FormData) {
   revalidatePath("/booking-link");
   revalidatePath(`/booking-link/${id}`);
   return { success: true };
+}
+
+/**
+ * Duplicate a booking link. Copies all settings into a new row with a
+ * fresh auto-generated slug and appends "（コピー）" to the title.
+ * Returns the new link's id so the caller can navigate to its edit page.
+ */
+export async function duplicateBookingLink(
+  id: number
+): Promise<{ success: true; id: number } | { error: string }> {
+  const supabase = await createClient();
+
+  // Load original
+  const { data: original, error: fetchErr } = await supabase
+    .from("booking_links")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .single();
+  if (fetchErr || !original) {
+    return { error: "コピー元のリンクが見つかりません" };
+  }
+
+  // Generate a new slug by appending a short timestamp.
+  const ts = Date.now().toString(36);
+  const baseSlug = String(original.slug ?? "link");
+  let newSlug = `${baseSlug}-copy-${ts}`;
+  // If slug is unexpectedly long, trim to 64 chars
+  if (newSlug.length > 64) newSlug = newSlug.slice(0, 64);
+
+  const clone: Record<string, unknown> = {
+    brand_id: original.brand_id,
+    shop_id: original.shop_id,
+    slug: newSlug,
+    title: `${original.title}（コピー）`.slice(0, 128),
+    memo: original.memo,
+    language: original.language,
+    menu_manage_ids: original.menu_manage_ids,
+    alias_menu_name: original.alias_menu_name,
+    staff_mode: original.staff_mode,
+    require_cancel_policy: original.require_cancel_policy,
+    cancel_policy_text: original.cancel_policy_text,
+    show_line_button: original.show_line_button,
+    line_button_text: original.line_button_text,
+    line_button_url: original.line_button_url,
+    visit_source_id: original.visit_source_id,
+  };
+  // Include reminder_settings if the column exists on the original row
+  if ("reminder_settings" in original) {
+    clone.reminder_settings = (original as Record<string, unknown>)
+      .reminder_settings;
+  }
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from("booking_links")
+    .insert(clone)
+    .select("id")
+    .single();
+  if (insertErr || !inserted) {
+    return { error: insertErr?.message ?? "コピーに失敗しました" };
+  }
+
+  revalidatePath("/booking-link");
+  return { success: true, id: inserted.id as number };
 }
 
 export async function deleteBookingLink(id: number) {
@@ -122,6 +189,8 @@ export async function submitPublicBooking(formData: FormData) {
   const endAt = String(raw.end_at);
   const lastName = String(raw.last_name || "");
   const firstName = String(raw.first_name || "");
+  const lastNameKana = String(raw.last_name_kana || "") || null;
+  const firstNameKana = String(raw.first_name_kana || "") || null;
   const phone = String(raw.phone || "");
   const email = String(raw.email || "") || null;
   const utmSource = String(raw.utm_source || "") || null;
@@ -165,6 +234,8 @@ export async function submitPublicBooking(formData: FormData) {
         code: nextCode,
         last_name: lastName,
         first_name: firstName || null,
+        last_name_kana: lastNameKana,
+        first_name_kana: firstNameKana,
         phone_number_1: phone,
         email,
         type: 0,

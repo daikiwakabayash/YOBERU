@@ -71,6 +71,31 @@ BEGIN
       FOR EACH ROW EXECUTE FUNCTION update_updated_at();
   END IF;
 END $$;
+
+-- ============================================================
+-- Migration 004: リマインドメール設定
+-- ============================================================
+
+-- booking_links に reminder_settings カラムを追加
+ALTER TABLE booking_links
+  ADD COLUMN IF NOT EXISTS reminder_settings JSONB DEFAULT '[]'::jsonb;
+
+-- リマインド送信ログ (重複送信防止)
+CREATE TABLE IF NOT EXISTS reminder_logs (
+  id BIGSERIAL PRIMARY KEY,
+  appointment_id BIGINT NOT NULL,
+  booking_link_id INT,
+  type VARCHAR(16) NOT NULL,
+  offset_days INT NOT NULL,
+  sent_at TIMESTAMPTZ DEFAULT NOW(),
+  status VARCHAR(16) DEFAULT 'sent',
+  error_message TEXT,
+  UNIQUE (appointment_id, type, offset_days)
+);
+CREATE INDEX IF NOT EXISTS idx_reminder_logs_appointment
+  ON reminder_logs (appointment_id);
+CREATE INDEX IF NOT EXISTS idx_reminder_logs_sent_at
+  ON reminder_logs (sent_at);
 `;
 
 export function SetupRequiredNotice() {

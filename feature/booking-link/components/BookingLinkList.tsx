@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -10,16 +12,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Copy, Trash2, Pencil } from "lucide-react";
+import { Copy, Trash2, Pencil, Files } from "lucide-react";
 import { toast } from "sonner";
 import type { BookingLink } from "../types";
-import { deleteBookingLink } from "../actions/bookingLinkActions";
+import {
+  deleteBookingLink,
+  duplicateBookingLink,
+} from "../actions/bookingLinkActions";
 
 interface BookingLinkListProps {
   links: BookingLink[];
 }
 
 export function BookingLinkList({ links }: BookingLinkListProps) {
+  const router = useRouter();
+  const [duplicatingId, setDuplicatingId] = useState<number | null>(null);
+
   async function handleDelete(id: number, title: string) {
     if (!confirm(`「${title}」を削除しますか？`)) return;
     const result = await deleteBookingLink(id);
@@ -27,6 +35,21 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
       toast.error("削除に失敗しました");
     } else {
       toast.success("削除しました");
+    }
+  }
+
+  async function handleDuplicate(id: number, title: string) {
+    setDuplicatingId(id);
+    const result = await duplicateBookingLink(id);
+    setDuplicatingId(null);
+    if ("error" in result && result.error) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(`「${title}」をコピーしました`);
+    // Navigate to the new link's edit page
+    if ("id" in result && result.id) {
+      router.push(`/booking-link/${result.id}`);
     }
   }
 
@@ -57,7 +80,7 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
             <TableHead>スラッグ</TableHead>
             <TableHead className="w-24">作成日</TableHead>
             <TableHead className="w-60 text-center">URL操作</TableHead>
-            <TableHead className="w-32 text-center">操作</TableHead>
+            <TableHead className="w-40 text-center">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -122,6 +145,16 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
                     <Button
                       variant="ghost"
                       size="sm"
+                      title="複製"
+                      disabled={duplicatingId === link.id}
+                      onClick={() => handleDuplicate(link.id, link.title)}
+                    >
+                      <Files className="h-4 w-4 text-blue-500" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      title="削除"
                       onClick={() => handleDelete(link.id, link.title)}
                     >
                       <Trash2 className="h-4 w-4 text-red-500" />

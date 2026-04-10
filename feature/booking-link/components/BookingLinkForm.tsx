@@ -15,6 +15,7 @@ import {
   createBookingLink,
   updateBookingLink,
 } from "../actions/bookingLinkActions";
+import { ReminderSettingsSection } from "./ReminderSettingsSection";
 
 interface BookingLinkFormProps {
   brandId: number;
@@ -67,6 +68,9 @@ export function BookingLinkForm({
   const [visitSourceId, setVisitSourceId] = useState<number | null>(
     initialData?.visit_source_id ?? null
   );
+  const [reminderSettings, setReminderSettings] = useState<
+    import("../types").ReminderSetting[]
+  >(initialData?.reminder_settings ?? []);
   const [saving, setSaving] = useState(false);
 
   // Group menus by category
@@ -107,6 +111,7 @@ export function BookingLinkForm({
     form.set("line_button_text", lineButtonText);
     form.set("line_button_url", lineButtonUrl);
     if (visitSourceId) form.set("visit_source_id", String(visitSourceId));
+    form.set("reminder_settings", JSON.stringify(reminderSettings));
 
     const result = isEdit
       ? await updateBookingLink(initialData!.id, form)
@@ -366,6 +371,19 @@ export function BookingLinkForm({
           <p className="mt-2 text-xs text-muted-foreground">
             このリンクから予約した顧客はこの媒体で自動タグ付けされます。
           </p>
+        </CardContent>
+      </Card>
+
+      {/* Reminder settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">リマインド設定</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ReminderSettingsSection
+            value={reminderSettings}
+            onChange={setReminderSettings}
+          />
         </CardContent>
       </Card>
 
