@@ -50,8 +50,15 @@ CREATE TABLE IF NOT EXISTS booking_links (
 CREATE INDEX IF NOT EXISTS idx_booking_links_brand ON booking_links (brand_id);
 CREATE INDEX IF NOT EXISTS idx_booking_links_slug ON booking_links (slug);
 
--- updated_at triggers
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON payment_methods
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON booking_links
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- updated_at triggers (idempotent: drop if exists, then create)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at') THEN
+    DROP TRIGGER IF EXISTS set_updated_at ON payment_methods;
+    CREATE TRIGGER set_updated_at BEFORE UPDATE ON payment_methods
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    DROP TRIGGER IF EXISTS set_updated_at ON booking_links;
+    CREATE TRIGGER set_updated_at BEFORE UPDATE ON booking_links
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  END IF;
+END $$;
