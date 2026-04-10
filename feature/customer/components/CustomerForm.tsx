@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { createCustomer, updateCustomer } from "../actions/customerActions";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 interface CustomerFormProps {
   brandId: number;
@@ -41,6 +42,7 @@ export function CustomerForm({
   staffs,
   initialData,
 }: CustomerFormProps) {
+  const router = useRouter();
   const isEdit = !!initialData;
 
   const form = useForm<CustomerFormValues>({
@@ -94,7 +96,11 @@ export function CustomerForm({
     }
 
     toast.success(isEdit ? "顧客情報を更新しました" : "顧客を登録しました");
-    if (!isEdit) form.reset();
+    if (isEdit) {
+      router.push(`/customer/${initialData!.id}`);
+    } else {
+      router.push("/customer");
+    }
   }
 
   return (
