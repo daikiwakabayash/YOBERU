@@ -86,14 +86,15 @@ INSERT INTO menus (
 )
 SELECT
   1 AS brand_id,
-  NULL AS shop_id,
+  NULL::bigint AS shop_id,
   (SELECT id FROM menu_categories WHERE brand_id = 1 AND name = '会員プラン' AND deleted_at IS NULL LIMIT 1) AS category_id,
   plan.menu_manage_id,
-  0 AS menu_type,
+  0::smallint AS menu_type,
   plan.name,
   plan.price,
   plan.duration,
-  1 AS status,
+  -- menus.status is BOOLEAN (NOT INT). TRUE = "active / shown to staff".
+  TRUE AS status,
   plan.sort_number
 FROM (VALUES
   ('BRD-PLAN-NAORU',         'NAORUプラン',         24750,   0,  1),
