@@ -232,7 +232,7 @@ export function ReservationCalendar({
         {/* Grid body */}
         <div
           ref={gridRef}
-          className="relative flex"
+          className="relative flex border-t-2 border-gray-300"
           style={{
             minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH,
             height: totalHeight,
@@ -277,7 +277,10 @@ export function ReservationCalendar({
                 className="relative shrink-0 border-r"
                 style={{ width: STAFF_COL_WIDTH }}
               >
-                {/* Grid lines + clickable cells */}
+                {/* Grid lines + clickable cells.
+                    The very first row's top edge is drawn by the grid
+                    container's `border-t-2` so 9:00 has a clearly
+                    visible horizontal line. */}
                 {timeSlots.map((slot, idx) => {
                   const isHour = slot.endsWith(":00");
                   const slotMin = timeToMinutes(slot);

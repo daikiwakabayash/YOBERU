@@ -15,13 +15,39 @@ export interface AdSpendRow {
 }
 
 /**
+ * Detect "table doesn't exist" Supabase / PostgREST errors. Used to
+ * surface a clean "migration not run yet" banner instead of a raw error.
+ */
+export async function isMissingAdSpendTable(error: unknown): Promise<boolean> {
+  if (!error || typeof error !== "object") return false;
+  const msg = String((error as { message?: string }).message ?? "");
+  const code = (error as { code?: string }).code;
+  return (
+    msg.includes("does not exist") ||
+    msg.includes("schema cache") ||
+    msg.toLowerCase().includes("ad_spend") ||
+    code === "42P01" ||
+    code === "PGRST205"
+  );
+}
+
+export interface AdSpendListResult {
+  rows: AdSpendRow[];
+  setupRequired: boolean;
+}
+
+/**
  * Fetch ad_spend rows for a shop (and optional month range). Joined with
- * visit_sources and shops via separate lookups (no implicit FK join).
+ * visit_sources via a separate lookup (no implicit FK join).
+ *
+ * If the underlying table doesn't exist yet (migration 00007 not yet
+ * applied) returns `setupRequired: true` so the page can render a
+ * helpful banner instead of crashing.
  */
 export async function getAdSpendRows(
   shopId: number,
   options?: { startMonth?: string; endMonth?: string }
-): Promise<AdSpendRow[]> {
+): Promise<AdSpendListResult> {
   const supabase = await createClient();
   try {
     let q = supabase
@@ -34,7 +60,12 @@ export async function getAdSpendRows(
     if (options?.startMonth) q = q.gte("year_month", options.startMonth);
     if (options?.endMonth) q = q.lte("year_month", options.endMonth);
     const { data, error } = await q;
-    if (error) return [];
+    if (error) {
+      if (await isMissingAdSpendTable(error)) {
+        return { rows: [], setupRequired: true };
+      }
+      return { rows: [], setupRequired: false };
+    }
     const rows = (data ?? []) as AdSpendRow[];
 
     // Enrich with visit_source name via a single separate query
@@ -51,15 +82,19 @@ export async function getAdSpendRows(
         r.source_name = nameMap.get(r.visit_source_id) ?? null;
       }
     }
-    return rows;
-  } catch {
-    return [];
+    return { rows, setupRequired: false };
+  } catch (e) {
+    if (await isMissingAdSpendTable(e)) {
+      return { rows: [], setupRequired: true };
+    }
+    return { rows: [], setupRequired: false };
   }
 }
 
 /**
  * Sum of ad spend grouped by year_month × visit_source_id, scoped to one
- * shop. Used by the marketing dashboard aggregation.
+ * shop. Used by the marketing dashboard aggregation. Returns empty array
+ * for any error (including missing table) so dashboards keep rendering.
  */
 export async function getAdSpendForRange(
   shopId: number,

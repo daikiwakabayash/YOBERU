@@ -34,8 +34,23 @@ export async function upsertAdSpend(input: UpsertAdSpendInput) {
     return { error: "金額は 0 以上の数値を入力してください" };
   }
 
+  function friendlyError(raw: unknown): string {
+    const msg =
+      raw && typeof raw === "object"
+        ? String((raw as { message?: string }).message ?? "")
+        : String(raw ?? "");
+    if (
+      msg.includes("does not exist") ||
+      msg.includes("schema cache") ||
+      msg.toLowerCase().includes("ad_spend")
+    ) {
+      return "広告費テーブルが未作成です。Supabase で migration 00007_marketing_and_member_plans.sql を実行してください。";
+    }
+    return msg || "広告費の保存に失敗しました";
+  }
+
   try {
-    const { data: existing } = await supabase
+    const { data: existing, error: lookupErr } = await supabase
       .from("ad_spend")
       .select("id")
       .eq("shop_id", input.shop_id)
@@ -43,6 +58,7 @@ export async function upsertAdSpend(input: UpsertAdSpendInput) {
       .eq("year_month", input.year_month)
       .is("deleted_at", null)
       .maybeSingle();
+    if (lookupErr) return { error: friendlyError(lookupErr) };
 
     if (existing?.id) {
       const { error } = await supabase
@@ -52,7 +68,7 @@ export async function upsertAdSpend(input: UpsertAdSpendInput) {
           memo: input.memo ?? null,
         })
         .eq("id", existing.id);
-      if (error) return { error: error.message };
+      if (error) return { error: friendlyError(error) };
     } else {
       const { error } = await supabase.from("ad_spend").insert({
         brand_id: input.brand_id,
@@ -62,16 +78,14 @@ export async function upsertAdSpend(input: UpsertAdSpendInput) {
         amount: input.amount,
         memo: input.memo ?? null,
       });
-      if (error) return { error: error.message };
+      if (error) return { error: friendlyError(error) };
     }
 
     revalidatePath("/ad-spend");
     revalidatePath("/marketing");
     return { success: true };
   } catch (err) {
-    return {
-      error: err instanceof Error ? err.message : "広告費の保存に失敗しました",
-    };
+    return { error: friendlyError(err) };
   }
 }
 

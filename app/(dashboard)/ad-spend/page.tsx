@@ -6,6 +6,7 @@ import {
   getActiveShopId,
 } from "@/helper/lib/shop-context";
 import { createClient } from "@/helper/lib/supabase/server";
+import { AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export default async function AdSpendPage() {
   const brandId = await getActiveBrandId();
 
   const supabase = await createClient();
-  const [rows, sourcesRes, shopRes] = await Promise.all([
+  const [adSpendResult, sourcesRes, shopRes] = await Promise.all([
     getAdSpendRows(shopId),
     supabase
       .from("visit_sources")
@@ -64,14 +65,41 @@ export default async function AdSpendPage() {
         title="広告費"
         description="媒体 × 月で広告費を管理し、マーケティングダッシュボードの CPA / ROAS 計算に使用します"
       />
-      <div className="p-6">
+      <div className="space-y-4 p-6">
+        {adSpendResult.setupRequired && (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div className="text-sm text-amber-900">
+              <div className="font-bold">
+                広告費テーブル (ad_spend) がまだ作成されていません
+              </div>
+              <p className="mt-1 leading-relaxed">
+                Supabase のダッシュボードまたは CLI で
+                <code className="mx-1 rounded bg-white px-1.5 py-0.5 font-mono text-xs">
+                  supabase/migrations/00007_marketing_and_member_plans.sql
+                </code>
+                を実行してください。これで{" "}
+                <code className="mx-1 rounded bg-white px-1.5 py-0.5 font-mono text-xs">
+                  ad_spend
+                </code>{" "}
+                テーブル / appointments.is_member_join カラム / 会員プラン
+                seed が一括で作成されます。
+              </p>
+              <p className="mt-2 text-xs text-amber-700">
+                マイグレーション実行後、このページをリロードすると入力が
+                可能になります。
+              </p>
+            </div>
+          </div>
+        )}
         <AdSpendForm
           brandId={brandId}
           shopId={shopId}
           shopName={shopName}
           visitSources={visitSources}
-          rows={rows}
+          rows={adSpendResult.rows}
           monthOptions={monthOptions()}
+          disabled={adSpendResult.setupRequired}
         />
       </div>
     </div>
