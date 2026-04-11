@@ -29,9 +29,9 @@ export async function getCalendarData(
   // SELECT below uses only columns from migration 00001 + 00002 which
   // every deployment has.
   const FULL_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
   const SAFE_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
 
   function fetchAppointments(select: string) {
     return supabase
@@ -99,6 +99,7 @@ export async function getCalendarData(
     is_member_join?: boolean | null;
     customers:
       | {
+          code: string | null;
           last_name: string | null;
           first_name: string | null;
           phone_number_1: string | null;
@@ -106,6 +107,7 @@ export async function getCalendarData(
           created_at: string | null;
         }
       | Array<{
+          code: string | null;
           last_name: string | null;
           first_name: string | null;
           phone_number_1: string | null;
@@ -234,6 +236,7 @@ export async function getCalendarData(
       ? rawCustomer[0] ?? null
       : rawCustomer) as
       | {
+          code: string | null;
           last_name: string | null;
           first_name: string | null;
           phone_number_1: string | null;
@@ -270,6 +273,7 @@ export async function getCalendarData(
       customerName: customer
         ? `${customer.last_name ?? ""} ${customer.first_name ?? ""}`.trim()
         : "不明",
+      customerCode: customer?.code ?? null,
       customerPhone: customer?.phone_number_1 ?? null,
       menuName: menu?.name ?? "不明",
       startAt: a.start_at,

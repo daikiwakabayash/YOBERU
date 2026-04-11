@@ -25,23 +25,29 @@ export async function createCustomer(formData: FormData) {
     return { error: parsed.error.flatten().fieldErrors };
   }
 
-  // Auto-generate customer code: query max code and pad to 8 digits
+  // Auto-generate the customer code = カルテナンバー.
+  //
+  // カルテナンバーは「小さい数字から連番」がオペレーション要件なので、
+  // 1, 2, 3 ... の文字列で保存する (ゼロ埋めしない)。
+  //
+  // 注意点: customers.code は VARCHAR なので DB のソートは文字列順。
+  // "9" > "10" になってしまうため、max を SQL order で取ると間違った
+  // 番号が返る。全件の code を取ってメモリ側で数値比較する (店舗単位
+  // なのでサイズはたかが知れている)。古いデータのゼロ埋め値 ("00000012"
+  // 等) は parseInt が処理するので混在していても破綻しない。
   const shopId = parsed.data.shop_id;
-  const { data: maxRow } = await supabase
+  const { data: allCodes } = await supabase
     .from("customers")
     .select("code")
     .eq("shop_id", shopId)
-    .order("code", { ascending: false })
-    .limit(1)
-    .single();
+    .is("deleted_at", null);
 
-  let nextCode = "00000001";
-  if (maxRow?.code) {
-    const num = parseInt(maxRow.code, 10);
-    if (!isNaN(num)) {
-      nextCode = String(num + 1).padStart(8, "0");
-    }
+  let maxNumeric = 0;
+  for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
+    const n = parseInt((r.code ?? "0").trim(), 10);
+    if (Number.isFinite(n) && n > maxNumeric) maxNumeric = n;
   }
+  const nextCode = String(maxNumeric + 1);
 
   // Convert empty strings to null for DB compatibility
   const cleanedData: Record<string, unknown> = {};

@@ -45,6 +45,8 @@ export interface CalendarAppointment {
   id: number;
   staffId: number;
   customerName: string;
+  /** カルテ番号 (customers.code) — 名前横に括弧で表示 */
+  customerCode: string | null;
   customerPhone: string | null;
   menuName: string;
   startAt: string;

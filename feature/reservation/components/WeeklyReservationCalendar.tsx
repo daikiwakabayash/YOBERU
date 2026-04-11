@@ -20,9 +20,19 @@ interface WeeklyReservationCalendarProps {
   enableMeetingBooking?: boolean;
 }
 
-const SLOT_HEIGHT = 44;
-const TIME_COL_WIDTH = 76;
-const DAY_COL_MIN_WIDTH = 180;
+const SLOT_HEIGHT = 34;
+const TIME_COL_WIDTH = 52;
+const DAY_COL_MIN_WIDTH = 150;
+
+/**
+ * Strip leading zeros from a customer code so "00000012" renders as
+ * "12". See ReservationCalendar for rationale.
+ */
+function formatCustomerCode(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const trimmed = code.replace(/^0+/, "");
+  return trimmed.length > 0 ? trimmed : "0";
+}
 
 export function WeeklyReservationCalendar({
   data,
@@ -274,7 +284,7 @@ export function WeeklyReservationCalendar({
                   className="absolute right-0 flex items-start justify-end pr-3"
                   style={{ top: idx * slotHeightPx - 8 }}
                 >
-                  <span className="text-[13px] font-semibold text-gray-500">
+                  <span className="text-[11px] font-semibold text-gray-500">
                     {slot}
                   </span>
                 </div>
@@ -388,11 +398,16 @@ export function WeeklyReservationCalendar({
                         </div>
                       )}
 
-                      {/* Customer name */}
+                      {/* Customer name + カルテNo */}
                       <div className="flex items-center gap-1">
-                        <span className="text-[13px] font-black text-gray-900 leading-tight truncate">
+                        <span className="text-[12px] font-black text-gray-900 leading-tight truncate">
                           {appt.customerName}
                         </span>
+                        {formatCustomerCode(appt.customerCode) && (
+                          <span className="shrink-0 text-[9px] font-bold text-gray-500">
+                            ({formatCustomerCode(appt.customerCode)})
+                          </span>
+                        )}
                         {isNew && (
                           <span
                             className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"

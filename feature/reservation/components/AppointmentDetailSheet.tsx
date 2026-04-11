@@ -767,10 +767,19 @@ export function AppointmentDetailSheet({
   // appointments we already have enough data on the CalendarAppointment
   // object; for new bookings we lean on the `selectedCustomer` the user
   // just picked in the search dropdown.
+  //
+  // customerCode is stripped of leading zeros ("00000012" → "12") so
+  // the カルテナンバー reads naturally in the UI.
+  function stripZeros(code: string | null | undefined): string | null {
+    if (!code) return null;
+    const t = code.replace(/^0+/, "");
+    return t.length > 0 ? t : "0";
+  }
   const rightPanelCustomer = appointment
     ? {
         id: appointment.customerId,
         name: appointment.customerName,
+        code: stripZeros(appointment.customerCode),
         phone: appointment.customerPhone,
         visitCount: appointment.visitCount,
       }
@@ -780,6 +789,7 @@ export function AppointmentDetailSheet({
           name: `${selectedCustomer.last_name ?? ""} ${
             selectedCustomer.first_name ?? ""
           }`.trim() || "-",
+          code: stripZeros(selectedCustomer.code),
           phone: selectedCustomer.phone_number_1 ?? null,
           visitCount: null as number | null,
         }
@@ -810,6 +820,11 @@ export function AppointmentDetailSheet({
                     title="顧客詳細を新しいタブで開く"
                   >
                     {appointment.customerName}
+                    {stripZeros(appointment.customerCode) && (
+                      <span className="text-xs font-bold text-gray-500">
+                        ({stripZeros(appointment.customerCode)})
+                      </span>
+                    )}
                     <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
                   </Link>
                   {appointment.customerPhone && (
@@ -974,7 +989,7 @@ export function AppointmentDetailSheet({
                   <Input
                     value={customerQuery}
                     onChange={(e) => handleCustomerQueryChange(e.target.value)}
-                    placeholder="名前・電話番号で検索..."
+                    placeholder="名前・電話番号・カルテNo で検索..."
                     className="pl-9"
                   />
                 </div>
@@ -997,6 +1012,11 @@ export function AppointmentDetailSheet({
                               className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-100"
                               onClick={() => handleSelectCustomer(c)}
                             >
+                              {stripZeros(c.code) && (
+                                <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-bold text-gray-700">
+                                  No.{stripZeros(c.code)}
+                                </span>
+                              )}
                               <span className="font-medium">
                                 {[c.last_name, c.first_name]
                                   .filter(Boolean)
@@ -1469,6 +1489,11 @@ export function AppointmentDetailSheet({
                   >
                     {rightPanelCustomer.name}
                   </Link>
+                  {rightPanelCustomer.code && (
+                    <span className="rounded bg-gray-200 px-1.5 py-0.5 text-xs font-bold text-gray-700">
+                      No.{rightPanelCustomer.code}
+                    </span>
+                  )}
                   <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
                 </div>
                 {rightPanelCustomer.phone && (
