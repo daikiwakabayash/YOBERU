@@ -20,6 +20,8 @@ import {
   CreditCard,
   Megaphone,
   ClipboardList,
+  Wallet,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -49,6 +51,7 @@ const navigation = [
       { name: "支払方法", href: "/payment-method", icon: CreditCard },
       { name: "来店経路", href: "/visit-source", icon: Megaphone },
       { name: "問診票", href: "/questionnaire", icon: ClipboardList },
+      { name: "広告費", href: "/ad-spend", icon: Wallet },
     ],
   },
   {
@@ -62,6 +65,7 @@ const navigation = [
     label: "分析",
     items: [
       { name: "売上", href: "/sales", icon: BarChart3 },
+      { name: "マーケティング", href: "/marketing", icon: Sparkles },
       { name: "ダッシュボード", href: "/", icon: LayoutDashboard },
     ],
   },

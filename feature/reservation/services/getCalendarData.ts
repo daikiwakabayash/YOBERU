@@ -27,12 +27,16 @@ export async function getCalendarData(
     supabase
       .from("appointments")
       .select(
-        "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, customers(last_name, first_name, phone_number_1, visit_count)"
+        "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)"
       )
       .eq("shop_id", shopId)
       .gte("start_at", `${date}T00:00:00`)
       .lt("start_at", `${nextDateStr}T00:00:00`)
-      .is("cancelled_at", null)
+      // NOTE: cancelled_at is intentionally NOT filtered here so that
+      // same-day cancellations and regular cancellations stay visible on
+      // the calendar (rendered as a narrow strip on the right edge).
+      // checkStaffAvailability still filters cancelled out, so the slot
+      // remains free for new bookings.
       .is("deleted_at", null)
       .order("start_at"),
   ]);
@@ -141,6 +145,7 @@ export async function getCalendarData(
       additionalCharge: a.additional_charge ?? 0,
       paymentMethod: a.payment_method ?? null,
       customerRecord: a.customer_record ?? null,
+      isMemberJoin: !!a.is_member_join,
     };
   });
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -53,6 +54,12 @@ const SHIFT_FIELDS = [
   { key: "shift_holiday" as const, label: "祝日" },
 ] as const;
 
+// Sentinel value used in the shift Select to represent "no shift / 休み".
+// We can't bind a SelectItem to `null` directly because Base UI uses
+// strict equality lookups; instead we send this string and convert
+// to/from null at the boundary.
+const REST_VALUE = "__REST__";
+
 export function StaffForm({
   brandId,
   shopId,
@@ -60,6 +67,17 @@ export function StaffForm({
   initialData,
 }: StaffFormProps) {
   const isEdit = !!initialData;
+
+  // Build a Record<string, string> for Base UI's Select.Root `items` prop
+  // so the trigger displays the pattern NAME instead of the raw id.
+  // Without this the trigger shows "7" / "6" instead of "通常" / "遅番".
+  const shiftItemsMap = useMemo(() => {
+    const map: Record<string, string> = { [REST_VALUE]: "休み" };
+    workPatterns.forEach((wp) => {
+      map[String(wp.id)] = wp.name;
+    });
+    return map;
+  }, [workPatterns]);
 
   const form = useForm<StaffFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -213,24 +231,33 @@ export function StaffForm({
                     name={key}
                     render={({ field }) => (
                       <Select
-                        value={field.value ?? undefined}
+                        value={
+                          field.value != null
+                            ? String(field.value)
+                            : REST_VALUE
+                        }
+                        items={shiftItemsMap}
                         onValueChange={(val) => {
-                          field.onChange(val ?? null);
+                          if (val == null || val === REST_VALUE) {
+                            field.onChange(null);
+                          } else {
+                            const n = Number(val);
+                            field.onChange(Number.isFinite(n) ? n : null);
+                          }
                         }}
                       >
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="休み" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={null as unknown as number}>
-                            休み
-                          </SelectItem>
+                          <SelectItem value={REST_VALUE}>休み</SelectItem>
                           {workPatterns.map((wp) => (
-                            <SelectItem key={wp.id} value={wp.id}>
+                            <SelectItem key={wp.id} value={String(wp.id)}>
                               {wp.name}
                               {wp.start_time && wp.end_time && (
                                 <span className="ml-1 text-muted-foreground">
-                                  ({wp.start_time}〜{wp.end_time})
+                                  ({wp.start_time.slice(0, 5)}〜
+                                  {wp.end_time.slice(0, 5)})
                                 </span>
                               )}
                             </SelectItem>

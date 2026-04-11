@@ -65,6 +65,7 @@ export interface CalendarAppointment {
   customerRecord: string | null;
   customerId: number;
   menuManageId: string;
+  isMemberJoin: boolean;
 }
 
 export interface CalendarData {

@@ -4,6 +4,43 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { staffSchema } from "../schema/staff.schema";
 import { revalidatePath } from "next/cache";
 
+/**
+ * Resolve a user_id to attach to a staff insert.
+ *
+ * staffs.user_id is NOT NULL REFERENCES users(id) but the registration UI
+ * doesn't currently ask for one (per-user auth → staffs is not wired up
+ * yet). To unblock writes:
+ *  1. honour an explicit raw.user_id from the form if present
+ *  2. otherwise pick the first non-deleted user under the same brand
+ *  3. otherwise fall back to id=1 (the seeded brand owner)
+ *
+ * Always returns a number.
+ */
+async function resolveUserId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  rawUserId: FormDataEntryValue | undefined,
+  brandId: number
+): Promise<number> {
+  if (rawUserId) {
+    const n = Number(rawUserId);
+    if (!Number.isNaN(n) && n > 0) return n;
+  }
+  try {
+    const { data } = await supabase
+      .from("users")
+      .select("id")
+      .eq("brand_id", brandId)
+      .is("deleted_at", null)
+      .order("id", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) return data.id as number;
+  } catch {
+    // fall through
+  }
+  return 1;
+}
+
 export async function createStaff(formData: FormData) {
   const supabase = await createClient();
   const raw = Object.fromEntries(formData.entries());
@@ -29,10 +66,16 @@ export async function createStaff(formData: FormData) {
     return { error: parsed.error.flatten().fieldErrors };
   }
 
-  const insertData: Record<string, unknown> = { ...parsed.data };
-  if (raw.user_id) {
-    insertData.user_id = raw.user_id;
-  }
+  const userId = await resolveUserId(
+    supabase,
+    raw.user_id,
+    parsed.data.brand_id
+  );
+
+  const insertData: Record<string, unknown> = {
+    ...parsed.data,
+    user_id: userId,
+  };
 
   const { error } = await supabase.from("staffs").insert(insertData);
   if (error) return { error: error.message };

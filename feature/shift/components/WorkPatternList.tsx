@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { deleteWorkPattern } from "../actions/shiftActions";
 import { toast } from "sonner";
 
@@ -25,9 +25,21 @@ interface WorkPattern {
 
 interface WorkPatternListProps {
   patterns: WorkPattern[];
+  /**
+   * Optional callback fired when the pencil icon is tapped on a row.
+   * Parents that want inline-edit support pass this; the form panel
+   * receives the row and switches to edit mode.
+   */
+  onEdit?: (pattern: WorkPattern) => void;
+  /** Currently-edited pattern id, highlighted in the table. */
+  editingId?: number | null;
 }
 
-export function WorkPatternList({ patterns }: WorkPatternListProps) {
+export function WorkPatternList({
+  patterns,
+  onEdit,
+  editingId,
+}: WorkPatternListProps) {
   async function handleDelete(id: number, name: string) {
     if (!confirm(`「${name}」を削除してもよろしいですか？`)) return;
     const result = await deleteWorkPattern(id);
@@ -61,7 +73,11 @@ export function WorkPatternList({ patterns }: WorkPatternListProps) {
           </TableRow>
         ) : (
           patterns.map((pattern) => (
-            <TableRow key={pattern.id}>
+            <TableRow
+              key={pattern.id}
+              data-editing={editingId === pattern.id || undefined}
+              className="data-[editing]:bg-blue-50/60"
+            >
               <TableCell className="font-medium">{pattern.name}</TableCell>
               <TableCell>
                 {pattern.abbreviation_name && (
@@ -78,13 +94,26 @@ export function WorkPatternList({ patterns }: WorkPatternListProps) {
               <TableCell>{pattern.start_time?.slice(0, 5)}</TableCell>
               <TableCell>{pattern.end_time?.slice(0, 5)}</TableCell>
               <TableCell className="text-right">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDelete(pattern.id, pattern.name)}
-                >
-                  <Trash2 className="h-4 w-4 text-red-500" />
-                </Button>
+                <div className="flex justify-end gap-1">
+                  {onEdit && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onEdit(pattern)}
+                      title="編集"
+                    >
+                      <Pencil className="h-4 w-4 text-blue-500" />
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(pattern.id, pattern.name)}
+                    title="削除"
+                  >
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))

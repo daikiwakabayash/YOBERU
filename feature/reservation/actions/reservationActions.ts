@@ -219,6 +219,8 @@ export async function updateAppointment(id: number, formData: FormData) {
   if (raw.payment_method) updateData.payment_method = raw.payment_method;
   if (raw.additional_charge !== undefined)
     updateData.additional_charge = Number(raw.additional_charge);
+  if (raw.is_member_join !== undefined)
+    updateData.is_member_join = raw.is_member_join === "true";
 
   // If time or staff changed, verify no overlap
   if (updateData.staff_id || updateData.start_at || updateData.end_at) {

@@ -2,8 +2,45 @@
 
 import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { toLocalDateString } from "@/helper/utils/time";
 import type { Question } from "../types";
 import { sanitizeSlug } from "../utils/slug";
+
+/**
+ * Build a human-readable Q&A block to append to customers.description.
+ * Format:
+ *   [2026-04-11 問診票: 恵比寿]
+ *   - 来院動機: 腰痛
+ *   - 症状: ぎっくり腰になりました
+ *   - …
+ * Empty answers are skipped. The block is appended (with a blank line
+ * separator) so multiple questionnaires accumulate over time.
+ */
+function buildQuestionnaireSummary(
+  questionnaireTitle: string,
+  questions: Question[],
+  answers: Record<string, string | string[]>
+): string {
+  const dateLabel = toLocalDateString(new Date());
+  const lines: string[] = [`[${dateLabel} 問診票: ${questionnaireTitle}]`];
+  for (const q of questions) {
+    const raw = answers[q.id];
+    if (raw == null) continue;
+    const val = Array.isArray(raw) ? raw.join(", ") : String(raw);
+    if (val.trim() === "") continue;
+    lines.push(`- ${q.label}: ${val}`);
+  }
+  return lines.join("\n");
+}
+
+function appendDescription(
+  existing: string | null | undefined,
+  block: string
+): string {
+  const base = (existing ?? "").trimEnd();
+  if (!base) return block;
+  return `${base}\n\n${block}`;
+}
 
 interface CreateQuestionnaireInput {
   brand_id: number;
@@ -98,8 +135,16 @@ export async function deleteQuestionnaire(id: number) {
 
 /**
  * Public: submit a questionnaire response.
- * Fields marked with `field` are synced back to customers table
- * (creates the customer if none exists with matching phone).
+ *
+ * Always:
+ *  - Maps `field`-marked questions onto customers columns
+ *    (full_name, gender, phone_number_1, …).
+ *  - Appends a formatted Q&A summary of EVERY answered question to the
+ *    customer's `description` (memo) so the staff can read 来院動機 etc.
+ *    directly from the customer detail page.
+ *  - Creates a placeholder customer when the form has neither name nor
+ *    phone (rare but possible) so the response is never orphaned.
+ *  - Saves the raw response to questionnaire_responses for CSV export.
  */
 export async function submitQuestionnaireResponse(formData: FormData) {
   const supabase = await createClient();
@@ -115,7 +160,7 @@ export async function submitQuestionnaireResponse(formData: FormData) {
     return { error: "回答データの形式が不正です" };
   }
 
-  // Load questionnaire to know field mapping
+  // Load questionnaire to know field mapping + title
   const { data: q, error: qErr } = await supabase
     .from("questionnaires")
     .select("*")
@@ -158,6 +203,15 @@ export async function submitQuestionnaireResponse(formData: FormData) {
     }
   }
 
+  // Build the human-readable Q&A summary for customers.description
+  const summaryBlock = buildQuestionnaireSummary(
+    String(q.title ?? "問診票"),
+    questions,
+    answers
+  );
+
+  const targetShopId = (q.shop_id as number | null) ?? 1;
+
   // Attempt to find existing customer by phone if provided
   let customerId: number | null = null;
   const phone =
@@ -165,28 +219,37 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   if (phone) {
     const { data: existing } = await supabase
       .from("customers")
-      .select("id")
-      .eq("shop_id", q.shop_id ?? 1)
+      .select("id, description")
+      .eq("shop_id", targetShopId)
       .eq("phone_number_1", String(phone))
       .is("deleted_at", null)
       .maybeSingle();
     if (existing?.id) {
       customerId = existing.id as number;
-      // Update existing customer with questionnaire fields
+      // Update existing customer: merge field-mapped values + append the
+      // questionnaire summary onto the existing description (memo).
       await supabase
         .from("customers")
-        .update(customerUpdate)
+        .update({
+          ...customerUpdate,
+          description: appendDescription(
+            (existing.description as string | null) ?? null,
+            summaryBlock
+          ),
+        })
         .eq("id", customerId);
     }
   }
 
-  // If not matched, create a new customer (minimum: name or phone)
-  if (!customerId && (customerUpdate.last_name || phone)) {
-    // Generate code
+  // If not matched, create a new customer. We always create now (even
+  // when neither name nor phone is provided) so questionnaire responses
+  // are never orphaned. A placeholder name is generated in that edge
+  // case so the staff can recognise it and rename later.
+  if (!customerId) {
     const { data: maxRow } = await supabase
       .from("customers")
       .select("code")
-      .eq("shop_id", q.shop_id ?? 1)
+      .eq("shop_id", targetShopId)
       .order("code", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -196,24 +259,33 @@ export async function submitQuestionnaireResponse(formData: FormData) {
       if (!isNaN(num)) nextCode = String(num + 1).padStart(8, "0");
     }
 
+    const placeholderLastName =
+      (customerUpdate.last_name as string | undefined) ||
+      `(問診票回答 ${toLocalDateString(new Date())})`;
+
     const insertData: Record<string, unknown> = {
       brand_id: q.brand_id,
-      shop_id: q.shop_id ?? 1,
+      shop_id: targetShopId,
       code: nextCode,
       type: 0,
       gender: 0,
       phone_number_1: phone ?? "00000000000",
       ...customerUpdate,
+      last_name: placeholderLastName,
+      description: summaryBlock,
     };
-    const { data: inserted } = await supabase
+    const { data: inserted, error: insertErr } = await supabase
       .from("customers")
       .insert(insertData)
       .select("id")
       .single();
+    if (insertErr) {
+      console.error("[questionnaire] customer insert failed", insertErr);
+    }
     if (inserted?.id) customerId = inserted.id as number;
   }
 
-  // Save response
+  // Save response (links to customer when one was created/matched)
   const { error: respErr } = await supabase
     .from("questionnaire_responses")
     .insert({

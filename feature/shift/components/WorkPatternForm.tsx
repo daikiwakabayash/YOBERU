@@ -17,18 +17,26 @@ interface WorkPatternFormProps {
   brandId: number;
   shopId: number;
   initialData?: WorkPatternFormValues & { id: number };
+  /** Called after a successful create or update so the parent can refresh / clear edit state. */
+  onSaved?: () => void;
+  /** Called when the user clicks the "編集をやめる" button while editing. */
+  onCancelEdit?: () => void;
 }
 
 export function WorkPatternForm({
   brandId,
   shopId,
   initialData,
+  onSaved,
+  onCancelEdit,
 }: WorkPatternFormProps) {
   const isEdit = !!initialData;
 
   const form = useForm<WorkPatternFormValues>({
     resolver: zodResolver(workPatternSchema),
-    defaultValues: initialData ?? {
+    // Re-initialise on every render so switching from "new" to "edit row 7"
+    // updates the inputs.
+    values: initialData ?? {
       brand_id: brandId,
       shop_id: shopId,
       name: "",
@@ -64,6 +72,7 @@ export function WorkPatternForm({
       isEdit ? "出勤パターンを更新しました" : "出勤パターンを登録しました"
     );
     if (!isEdit) form.reset();
+    onSaved?.();
   }
 
   return (
@@ -154,6 +163,16 @@ export function WorkPatternForm({
                   ? "更新"
                   : "登録"}
             </Button>
+            {isEdit && onCancelEdit && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onCancelEdit}
+                disabled={form.formState.isSubmitting}
+              >
+                編集をやめる
+              </Button>
+            )}
           </div>
         </form>
       </CardContent>

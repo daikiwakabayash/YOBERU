@@ -159,6 +159,120 @@ CTA を置く。
 
 ---
 
+## マーケティング分析 (マーケティングダッシュボード)
+
+### 概要
+「どの媒体から何人来て、いくら広告費を使って、いくら売上が立ったか」を
+媒体 × 店舗 × 月で集計するダッシュボード。Naoru 系の「マーケティング」
+ページに相当する機能。
+
+### データモデル
+
+#### 集計の元データ
+- **`appointments.visit_source_id`** — 予約が来た媒体 (Meta広告, HPB,
+  HP/SEO, 紹介, チラシ, 通りがかり, その他)。ひとつの予約は必ず 1 媒体。
+- **`appointments.status`** —
+    0=待機 / 1=施術中 / 2=完了 / 3=キャンセル / 4=当日キャンセル / 99=no-show
+  集計では:
+    - 予約数 = 全件 (status 不問)
+    - 実来院数 = status ∈ {1, 2} または `last_visit_date` が立っている
+    - キャンセル数 = status ∈ {3, 4, 99}
+    - 売上 = sum(sales) where status = 2
+- **`appointments.is_member_join`** (新規カラム、migration 00007)
+    `BOOLEAN DEFAULT FALSE`。スタッフが予約パネルの「入会」チェック
+    ボックスを ON にすると立ち、マーケティングの「入会数 / 入会率」に
+    反映される。
+- **`ad_spend`** (新規テーブル、migration 00007)
+    `(id, brand_id, shop_id, visit_source_id, year_month YYYY-MM,
+    amount INT, memo, deleted_at)`。月 × 店舗 × 媒体で 1 行。
+    入力は `/ad-spend` ページ。
+
+#### KPI の計算式
+| KPI | 式 |
+|---|---|
+| 実来院数 | `count(visit_count >= 1 OR status IN (1,2))` |
+| 予約数 | `count(appointments)` |
+| 入会数 | `count(is_member_join = true)` |
+| 入会率 | `入会数 / 実来院数` |
+| キャンセル数 | `count(status IN (3,4,99))` |
+| キャンセル率 | `キャンセル数 / 予約数` |
+| 広告費 | `sum(ad_spend.amount)` |
+| 売上 | `sum(sales) where status = 2` |
+| CPA | `広告費 / 実来院数` |
+| ROAS | `売上 / 広告費` (broken → `-`) |
+| 平均客単価 | `売上 / 実来院数` |
+
+#### 集計サービス
+`feature/marketing/services/getMarketingData.ts`:
+```ts
+getMarketingData({
+  brandId, shopId, startMonth, endMonth, visitSourceId?
+}): Promise<{
+  totals: { visitCount, reservationCount, joinCount, cancelCount,
+            adSpend, sales, cpa, roas, avgPrice, joinRate, cancelRate },
+  byMonth: [{ yearMonth, ... totals }],
+  bySource: [{ visitSourceId, sourceName, ... totals }],
+}>
+```
+1 呼び出しで appointments (期間フィルタ) + ad_spend (期間フィルタ) を
+取って in-memory で集計。実装は `feature/sales/services/getSales.ts`
+の N+1 回避パターンと同じ。
+
+### 広告費入力 (`/ad-spend`)
+- 一覧: (月 × 店舗 × 媒体) の表。行クリックで編集。
+- フォーム: 月 (Select, 過去 12 ヶ月 + 未来 1 ヶ月)、店舗 (Select,
+  active shop デフォルト)、媒体 (Select, active visit_sources)、金額。
+- アクション: `upsertAdSpend` / `deleteAdSpend`。
+- ルール: `(shop_id, year_month, visit_source_id)` で一意。再入力すると
+  上書き (upsert)。
+
+### マーケティングダッシュボード (`/marketing`)
+- フィルタ: 期間 (月指定 Start/End)、店舗 Select、媒体 Select
+- 概要タブ (初期実装):
+  - カード: 実来院数 / 平均 CPA / 入会率 / キャンセル率 / 広告費合計 /
+    売上合計 / ROAS / 平均客単価 / 口コミ数 (※口コミは将来)
+  - 月別推移テーブル: 月 / 新規数 / 入会数 / 入会率 / キャンセル数 /
+    キャンセル率 / 広告費 / CPA / 売上 / ROAS
+- 店舗別タブ / 媒体別タブ / メニュータブ / AI分析タブ / 市場タブは
+  今後追加 (ルーティングだけ先に切っておく)
+
+### 会員プランのマスター登録
+migration 00007 で以下をメニューマスターに seed 投入 (ブランド共通,
+`shop_id = NULL`, `menu_manage_id` 先頭は `BRD-PLAN-`):
+
+| 会員種類 | 会員金額 | menu_manage_id |
+|---|---|---|
+| NAORUプラン | 24,750 | BRD-PLAN-NAORU |
+| ボディケア30分 | 6,600 | BRD-PLAN-BODY-30 |
+| ボディケア60分 | 13,200 | BRD-PLAN-BODY-60 |
+| ボディケア90分 | 18,000 | BRD-PLAN-BODY-90 |
+| 2回30分 (yurumu) | 12,100 | BRD-PLAN-YURUMU-2x30 |
+| 2回60分 (yurumu) | 24,200 | BRD-PLAN-YURUMU-2x60 |
+| 3回30分 (yurumu) | 18,150 | BRD-PLAN-YURUMU-3x30 |
+| 3回60分 (yurumu) | 36,300 | BRD-PLAN-YURUMU-3x60 |
+| 4回30分 (yurumu) | 22,000 | BRD-PLAN-YURUMU-4x30 |
+| 4回60分 (yurumu) | 44,000 | BRD-PLAN-YURUMU-4x60 |
+| 6回30分 (yurumu) | 33,000 | BRD-PLAN-YURUMU-6x30 |
+
+menus は既存のメニュー一覧画面 (`/menu`) でそのまま閲覧・編集可能。
+「会員プラン」カテゴリが無ければ自動生成する。
+
+### 予約パネルの「入会」チェックボックス
+`AppointmentDetailSheet.tsx` の「会計を確定する」上部に、既存予約
+(`!isNew`) でのみ表示するチェックボックスを追加。`updateAppointment`
+に `is_member_join` を送る。チェックが立った予約は入会率計算の分子に
+入る。
+
+### 将来拡張 (このラウンドで着手しない)
+- 経営指標ダッシュボード (スタッフ順位, 入会率 TOP10 等)
+- 店舗別 / 媒体別 / メニュー別 / AI分析 / 市場タブの中身
+- 口コミ (Google / HotPepper) 数の取り込み
+- クリック / CTR / CVR 等の広告実績 (Meta API / HPB CSV import)
+- マーケティング結果を appointments 作成時に自動スナップショットする
+  trigger
+
+---
+
 ## その他の重要な実装パターン
 
 ### 日付・タイムゾーン
