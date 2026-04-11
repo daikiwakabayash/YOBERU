@@ -508,6 +508,10 @@ export function ReservationCalendar({
                           right: 6,
                           width: "32%",
                           zIndex: 20,
+                          // Same rationale as the active card: let touch
+                          // pan scroll the page instead of being trapped
+                          // by the button's hit-test on the first swipe.
+                          touchAction: "pan-y",
                         }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -562,6 +566,15 @@ export function ReservationCalendar({
                         left: 6,
                         right: narrowForCancelled ? "36%" : 6,
                         zIndex: isBeingDragged ? 50 : 5,
+                        // Critical for touch / trackpad: tell the browser
+                        // that vertical pan wins over any drag intent on
+                        // this card. Without this, the first swipe over
+                        // an appointment was consumed by hit-testing /
+                        // drag-decision and didn't scroll the page —
+                        // exactly the "1回目スクロールできない" bug.
+                        // Desktop mouse drag is unaffected because
+                        // touch-action only applies to touch + scroll.
+                        touchAction: "pan-y",
                       }}
                       onMouseDown={(e) => handleDragStart(appt, e)}
                     >
