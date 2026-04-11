@@ -36,7 +36,7 @@ export async function getWeeklyCalendarData(
   let apptQuery = supabase
     .from("appointments")
     .select(
-      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count)"
+      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${weekStart}T00:00:00`)
@@ -153,6 +153,7 @@ export async function getWeeklyCalendarData(
       additionalCharge: a.additional_charge ?? 0,
       paymentMethod: a.payment_method ?? null,
       customerRecord: a.customer_record ?? null,
+      isMemberJoin: !!a.is_member_join,
     };
   });
 

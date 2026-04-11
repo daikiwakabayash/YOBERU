@@ -150,6 +150,11 @@ export function AppointmentDetailSheet({
     appointment?.customerRecord ?? ""
   );
 
+  // ---- Membership (marketing 入会率計算の分子) ----
+  const [isMemberJoin, setIsMemberJoin] = useState(
+    appointment?.isMemberJoin ?? false
+  );
+
   // ---- Billing ----
   const [additionalCharge, setAdditionalCharge] = useState(
     String(appointment?.additionalCharge ?? 0)
@@ -556,6 +561,7 @@ export function AppointmentDetailSheet({
         form.set("customer_record", customerRecord);
         form.set("sales", String(total));
         form.set("status", "2");
+        form.set("is_member_join", isMemberJoin ? "true" : "false");
         if (visitSourceId) {
           form.set("visit_source_id", String(visitSourceId));
         }
@@ -920,6 +926,30 @@ export function AppointmentDetailSheet({
               患者DBに自動蓄積されます
             </p>
           </section>
+
+          {/* ===== Section: 入会 (マーケティング分析用) ===== */}
+          {!isNew && (
+            <section className="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/40 p-3">
+              <input
+                type="checkbox"
+                id="is-member-join"
+                checked={isMemberJoin}
+                onChange={(e) => setIsMemberJoin(e.target.checked)}
+                className="mt-1 h-4 w-4 shrink-0 cursor-pointer"
+              />
+              <label
+                htmlFor="is-member-join"
+                className="flex-1 cursor-pointer text-sm"
+              >
+                <span className="font-bold text-gray-900">
+                  この来店で入会した
+                </span>
+                <span className="ml-2 text-[11px] text-gray-500">
+                  マーケティングの入会率計算に使用
+                </span>
+              </label>
+            </section>
+          )}
 
           <Separator />
 
