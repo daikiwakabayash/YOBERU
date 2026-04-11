@@ -22,25 +22,34 @@ interface SalesData {
 }
 
 /**
- * Get sales summary for a date range
+ * Get sales summary for a date range, optionally scoped to a single staff.
+ *
+ * When `staffId` is given the query is filtered to that staff only — all
+ * downstream aggregation (new/existing split, staff rankings) still works
+ * and the returned `staffSales` will contain a single row for that staff.
  */
 export async function getSalesSummary(
   shopId: number,
   startDate: string,
-  endDate: string
+  endDate: string,
+  staffId?: number | null
 ): Promise<SalesData> {
   const supabase = await createClient();
   const nextDate = new Date(endDate + "T00:00:00");
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = toLocalDateString(nextDate);
 
-  const { data: appointments } = await supabase
+  let query = supabase
     .from("appointments")
     .select("id, staff_id, sales, status, type, cancelled_at, staffs(name)")
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
     .is("deleted_at", null);
+  if (staffId) {
+    query = query.eq("staff_id", staffId);
+  }
+  const { data: appointments } = await query;
 
   const appts = appointments ?? [];
 

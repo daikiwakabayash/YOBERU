@@ -1,12 +1,19 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { MarketingFilters } from "@/feature/marketing/components/MarketingFilters";
 import { MarketingOverview } from "@/feature/marketing/components/MarketingOverview";
+import { MarketingTabs } from "@/feature/marketing/components/MarketingTabs";
+import type { MarketingTabKey } from "@/feature/marketing/components/MarketingTabs";
+import { MarketingShopBreakdown } from "@/feature/marketing/components/MarketingShopBreakdown";
+import { MarketingMenuBreakdown } from "@/feature/marketing/components/MarketingMenuBreakdown";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
+import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
+import { getMarketingByMenu } from "@/feature/marketing/services/getMarketingByMenu";
 import {
   getActiveBrandId,
   getActiveShopId,
 } from "@/helper/lib/shop-context";
 import { createClient } from "@/helper/lib/supabase/server";
+import { getStaffs } from "@/feature/staff/services/getStaffs";
 
 export const dynamic = "force-dynamic";
 
@@ -15,17 +22,17 @@ interface MarketingPageProps {
     start?: string;
     end?: string;
     source?: string;
+    staff?: string;
+    tab?: string;
   }>;
 }
 
 function currentYearMonth(): string {
-  // Asia/Tokyo aligned via toLocaleString
   const d = new Date().toLocaleString("en-CA", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
     month: "2-digit",
   });
-  // "2026-04" format after normalizing
   const m = /(\d{4})-(\d{2})/.exec(d);
   if (m) return `${m[1]}-${m[2]}`;
   return new Date().toISOString().slice(0, 7);
@@ -42,10 +49,18 @@ function addMonths(ym: string, delta: number): string {
 function monthOptions(): string[] {
   const now = currentYearMonth();
   const out: string[] = [];
-  // 18 past months + current month + 1 future month (for budgeting)
   for (let i = -18; i <= 1; i += 1) out.push(addMonths(now, i));
   return out;
 }
+
+const VALID_TABS = new Set<MarketingTabKey>([
+  "overview",
+  "shop",
+  "media",
+  "menu",
+  "ai",
+  "market",
+]);
 
 export default async function MarketingPage({
   searchParams,
@@ -62,17 +77,13 @@ export default async function MarketingPage({
   const startMonth = sp.start ?? defaultStart;
   const endMonth = sp.end ?? defaultEnd;
   const visitSourceId = sp.source ? Number(sp.source) : null;
+  const staffId = sp.staff ? Number(sp.staff) : null;
+  const rawTab = (sp.tab ?? "overview") as MarketingTabKey;
+  const tab: MarketingTabKey = VALID_TABS.has(rawTab) ? rawTab : "overview";
 
-  // Load visit sources (for the filter dropdown) in parallel with data.
+  // Always load filter lookups (cheap) so the filter bar is populated.
   const supabase = await createClient();
-  const [data, sourcesRes] = await Promise.all([
-    getMarketingData({
-      brandId,
-      shopId,
-      startMonth,
-      endMonth,
-      visitSourceId,
-    }),
+  const [sourcesRes, staffs] = await Promise.all([
     supabase
       .from("visit_sources")
       .select("id, name")
@@ -80,29 +91,82 @@ export default async function MarketingPage({
       .is("deleted_at", null)
       .order("sort_number", { ascending: true, nullsFirst: false })
       .order("id", { ascending: true }),
+    getStaffs(shopId).catch(() => [] as Array<{ id: number; name: string }>),
   ]);
+  const visitSources = (sourcesRes.data ?? []).map((s) => ({
+    id: s.id as number,
+    name: s.name as string,
+  }));
+  const staffOptions = (staffs as Array<{ id: number; name: string }>).map(
+    (s) => ({ id: s.id, name: s.name })
+  );
 
-  const visitSources =
-    (sourcesRes.data ?? []).map((s) => ({
-      id: s.id as number,
-      name: s.name as string,
-    })) ?? [];
+  // Fetch only the data the active tab actually needs.
+  const tabContent = await (async () => {
+    if (tab === "shop") {
+      const { shops, grandTotal } = await getMarketingByShop({
+        brandId,
+        startMonth,
+        endMonth,
+        visitSourceId,
+        staffId,
+      });
+      return <MarketingShopBreakdown shops={shops} grandTotal={grandTotal} />;
+    }
+    if (tab === "menu") {
+      const menus = await getMarketingByMenu({
+        shopId,
+        startMonth,
+        endMonth,
+        visitSourceId,
+        staffId,
+      });
+      return <MarketingMenuBreakdown menus={menus} />;
+    }
+    // overview + media share the same aggregation. Media view is the
+    // same overview with media table highlighted at the top; for this
+    // round we render the same MarketingOverview and let the 媒体別
+    // section stand out visually within it.
+    const data = await getMarketingData({
+      brandId,
+      shopId,
+      startMonth,
+      endMonth,
+      visitSourceId,
+      staffId,
+    });
+    return <MarketingOverview data={data} />;
+  })();
+
+  const descriptionBits: string[] = [];
+  if (staffId) {
+    const s = staffOptions.find((s) => s.id === staffId);
+    if (s) descriptionBits.push(`担当: ${s.name}`);
+  }
+  if (visitSourceId) {
+    const v = visitSources.find((v) => v.id === visitSourceId);
+    if (v) descriptionBits.push(`媒体: ${v.name}`);
+  }
+  const description =
+    descriptionBits.length > 0
+      ? `媒体 × 店舗 × 月で集計 (${descriptionBits.join(" / ")})`
+      : "媒体 × 店舗 × 月で予約・来院・入会・キャンセル・広告費・売上を集計します";
 
   return (
     <div>
-      <PageHeader
-        title="マーケティング"
-        description="媒体 × 店舗 × 月で予約・来院・入会・キャンセル・広告費・売上を集計します"
-      />
+      <PageHeader title="マーケティング" description={description} />
       <div className="space-y-4 p-6">
         <MarketingFilters
           startMonth={startMonth}
           endMonth={endMonth}
           visitSourceId={visitSourceId}
+          staffId={staffId}
           visitSources={visitSources}
+          staffs={staffOptions}
           monthOptions={monthOptions()}
         />
-        <MarketingOverview data={data} />
+        <MarketingTabs active={tab} />
+        {tabContent}
       </div>
     </div>
   );
