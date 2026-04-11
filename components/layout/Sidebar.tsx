@@ -9,7 +9,6 @@ import {
   Utensils,
   Building2,
   Clock,
-  LayoutDashboard,
   BarChart3,
   Settings,
   ChevronLeft,
@@ -68,7 +67,6 @@ const navigation = [
       { name: "経営指標", href: "/kpi", icon: Crown },
       { name: "売上", href: "/sales", icon: BarChart3 },
       { name: "マーケティング", href: "/marketing", icon: Sparkles },
-      { name: "ダッシュボード", href: "/", icon: LayoutDashboard },
     ],
   },
 ];

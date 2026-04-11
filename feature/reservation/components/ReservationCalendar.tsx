@@ -221,11 +221,24 @@ export function ReservationCalendar({
           </div>
           {workingStaffs.map((staff) => {
             const isOffShift = !staff.isWorking;
+            const ratePct =
+              staff.utilizationRate != null
+                ? Math.round(staff.utilizationRate * 100)
+                : null;
+            // Color the badge by load: red ≥85%, amber ≥60%, green <60%
+            const rateClass =
+              ratePct == null
+                ? "bg-gray-100 text-gray-400"
+                : ratePct >= 85
+                  ? "bg-red-100 text-red-700"
+                  : ratePct >= 60
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-emerald-100 text-emerald-700";
             return (
               <div
                 key={staff.id}
                 className={`flex shrink-0 flex-col items-center justify-center border-r py-3 ${
-                  isOffShift ? "bg-gray-50/70" : ""
+                  isOffShift ? "bg-gray-100" : ""
                 }`}
                 style={{ width: STAFF_COL_WIDTH }}
               >
@@ -240,12 +253,21 @@ export function ReservationCalendar({
                 >
                   {staff.name.slice(0, 1)}
                 </div>
-                <div
-                  className={`text-sm font-bold ${
-                    isOffShift ? "text-gray-500" : "text-gray-900"
-                  }`}
-                >
-                  {staff.name}
+                <div className="flex items-center gap-1.5">
+                  <div
+                    className={`text-sm font-bold ${
+                      isOffShift ? "text-gray-500" : "text-gray-900"
+                    }`}
+                  >
+                    {staff.name}
+                  </div>
+                  {/* Today's utilization badge — empty for off-shift staff */}
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${rateClass}`}
+                    title={`本日の稼働率 — 開放 ${staff.openMin}分 / 稼働 ${staff.busyMin}分`}
+                  >
+                    {ratePct != null ? `${ratePct}%` : "—"}
+                  </span>
                 </div>
                 {staff.shiftStart && staff.shiftEnd ? (
                   <div className="text-[11px] text-gray-400">
@@ -265,7 +287,7 @@ export function ReservationCalendar({
         {/* Grid body */}
         <div
           ref={gridRef}
-          className="relative flex border-t-2 border-gray-300"
+          className="relative flex border-t-2 border-gray-400"
           style={{
             minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH,
             height: totalHeight,
@@ -283,7 +305,11 @@ export function ReservationCalendar({
                 <div
                   key={slot}
                   className="absolute right-0 flex items-start justify-end pr-3"
-                  style={{ top: idx * slotHeightPx - 8 }}
+                  // The label sits *below* its hour line. The previous
+                  // value of -8 made the very first label (9:00) clip
+                  // above the grid container — by anchoring to +6 every
+                  // label is fully visible inside its slot.
+                  style={{ top: idx * slotHeightPx + 6 }}
                 >
                   <span className="text-[13px] font-semibold text-gray-500">
                     {slot}
@@ -330,8 +356,14 @@ export function ReservationCalendar({
                     container's `border-t-2` so 9:00 has a clearly
                     visible horizontal line. */}
                 {timeSlots.map((slot, idx) => {
-                  const isHour = slot.endsWith(":00");
                   const slotMin = timeToMinutes(slot);
+                  // Google Calendar style: the line drawn at the BOTTOM
+                  // of this slot belongs to the next slot's start. If
+                  // that next slot starts on a whole hour, draw a thick
+                  // dark line (hour separator). Otherwise a thin light
+                  // line (half-hour / quarter-hour separator).
+                  const bottomMin = slotMin + frameMin;
+                  const isBottomHour = bottomMin % 60 === 0;
                   const isInShift =
                     shiftStartMin !== null &&
                     shiftEndMin !== null &&
@@ -343,13 +375,15 @@ export function ReservationCalendar({
                   return (
                     <div
                       key={slot}
-                      className={`absolute w-full border-b ${
-                        isHour ? "border-gray-200" : "border-gray-100/60"
+                      className={`absolute w-full ${
+                        isBottomHour
+                          ? "border-b-2 border-gray-300"
+                          : "border-b border-gray-100"
                       } ${
                         !isInShift
-                          ? "bg-gray-50/60"
+                          ? "bg-gray-100"
                           : isOccupied
-                            ? "bg-gray-100/40"
+                            ? "bg-gray-50"
                             : "cursor-pointer hover:bg-blue-50/30"
                       }`}
                       style={{ top: idx * slotHeightPx, height: slotHeightPx }}

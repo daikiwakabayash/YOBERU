@@ -4,6 +4,7 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
 import type { CalendarData, CalendarAppointment } from "../types";
 import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
+import { getDailyStaffUtilization } from "@/feature/sales/services/getStaffUtilization";
 
 /**
  * Aggregation service for the reservation calendar page.
@@ -20,15 +21,22 @@ export async function getCalendarData(
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = toLocalDateString(nextDate);
 
-  // Parallel: shop settings + effective shifts + appointments
-  const [shopRes, effectiveShifts, apptRes] = await Promise.all([
-    supabase.from("shops").select("frame_min").eq("id", shopId).single(),
-    getEffectiveShifts(shopId, date).catch(() => []),
-    supabase
+  // Helper: select-string with all the modern columns. If a column the
+  // SELECT references doesn't exist yet (e.g. is_member_join was added
+  // by migration 00007 and the user hasn't run it), PostgREST returns
+  // an error and we'd silently render an EMPTY calendar — that was the
+  // root cause of the "予約が反映されなくなった" report. The fallback
+  // SELECT below uses only columns from migration 00001 + 00002 which
+  // every deployment has.
+  const FULL_SELECT =
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)";
+  const SAFE_SELECT =
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count)";
+
+  function fetchAppointments(select: string) {
+    return supabase
       .from("appointments")
-      .select(
-        "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)"
-      )
+      .select(select)
       .eq("shop_id", shopId)
       .gte("start_at", `${date}T00:00:00`)
       .lt("start_at", `${nextDateStr}T00:00:00`)
@@ -38,11 +46,73 @@ export async function getCalendarData(
       // checkStaffAvailability still filters cancelled out, so the slot
       // remains free for new bookings.
       .is("deleted_at", null)
-      .order("start_at"),
+      .order("start_at");
+  }
+
+  // Parallel: shop settings + effective shifts + appointments
+  const [shopRes, effectiveShifts, apptResRaw] = await Promise.all([
+    supabase.from("shops").select("frame_min").eq("id", shopId).single(),
+    getEffectiveShifts(shopId, date).catch(() => []),
+    fetchAppointments(FULL_SELECT),
   ]);
 
+  // If the appointment query failed because of a missing newer column
+  // (most commonly is_member_join from migration 00007), retry with the
+  // SAFE select. Anything else falls through to the empty array.
+  let apptRes = apptResRaw;
+  if (apptRes.error) {
+    const msg = String(apptRes.error.message ?? "");
+    if (msg.includes("is_member_join") || msg.includes("does not exist")) {
+      console.error(
+        "[getCalendarData] full appointment SELECT failed, retrying SAFE select",
+        apptRes.error
+      );
+      apptRes = await fetchAppointments(SAFE_SELECT);
+    } else {
+      console.error("[getCalendarData] appointment query failed", apptRes.error);
+    }
+  }
+
   const frameMin = shopRes.data?.frame_min ?? 15;
-  const appointments = apptRes.data;
+  // Because we pass `select` as a string at runtime (so we can swap to
+  // SAFE_SELECT on error), Supabase typegen widens the return type to a
+  // generic union that loses the column names. Cast back to the shape
+  // the rest of this file actually uses. is_member_join is optional
+  // because the SAFE select doesn't include it.
+  type RawAppointment = {
+    id: number;
+    staff_id: number;
+    customer_id: number;
+    start_at: string;
+    end_at: string;
+    status: number;
+    type: number;
+    menu_manage_id: string;
+    memo: string | null;
+    sales: number | null;
+    customer_record: string | null;
+    visit_count: number | null;
+    visit_source_id: number | null;
+    additional_charge: number | null;
+    payment_method: string | null;
+    cancelled_at: string | null;
+    is_member_join?: boolean | null;
+    customers:
+      | {
+          last_name: string | null;
+          first_name: string | null;
+          phone_number_1: string | null;
+          visit_count: number | null;
+        }
+      | Array<{
+          last_name: string | null;
+          first_name: string | null;
+          phone_number_1: string | null;
+          visit_count: number | null;
+        }>
+      | null;
+  };
+  const appointments = (apptRes.data ?? []) as unknown as RawAppointment[];
 
   // Fetch visit sources separately with colors (avoids implicit FK join fragility)
   let sourceMap = new Map<
@@ -88,16 +158,26 @@ export async function getCalendarData(
     );
   }
 
-  // 4. Build staff list with shift info.
+  // 4. Build staff list with shift info + today's utilization.
   //    First the staff who actually have a shift today.
-  const staffs = effectiveShifts.map((s) => ({
-    id: s.staffId,
-    name: s.staffName,
-    isWorking: !!s.startTime,
-    shiftStart: s.startTime,
-    shiftEnd: s.endTime,
-    shiftColor: s.abbreviationColor,
-  }));
+  const utilization = await getDailyStaffUtilization(shopId, date).catch(
+    () => new Map<number, { openMin: number; busyMin: number; rate: number }>()
+  );
+
+  const staffs: CalendarData["staffs"] = effectiveShifts.map((s) => {
+    const u = utilization.get(s.staffId);
+    return {
+      id: s.staffId,
+      name: s.staffName,
+      isWorking: !!s.startTime,
+      shiftStart: s.startTime,
+      shiftEnd: s.endTime,
+      shiftColor: s.abbreviationColor,
+      utilizationRate: u && u.openMin > 0 ? u.rate : null,
+      openMin: u?.openMin ?? 0,
+      busyMin: u?.busyMin ?? 0,
+    };
+  });
 
   //    Then any staff who DON'T have a shift today but DO have an
   //    appointment on this date — otherwise their appointments would be
@@ -119,6 +199,7 @@ export async function getCalendarData(
       .in("id", orphanStaffIds)
       .is("deleted_at", null);
     for (const s of extraStaffs ?? []) {
+      const u = utilization.get(s.id as number);
       staffs.push({
         id: s.id as number,
         name: s.name as string,
@@ -126,6 +207,9 @@ export async function getCalendarData(
         shiftStart: null,
         shiftEnd: null,
         shiftColor: null,
+        utilizationRate: u && u.openMin > 0 ? u.rate : null,
+        openMin: u?.openMin ?? 0,
+        busyMin: u?.busyMin ?? 0,
       });
     }
   }
@@ -181,8 +265,13 @@ export async function getCalendarData(
     };
   });
 
-  // 6. Generate time slots (default 9:00 - 21:00)
-  const timeSlots = generateTimeSlots(9, 21, frameMin);
+  // 6. Generate time slots — fit the union of every working staff's
+  //    shift hours plus any appointment that bleeds outside those bounds.
+  //    Default 9–21 if there's nothing to anchor on.
+  const timeSlots = generateTimeSlots(
+    ...computeDayRange(staffs, appointments ?? []),
+    frameMin
+  );
 
   return {
     staffs,
@@ -190,4 +279,58 @@ export async function getCalendarData(
     timeSlots,
     frameMin,
   };
+}
+
+/**
+ * Returns [startHour, endHour] (whole hours) covering every working
+ * staff's shift and any appointment in the appointments array.
+ *
+ * Rules:
+ *  - Floor the earliest start to the hour (e.g. 8:30 → 8)
+ *  - Ceil the latest end to the hour (e.g. 21:30 → 22)
+ *  - Default to 9..21 when no anchor exists
+ *  - Clamp to 0..24
+ */
+function computeDayRange(
+  staffs: Array<{ isWorking: boolean; shiftStart: string | null; shiftEnd: string | null }>,
+  appointments: Array<{ start_at: string | null; end_at: string | null }>
+): [number, number] {
+  let minMin: number | null = null;
+  let maxMin: number | null = null;
+
+  function consider(startHHMM: string | null | undefined, endHHMM: string | null | undefined) {
+    if (startHHMM) {
+      const h = Number(startHHMM.slice(0, 2));
+      const m = Number(startHHMM.slice(3, 5));
+      if (Number.isFinite(h) && Number.isFinite(m)) {
+        const v = h * 60 + m;
+        minMin = minMin == null ? v : Math.min(minMin, v);
+      }
+    }
+    if (endHHMM) {
+      const h = Number(endHHMM.slice(0, 2));
+      const m = Number(endHHMM.slice(3, 5));
+      if (Number.isFinite(h) && Number.isFinite(m)) {
+        const v = h * 60 + m;
+        maxMin = maxMin == null ? v : Math.max(maxMin, v);
+      }
+    }
+  }
+
+  for (const s of staffs) {
+    if (!s.isWorking) continue;
+    consider(s.shiftStart ?? null, s.shiftEnd ?? null);
+  }
+  for (const a of appointments) {
+    consider(a.start_at?.slice(11, 16) ?? null, a.end_at?.slice(11, 16) ?? null);
+  }
+
+  if (minMin == null || maxMin == null) {
+    return [9, 21];
+  }
+  // Floor start to hour, ceil end to hour
+  const startHour = Math.max(0, Math.floor(minMin / 60));
+  const endHour = Math.min(24, Math.ceil(maxMin / 60));
+  if (endHour <= startHour) return [startHour, Math.min(24, startHour + 1)];
+  return [startHour, endHour];
 }

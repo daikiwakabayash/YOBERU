@@ -284,9 +284,59 @@ export async function submitPublicBooking(formData: FormData) {
     "@/feature/reservation/actions/reservationActions"
   );
 
+  // 2a. Shift validation. The original implementation only checked for
+  //     overlapping appointments, which let customers book on days where
+  //     NO staff was scheduled. We now resolve effective shifts for the
+  //     date and verify the requested time window falls inside at least
+  //     one staff's shift.
+  const { getEffectiveShifts } = await import(
+    "@/feature/shift/services/getStaffShifts"
+  );
+
+  // start_at is sent as "YYYY-MM-DDTHH:MM:00" by the wizard. Use the
+  // first 10 chars as the shop-local date for the shift lookup.
+  const apptDate = startAt.slice(0, 10);
+  const startMin =
+    Number(startAt.slice(11, 13)) * 60 + Number(startAt.slice(14, 16));
+  const endMin =
+    Number(endAt.slice(11, 13)) * 60 + Number(endAt.slice(14, 16));
+
+  let effectiveShifts: Awaited<ReturnType<typeof getEffectiveShifts>> = [];
+  try {
+    effectiveShifts = await getEffectiveShifts(shopId, apptDate);
+  } catch (e) {
+    console.error("[submitPublicBooking] failed to load shifts", e);
+  }
+
+  const toMin = (hhmm: string | null): number | null => {
+    if (!hhmm) return null;
+    const h = Number(hhmm.slice(0, 2));
+    const m = Number(hhmm.slice(3, 5));
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
+
+  /** True when the staff's effective shift fully covers [startMin, endMin]. */
+  function staffIsOnShift(staffIdToCheck: number): boolean {
+    const row = effectiveShifts.find((s) => s.staffId === staffIdToCheck);
+    if (!row) return false;
+    const sMin = toMin(row.startTime);
+    const eMin = toMin(row.endTime);
+    if (sMin == null || eMin == null) return false;
+    return sMin <= startMin && eMin >= endMin;
+  }
+
   let finalStaffId: number | null = staffId;
   if (finalStaffId) {
-    // Designated staff: verify available
+    // Designated staff path:
+    //   1. must be on shift covering the requested window
+    //   2. must not already have an overlapping appointment
+    if (!staffIsOnShift(finalStaffId)) {
+      return {
+        error:
+          "選択されたスタッフはその時間帯のシフトに入っていません。別の時間帯または日付を選択してください。",
+      };
+    }
     const check = await checkStaffAvailability({
       shopId,
       staffId: finalStaffId,
@@ -299,8 +349,44 @@ export async function submitPublicBooking(formData: FormData) {
       };
     }
   } else {
-    // Auto-assign
-    finalStaffId = await autoAssignStaff({ shopId, startAt, endAt });
+    // Auto-assign path. Restrict the candidate pool to staff whose
+    // effective shift covers the slot, then ask autoAssignStaff to find
+    // the first one whose appointment timeline is also clear.
+    const shiftCoveringStaffIds = effectiveShifts
+      .filter((s) => {
+        const sMin = toMin(s.startTime);
+        const eMin = toMin(s.endTime);
+        return sMin != null && eMin != null && sMin <= startMin && eMin >= endMin;
+      })
+      .map((s) => s.staffId);
+
+    if (shiftCoveringStaffIds.length === 0) {
+      return {
+        error:
+          "その日時に出勤しているスタッフがいません。別の日時を選択してください。",
+      };
+    }
+
+    // Walk the candidates in their effectiveShifts order (which already
+    // honours allocate_order via the upstream query) and pick the first
+    // with no overlapping appointment.
+    for (const candidateId of shiftCoveringStaffIds) {
+      const check = await checkStaffAvailability({
+        shopId,
+        staffId: candidateId,
+        startAt,
+        endAt,
+      });
+      if (check.available) {
+        finalStaffId = candidateId;
+        break;
+      }
+    }
+    if (!finalStaffId) {
+      // Fall back to legacy autoAssign just in case (shouldn't fire — we
+      // already filtered the pool — but keeps behaviour resilient).
+      finalStaffId = await autoAssignStaff({ shopId, startAt, endAt });
+    }
     if (!finalStaffId) {
       return {
         error: "その時間帯に対応可能なスタッフがいません",

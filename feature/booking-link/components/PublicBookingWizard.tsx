@@ -19,6 +19,7 @@ import { submitPublicBooking } from "../actions/bookingLinkActions";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { useT } from "../i18n/useT";
 import type { Lang } from "../i18n/dictionary";
+import type { ShopAvailabilityDay } from "../services/getShopAvailability";
 
 type WizardStep = 1 | 2 | 3 | 4;
 
@@ -30,6 +31,14 @@ interface PublicBookingWizardProps {
   menus: PublicMenu[];
   utmSource: string | null;
   lang?: Lang;
+  /**
+   * Map shop_id → (date YYYY-MM-DD → open window or null when closed).
+   * Computed server-side so the calendar can grey out closed days.
+   */
+  availabilityByShop?: Record<
+    number,
+    Record<string, ShopAvailabilityDay | null>
+  >;
 }
 
 const INITIAL_STATE: BookingState = {
@@ -56,6 +65,7 @@ export function PublicBookingWizard({
   menus,
   utmSource,
   lang = "ja",
+  availabilityByShop,
 }: PublicBookingWizardProps) {
   const { t } = useT(lang);
   const [step, setStep] = useState<WizardStep>(1);
@@ -143,6 +153,7 @@ export function PublicBookingWizard({
             menus={menus}
             onNext={() => setStep(2)}
             lang={lang}
+            availabilityByShop={availabilityByShop}
           />
         )}
         {step === 2 && (
