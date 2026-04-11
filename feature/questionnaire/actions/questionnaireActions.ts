@@ -3,6 +3,7 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { Question } from "../types";
+import { sanitizeSlug } from "../services/getQuestionnaires";
 
 interface CreateQuestionnaireInput {
   brand_id: number;
@@ -16,13 +17,20 @@ interface CreateQuestionnaireInput {
 
 export async function createQuestionnaire(input: CreateQuestionnaireInput) {
   const supabase = await createClient();
+  // Normalize the slug so future URLs are guaranteed to work.
+  const normalizedSlug = await sanitizeSlug(input.slug);
+  if (!normalizedSlug) {
+    return {
+      error: "スラッグが空、または使用できない文字のみで構成されています。a-z, 0-9, ., -, _ を使ってください。",
+    };
+  }
   try {
     const { data, error } = await supabase
       .from("questionnaires")
       .insert({
         brand_id: input.brand_id,
         shop_id: input.shop_id ?? null,
-        slug: input.slug,
+        slug: normalizedSlug,
         title: input.title,
         description: input.description ?? null,
         questions: input.questions,
@@ -47,7 +55,16 @@ export async function updateQuestionnaire(
   const supabase = await createClient();
   try {
     const update: Record<string, unknown> = {};
-    if (input.slug !== undefined) update.slug = input.slug;
+    if (input.slug !== undefined) {
+      const normalizedSlug = await sanitizeSlug(input.slug);
+      if (!normalizedSlug) {
+        return {
+          error:
+            "スラッグが空、または使用できない文字のみで構成されています。a-z, 0-9, ., -, _ を使ってください。",
+        };
+      }
+      update.slug = normalizedSlug;
+    }
     if (input.title !== undefined) update.title = input.title;
     if (input.description !== undefined) update.description = input.description;
     if (input.questions !== undefined) update.questions = input.questions;

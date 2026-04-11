@@ -189,11 +189,21 @@ export function QuestionnaireForm({
               <span className="text-muted-foreground">/q/</span>
               <Input
                 value={slug}
-                onChange={(e) => setSlug(e.target.value)}
+                onChange={(e) => {
+                  // Auto-sanitize: lowercase, spaces → hyphens, drop invalid
+                  const v = e.target.value
+                    .toLowerCase()
+                    .replace(/[\s_]+/g, "-")
+                    .replace(/[^a-z0-9.\-]/g, "");
+                  setSlug(v);
+                }}
                 placeholder="shinjuku-3chome"
                 className="flex-1"
               />
             </div>
+            <p className="text-xs text-muted-foreground">
+              使用可能な文字: a-z, 0-9, ., -, _ （空白は自動的にハイフンに変換されます）
+            </p>
           </div>
           <div className="space-y-2">
             <Label>説明文（フォーム上部に表示）</Label>
