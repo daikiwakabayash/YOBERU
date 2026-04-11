@@ -4,6 +4,7 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
 import type { CalendarData, CalendarAppointment } from "../types";
 import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
+import { getDailyStaffUtilization } from "@/feature/sales/services/getStaffUtilization";
 
 /**
  * Aggregation service for the reservation calendar page.
@@ -88,16 +89,26 @@ export async function getCalendarData(
     );
   }
 
-  // 4. Build staff list with shift info.
+  // 4. Build staff list with shift info + today's utilization.
   //    First the staff who actually have a shift today.
-  const staffs = effectiveShifts.map((s) => ({
-    id: s.staffId,
-    name: s.staffName,
-    isWorking: !!s.startTime,
-    shiftStart: s.startTime,
-    shiftEnd: s.endTime,
-    shiftColor: s.abbreviationColor,
-  }));
+  const utilization = await getDailyStaffUtilization(shopId, date).catch(
+    () => new Map<number, { openMin: number; busyMin: number; rate: number }>()
+  );
+
+  const staffs: CalendarData["staffs"] = effectiveShifts.map((s) => {
+    const u = utilization.get(s.staffId);
+    return {
+      id: s.staffId,
+      name: s.staffName,
+      isWorking: !!s.startTime,
+      shiftStart: s.startTime,
+      shiftEnd: s.endTime,
+      shiftColor: s.abbreviationColor,
+      utilizationRate: u && u.openMin > 0 ? u.rate : null,
+      openMin: u?.openMin ?? 0,
+      busyMin: u?.busyMin ?? 0,
+    };
+  });
 
   //    Then any staff who DON'T have a shift today but DO have an
   //    appointment on this date — otherwise their appointments would be
@@ -119,6 +130,7 @@ export async function getCalendarData(
       .in("id", orphanStaffIds)
       .is("deleted_at", null);
     for (const s of extraStaffs ?? []) {
+      const u = utilization.get(s.id as number);
       staffs.push({
         id: s.id as number,
         name: s.name as string,
@@ -126,6 +138,9 @@ export async function getCalendarData(
         shiftStart: null,
         shiftEnd: null,
         shiftColor: null,
+        utilizationRate: u && u.openMin > 0 ? u.rate : null,
+        openMin: u?.openMin ?? 0,
+        busyMin: u?.busyMin ?? 0,
       });
     }
   }

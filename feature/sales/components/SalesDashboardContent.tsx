@@ -34,7 +34,26 @@ interface SalesData {
     staffName: string;
     sales: number;
     count: number;
+    openMin: number;
+    busyMin: number;
+    utilizationRate: number;
   }>;
+}
+
+function formatHours(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "-";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return `${h}h`;
+  return `${h}h${m}m`;
+}
+
+function utilizationBadgeClass(rate: number): string {
+  const pct = Math.round(rate * 100);
+  if (pct >= 85) return "bg-red-100 text-red-700";
+  if (pct >= 60) return "bg-amber-100 text-amber-700";
+  if (pct > 0) return "bg-emerald-100 text-emerald-700";
+  return "bg-gray-100 text-gray-400";
 }
 
 interface SalesDashboardContentProps {
@@ -131,10 +150,10 @@ export function SalesDashboardContent({
         </Card>
       </div>
 
-      {/* Staff Sales Breakdown */}
+      {/* Staff Sales + Utilization Breakdown */}
       <Card>
         <CardHeader>
-          <CardTitle>スタッフ別売上</CardTitle>
+          <CardTitle>スタッフ別売上 / 稼働率</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -144,38 +163,59 @@ export function SalesDashboardContent({
                 <TableHead className="text-right">売上</TableHead>
                 <TableHead className="text-right">件数</TableHead>
                 <TableHead className="text-right">客単価</TableHead>
+                <TableHead className="text-right">予約開放時間</TableHead>
+                <TableHead className="text-right">稼働時間</TableHead>
+                <TableHead className="text-right">稼働率</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.staffSales.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={4}
+                    colSpan={7}
                     className="py-8 text-center text-muted-foreground"
                   >
                     データがありません
                   </TableCell>
                 </TableRow>
               ) : (
-                data.staffSales.map((staff) => (
-                  <TableRow key={staff.staffId}>
-                    <TableCell className="font-medium">
-                      {staff.staffName}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      ¥{staff.sales.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant="secondary">{staff.count}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      ¥
-                      {staff.count > 0
-                        ? Math.round(staff.sales / staff.count).toLocaleString()
-                        : 0}
-                    </TableCell>
-                  </TableRow>
-                ))
+                data.staffSales.map((staff) => {
+                  const ratePct = Math.round(staff.utilizationRate * 100);
+                  return (
+                    <TableRow key={staff.staffId}>
+                      <TableCell className="font-medium">
+                        {staff.staffName}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ¥{staff.sales.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="secondary">{staff.count}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ¥
+                        {staff.count > 0
+                          ? Math.round(
+                              staff.sales / staff.count
+                            ).toLocaleString()
+                          : 0}
+                      </TableCell>
+                      <TableCell className="text-right text-gray-600">
+                        {formatHours(staff.openMin)}
+                      </TableCell>
+                      <TableCell className="text-right text-gray-600">
+                        {formatHours(staff.busyMin)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span
+                          className={`inline-block rounded px-2 py-0.5 text-xs font-bold ${utilizationBadgeClass(staff.utilizationRate)}`}
+                        >
+                          {staff.openMin > 0 ? `${ratePct}%` : "-"}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>

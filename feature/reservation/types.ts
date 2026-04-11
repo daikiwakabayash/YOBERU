@@ -76,6 +76,12 @@ export interface CalendarData {
     shiftStart: string | null;
     shiftEnd: string | null;
     shiftColor: string | null;
+    /** Today's utilization (0..1). null = no shift today (denominator is 0). */
+    utilizationRate: number | null;
+    /** Minutes the staff is on shift today (denominator). */
+    openMin: number;
+    /** Minutes booked today by status 1 / 2 appointments (numerator). */
+    busyMin: number;
   }>;
   appointments: CalendarAppointment[];
   timeSlots: string[];
