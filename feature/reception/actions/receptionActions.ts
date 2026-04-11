@@ -2,6 +2,7 @@
 
 import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { toLocalDateString } from "@/helper/utils/time";
 
 /**
  * Check in a customer (mark as arrived)
@@ -26,7 +27,17 @@ export async function checkinAppointment(id: number) {
 }
 
 /**
- * Complete appointment with sales amount
+ * Complete appointment with sales amount.
+ *
+ * Side effects (best-effort, never fail the main update):
+ *  - Increments customers.visit_count by 1
+ *  - Sets customers.last_visit_date to the appointment's start date in
+ *    Asia/Tokyo (so the calendar's "新規" badge correctly turns off after
+ *    a returning visit, and customer reports show the right last-visit date)
+ *
+ * Same-day cancellation (`sameDayCancelAppointment`, status = 4) and
+ * generic cancellation (`cancelAppointment`, status = 3) intentionally
+ * skip this so a no-show is never counted as a real visit.
  */
 export async function completeAppointment(id: number, salesAmount: number) {
   const supabase = await createClient();
@@ -42,6 +53,36 @@ export async function completeAppointment(id: number, salesAmount: number) {
     actor_type: 1,
     diff: { status: 2, sales: salesAmount },
   });
+
+  // Bump the customer's cumulative visit_count + last_visit_date.
+  // Wrapped so any failure here never blocks the completion itself.
+  try {
+    const { data: appt } = await supabase
+      .from("appointments")
+      .select("customer_id, start_at")
+      .eq("id", id)
+      .maybeSingle();
+    if (appt?.customer_id) {
+      const { data: cust } = await supabase
+        .from("customers")
+        .select("visit_count")
+        .eq("id", appt.customer_id)
+        .maybeSingle();
+      const nextCount = (cust?.visit_count ?? 0) + 1;
+      const lastDate = toLocalDateString(
+        appt.start_at ? new Date(appt.start_at as string) : new Date()
+      );
+      await supabase
+        .from("customers")
+        .update({
+          visit_count: nextCount,
+          last_visit_date: lastDate,
+        })
+        .eq("id", appt.customer_id);
+    }
+  } catch (e) {
+    console.error("[completeAppointment] failed to bump visit_count", e);
+  }
 
   revalidatePath("/reception");
   revalidatePath("/sales");

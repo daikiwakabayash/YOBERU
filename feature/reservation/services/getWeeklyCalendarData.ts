@@ -122,7 +122,10 @@ export async function getWeeklyCalendarData(
       ? sourceMap.get(a.visit_source_id as number)
       : null;
     const menu = menuMap.get(a.menu_manage_id) ?? null;
-    const customerVisitCount = customer?.visit_count ?? a.visit_count ?? 0;
+    // Use the per-appointment snapshot (1 = first visit) — see comment in
+    // getCalendarData.ts and 00002 schema.
+    const apptVisitCount =
+      (a.visit_count as number | null) ?? customer?.visit_count ?? 0;
 
     return {
       id: a.id,
@@ -140,8 +143,8 @@ export async function getWeeklyCalendarData(
       type: a.type,
       duration: menu?.duration ?? 0,
       memo: a.memo ?? null,
-      isNewCustomer: customerVisitCount <= 1,
-      visitCount: customerVisitCount,
+      isNewCustomer: apptVisitCount === 1,
+      visitCount: apptVisitCount,
       source: sourceInfo?.name ?? null,
       sourceColor: sourceInfo?.color ?? null,
       sourceTextColor: sourceInfo?.label_text_color ?? null,

@@ -108,7 +108,12 @@ export async function getCalendarData(
       ? sourceMap.get(a.visit_source_id as number)
       : null;
     const menu = menuMap.get(a.menu_manage_id) ?? null;
-    const customerVisitCount = customer?.visit_count ?? a.visit_count ?? 0;
+    // Per-appointment snapshot is the source of truth: appt.visit_count = 1
+    // means "this is the customer's first actual visit" (see schema comment
+    // in 00002_visit_sources_and_billing.sql). Falls back to the customer's
+    // cumulative count for legacy rows.
+    const apptVisitCount =
+      (a.visit_count as number | null) ?? customer?.visit_count ?? 0;
 
     return {
       id: a.id,
@@ -126,8 +131,8 @@ export async function getCalendarData(
       type: a.type,
       duration: menu?.duration ?? 0,
       memo: a.memo ?? null,
-      isNewCustomer: customerVisitCount <= 1,
-      visitCount: customerVisitCount,
+      isNewCustomer: apptVisitCount === 1,
+      visitCount: apptVisitCount,
       source: sourceInfo?.name ?? null,
       sourceColor: sourceInfo?.color ?? null,
       sourceTextColor: sourceInfo?.label_text_color ?? null,

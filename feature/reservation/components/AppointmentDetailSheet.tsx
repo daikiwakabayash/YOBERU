@@ -21,6 +21,7 @@ import {
   createAppointment,
   updateAppointment,
   cancelAppointment,
+  sameDayCancelAppointment,
 } from "../actions/reservationActions";
 import {
   checkinAppointment,
@@ -73,6 +74,7 @@ const STATUS_BADGE: Record<number, { label: string; cls: string }> = {
   1: { label: "施術中", cls: "border-green-500 text-green-700 bg-green-50" },
   2: { label: "完了", cls: "border-gray-300 text-gray-500 bg-gray-50" },
   3: { label: "キャンセル", cls: "border-red-300 text-red-500 bg-red-50" },
+  4: { label: "当日キャンセル", cls: "border-red-400 text-red-700 bg-red-50" },
 };
 
 const PLAN_CARDS = [
@@ -283,6 +285,40 @@ export function AppointmentDetailSheet({
       setStatus(3);
       onClose();
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // 当日キャンセル: records the cancellation reason in customer_record so
+  // future bookings can surface it via getLastVisitForCustomer / 前回カルテ.
+  // Skips visit_count + last_visit_date updates (no-show ≠ visit).
+  // -----------------------------------------------------------------------
+  async function handleSameDayCancel() {
+    if (!appointment) return;
+    const reason = customerRecord.trim();
+    if (!reason) {
+      if (
+        !confirm(
+          "キャンセル理由が未入力です。理由なしで当日キャンセルを記録しますか？"
+        )
+      ) {
+        return;
+      }
+    } else if (
+      !confirm("この予約を当日キャンセルとして記録します。よろしいですか？")
+    ) {
+      return;
+    }
+
+    setSaving(true);
+    const result = await sameDayCancelAppointment(appointment.id, reason);
+    setSaving(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setStatus(4);
+    toast.success("当日キャンセルとして記録しました");
+    onClose();
   }
 
   // -----------------------------------------------------------------------
@@ -563,9 +599,16 @@ export function AppointmentDetailSheet({
                 "新規予約"
               ) : (
                 <span className="flex items-center gap-2 text-sm">
-                  <span className="font-black text-gray-900">
+                  <Link
+                    href={`/customer/${appointment.customerId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group inline-flex items-center gap-1 font-black text-gray-900 hover:text-blue-600 hover:underline"
+                    title="顧客詳細を新しいタブで開く"
+                  >
                     {appointment.customerName}
-                  </span>
+                    <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                  </Link>
                   {appointment.customerPhone && (
                     <>
                       <span className="text-gray-300">|</span>
@@ -996,18 +1039,33 @@ export function AppointmentDetailSheet({
             </Button>
           )}
 
+          {/* ===== 当日キャンセル button (existing 待機/施術中 only) ===== */}
+          {!isNew && (status === 0 || status === 1) && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-2 border-red-400 py-5 text-base font-bold text-red-600 hover:bg-red-50"
+              onClick={handleSameDayCancel}
+              disabled={saving}
+            >
+              {saving ? "処理中..." : "当日キャンセル"}
+            </Button>
+          )}
+
           {/* ===== Submit button ===== */}
           <Button
             size="lg"
             className="w-full bg-orange-500 py-6 text-base font-black hover:bg-orange-600"
             onClick={handleSubmit}
-            disabled={saving || status === 2 || status === 3}
+            disabled={saving || status === 2 || status === 3 || status === 4}
           >
             {saving
               ? "処理中..."
               : status === 2
                 ? "会計確定済み"
-                : "会計を確定する"}
+                : status === 4
+                  ? "当日キャンセル済み"
+                  : "会計を確定する"}
           </Button>
         </div>
       </SheetContent>

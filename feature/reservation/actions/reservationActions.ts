@@ -171,9 +171,25 @@ export async function createAppointment(formData: FormData) {
   // Generate unique appointment code
   const code = `APT-${parsed.data.shop_id}-${Date.now()}`;
 
+  // Stamp the per-appointment visit_count snapshot from the customer's
+  // current cumulative count + 1, so visit_count = 1 means "first visit".
+  // Falls back to 1 if the lookup fails.
+  let stampedVisitCount = 1;
+  try {
+    const { data: cust } = await supabase
+      .from("customers")
+      .select("visit_count")
+      .eq("id", parsed.data.customer_id)
+      .maybeSingle();
+    stampedVisitCount = (cust?.visit_count ?? 0) + 1;
+  } catch {
+    // ignore — keep 1
+  }
+
   const { error } = await supabase.from("appointments").insert({
     ...parsed.data,
     code,
+    visit_count: stampedVisitCount,
   });
 
   if (error) return { error: error.message };
@@ -252,6 +268,39 @@ export async function cancelAppointment(id: number) {
   if (error) return { error: error.message };
 
   revalidatePath("/reservation");
+  return { success: true };
+}
+
+/**
+ * Mark an appointment as a same-day cancellation (status = 4).
+ *
+ * Distinct from `cancelAppointment` (status = 3):
+ *  - Saves the staff-typed reason into customer_record so future bookings
+ *    can surface why the customer cancelled.
+ *  - Does NOT touch customers.visit_count or customers.last_visit_date —
+ *    a no-show is not a real visit.
+ *  - Sets cancelled_at so the appointment is excluded from staff
+ *    availability / overlap checks.
+ *
+ * The calendar block badge picks up the new status via
+ * STATUS_BADGE / inline mapping which both include 4 = "当日キャンセル".
+ */
+export async function sameDayCancelAppointment(id: number, reason: string) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("appointments")
+    .update({
+      status: 4,
+      cancelled_at: new Date().toISOString(),
+      customer_record: reason || null,
+    })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reservation");
+  revalidatePath(`/reservation/${id}`);
   return { success: true };
 }
 

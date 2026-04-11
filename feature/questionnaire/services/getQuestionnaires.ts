@@ -81,11 +81,16 @@ export async function getQuestionnaireBySlug(
         .eq("slug", s)
         .is("deleted_at", null)
         .maybeSingle();
-      if (error || !data) return null;
+      if (error) {
+        console.error("[questionnaire] tryFetch error", { slug: s, error });
+        return null;
+      }
+      if (!data) return null;
       // Only surface public questionnaires in the public route
       if ((data as Questionnaire).is_public === false) return null;
       return data as Questionnaire;
-    } catch {
+    } catch (e) {
+      console.error("[questionnaire] tryFetch threw", { slug: s, error: e });
       return null;
     }
   }
@@ -108,14 +113,16 @@ export async function getQuestionnaireBySlug(
     if (hit) return hit;
   }
 
-  // 4. Last resort: fuzzy lookup — if a stored slug contains spaces,
-  //    look for any row whose sanitized form matches our sanitized input.
-  //    This covers existing broken rows created before sanitization was added.
+  // 4. Fuzzy full-scan: sanitize each row and compare to canonical input.
+  //    Catches legacy rows whose slug was stored with spaces / mixed case.
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("questionnaires")
       .select("*")
       .is("deleted_at", null);
+    if (error) {
+      console.error("[questionnaire] fallback4 fetch error", error);
+    }
     const canonical = sanitized || slug.toLowerCase().replace(/\s+/g, "-");
     for (const row of (data ?? []) as Questionnaire[]) {
       const rowCanonical = sanitizeSlug(row.slug ?? "");
@@ -124,10 +131,35 @@ export async function getQuestionnaireBySlug(
         return row;
       }
     }
-  } catch {
-    // ignore
+  } catch (e) {
+    console.error("[questionnaire] fallback4 threw", e);
   }
 
+  // 5. Final defensive net: ilike (case-insensitive substring) on the
+  //    sanitized form. Useful when fallback 4 was unavailable due to RLS
+  //    or scan timeout. Limited to 5 results; first public match wins.
+  try {
+    const probe = sanitized || trimmed || slug;
+    if (probe) {
+      const { data, error } = await supabase
+        .from("questionnaires")
+        .select("*")
+        .ilike("slug", `%${probe}%`)
+        .is("deleted_at", null)
+        .limit(5);
+      if (error) {
+        console.error("[questionnaire] fallback5 ilike error", error);
+      }
+      for (const row of (data ?? []) as Questionnaire[]) {
+        if (row.is_public === false) continue;
+        return row;
+      }
+    }
+  } catch (e) {
+    console.error("[questionnaire] fallback5 threw", e);
+  }
+
+  console.error("[questionnaire] all fallbacks missed", { slug });
   return null;
 }
 
