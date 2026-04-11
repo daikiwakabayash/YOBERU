@@ -3,6 +3,7 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
 import { getWeekDates } from "@/helper/utils/weekday";
+import { getRangeStaffUtilization } from "@/feature/sales/services/getStaffUtilization";
 import type { CalendarAppointment } from "../types";
 
 export interface WeeklyCalendarData {
@@ -11,6 +12,12 @@ export interface WeeklyCalendarData {
   frameMin: number;
   weekDates: string[]; // ["2026-04-06", "2026-04-07", ..., "2026-04-12"]
   staffName: string | null;
+  /** Selected staff's 週間 稼働率 (0..1). null when no staff selected. */
+  staffUtilizationRate: number | null;
+  /** Total shift minutes for the week (denominator). */
+  staffOpenMin: number;
+  /** Total busy minutes for the week (numerator). */
+  staffBusyMin: number;
 }
 
 /**
@@ -37,9 +44,9 @@ export async function getWeeklyCalendarData(
   // deployments don't have `is_member_join` and the query would silently
   // return null otherwise.
   const FULL_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
   const SAFE_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
 
   function buildQuery(select: string) {
     let q = supabase
@@ -106,12 +113,14 @@ export async function getWeeklyCalendarData(
     is_member_join?: boolean | null;
     customers:
       | {
+          code: string | null;
           last_name: string | null;
           first_name: string | null;
           phone_number_1: string | null;
           visit_count: number | null;
         }
       | Array<{
+          code: string | null;
           last_name: string | null;
           first_name: string | null;
           phone_number_1: string | null;
@@ -178,6 +187,7 @@ export async function getWeeklyCalendarData(
       ? rawCustomer[0] ?? null
       : rawCustomer) as
       | {
+          code: string | null;
           last_name: string | null;
           first_name: string | null;
           phone_number_1: string | null;
@@ -216,6 +226,7 @@ export async function getWeeklyCalendarData(
       customerName: customer
         ? `${customer.last_name ?? ""} ${customer.first_name ?? ""}`.trim()
         : "不明",
+      customerCode: customer?.code ?? null,
       customerPhone: customer?.phone_number_1 ?? null,
       menuName: menu?.name ?? "不明",
       startAt: a.start_at,
@@ -273,11 +284,40 @@ export async function getWeeklyCalendarData(
     frameMin
   );
 
+  // Selected staff's weekly utilization so the header can show a
+  // "稼働率 47%" badge just like the day view does per staff column.
+  // Only computed when a staff is selected (week view is always staff-
+  // filtered) — otherwise the range aggregation has no target.
+  let staffUtilizationRate: number | null = null;
+  let staffOpenMin = 0;
+  let staffBusyMin = 0;
+  if (staffId) {
+    try {
+      const util = await getRangeStaffUtilization(
+        shopId,
+        weekStart,
+        weekDates[6],
+        staffId
+      );
+      const row = util.get(staffId);
+      if (row) {
+        staffOpenMin = row.openMin;
+        staffBusyMin = row.busyMin;
+        staffUtilizationRate = row.openMin > 0 ? row.rate : null;
+      }
+    } catch {
+      /* swallow — utilization is a nice-to-have */
+    }
+  }
+
   return {
     appointments: calendarAppointments,
     timeSlots,
     frameMin,
     weekDates,
     staffName,
+    staffUtilizationRate,
+    staffOpenMin,
+    staffBusyMin,
   };
 }

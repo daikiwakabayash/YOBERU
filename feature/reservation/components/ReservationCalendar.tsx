@@ -18,9 +18,25 @@ interface ReservationCalendarProps {
   enableMeetingBooking?: boolean;
 }
 
-const SLOT_HEIGHT = 44;
-const TIME_COL_WIDTH = 76;
-const STAFF_COL_WIDTH = 260;
+// Calendar density — shrunk per user request so the day view fits more
+// staff + more hours without scrolling.
+//   SLOT_HEIGHT: base height of a 30-min slot block (previously 44)
+//   TIME_COL_WIDTH: narrower 時間軸 column (previously 76)
+//   STAFF_COL_WIDTH: narrower staff column (previously 260)
+const SLOT_HEIGHT = 34;
+const TIME_COL_WIDTH = 52;
+const STAFF_COL_WIDTH = 210;
+
+/**
+ * Strip leading zeros from a customer code so "00000012" renders as
+ * "12" on the calendar. Falls back to the raw string (or null) so we
+ * never crash on non-numeric legacy codes.
+ */
+function formatCustomerCode(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const trimmed = code.replace(/^0+/, "");
+  return trimmed.length > 0 ? trimmed : "0";
+}
 
 export function ReservationCalendar({
   data,
@@ -244,14 +260,14 @@ export function ReservationCalendar({
             return (
               <div
                 key={staff.id}
-                className={`flex shrink-0 flex-col items-center justify-center border-r py-3 ${
+                className={`flex shrink-0 flex-col items-center justify-center border-r py-2 ${
                   isOffShift ? "bg-gray-100" : ""
                 }`}
                 style={{ width: STAFF_COL_WIDTH }}
               >
                 {/* Staff avatar circle */}
                 <div
-                  className={`mb-1 flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${
+                  className={`mb-0.5 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-white ${
                     isOffShift ? "opacity-60" : ""
                   }`}
                   style={{
@@ -260,9 +276,9 @@ export function ReservationCalendar({
                 >
                   {staff.name.slice(0, 1)}
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1">
                   <div
-                    className={`text-sm font-bold ${
+                    className={`text-xs font-bold ${
                       isOffShift ? "text-gray-500" : "text-gray-900"
                     }`}
                   >
@@ -270,19 +286,19 @@ export function ReservationCalendar({
                   </div>
                   {/* Today's utilization badge — empty for off-shift staff */}
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${rateClass}`}
+                    className={`rounded px-1 py-0.5 text-[9px] font-bold ${rateClass}`}
                     title={`本日の稼働率 — 開放 ${staff.openMin}分 / 稼働 ${staff.busyMin}分`}
                   >
                     {ratePct != null ? `${ratePct}%` : "—"}
                   </span>
                 </div>
                 {staff.shiftStart && staff.shiftEnd ? (
-                  <div className="text-[11px] text-gray-400">
+                  <div className="text-[10px] text-gray-400">
                     {staff.shiftStart.slice(0, 5)}-
                     {staff.shiftEnd.slice(0, 5)}
                   </div>
                 ) : (
-                  <div className="text-[10px] font-bold text-amber-600">
+                  <div className="text-[9px] font-bold text-amber-600">
                     シフト外
                   </div>
                 )}
@@ -316,9 +332,9 @@ export function ReservationCalendar({
                   // value of -8 made the very first label (9:00) clip
                   // above the grid container — by anchoring to +6 every
                   // label is fully visible inside its slot.
-                  style={{ top: idx * slotHeightPx + 6 }}
+                  style={{ top: idx * slotHeightPx + 4 }}
                 >
-                  <span className="text-[13px] font-semibold text-gray-500">
+                  <span className="text-[11px] font-semibold text-gray-500">
                     {slot}
                   </span>
                 </div>
@@ -539,8 +555,13 @@ export function ReservationCalendar({
                             {isSameDayCancelled ? "当日" : "キャンセル"}
                           </span>
                         </div>
-                        <div className="mt-0.5 truncate text-[11px] font-bold text-gray-700 line-through">
+                        <div className="mt-0.5 truncate text-[10px] font-bold text-gray-700 line-through">
                           {appt.customerName}
+                          {formatCustomerCode(appt.customerCode) && (
+                            <span className="ml-1 font-normal text-gray-500">
+                              ({formatCustomerCode(appt.customerCode)})
+                            </span>
+                          )}
                         </div>
                         <div className="truncate text-[10px] text-gray-500 line-through">
                           {appt.menuName}
@@ -562,7 +583,7 @@ export function ReservationCalendar({
                     <div
                       key={appt.id}
                       data-appt={appt.id}
-                      className={`absolute select-none rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg ${
+                      className={`absolute select-none rounded-md border ${borderColor} ${bgColor} px-2 py-1 transition-shadow hover:shadow-md ${
                         isBeingDragged
                           ? "cursor-grabbing opacity-60 z-50"
                           : "cursor-grab"
@@ -596,11 +617,16 @@ export function ReservationCalendar({
                         </div>
                       )}
 
-                      {/* Customer name + visit badge */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[14px] font-black text-gray-900 leading-tight">
+                      {/* Customer name + カルテNo + visit badge */}
+                      <div className="flex items-center gap-1 leading-tight">
+                        <span className="text-[13px] font-black text-gray-900">
                           {appt.customerName}
                         </span>
+                        {formatCustomerCode(appt.customerCode) && (
+                          <span className="text-[10px] font-bold text-gray-500">
+                            ({formatCustomerCode(appt.customerCode)})
+                          </span>
+                        )}
                         {isNew ? (
                           <span
                             className="rounded px-1.5 py-0 text-[10px] font-bold"
@@ -621,14 +647,14 @@ export function ReservationCalendar({
                       </div>
 
                       {/* Menu + duration */}
-                      <div className="mt-0.5 text-[12px] text-gray-600">
+                      <div className="mt-0.5 truncate text-[11px] text-gray-600">
                         {appt.menuName}
                         {appt.duration > 0 && `（${appt.duration}分）`}
                       </div>
 
                       {/* Source for new customers */}
                       {isNew && appt.source && (
-                        <div className="text-[11px] text-gray-400">
+                        <div className="truncate text-[10px] text-gray-400">
                           {appt.source}
                         </div>
                       )}

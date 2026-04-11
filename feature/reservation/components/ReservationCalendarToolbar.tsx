@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
@@ -173,24 +173,56 @@ export function ReservationCalendarToolbar({
         </button>
       </div>
 
-      {/* Staff selector (week view only) */}
+      {/* Staff selector (week view only).
+          Base UI's <Select.Value> falls back to the raw value string
+          unless Select.Root is given an `items` map — without it the
+          trigger was showing "1" / "2" instead of the staff name. */}
       {viewMode === "week" && staffs.length > 0 && (
-        <Select
-          value={selectedStaffId ? String(selectedStaffId) : undefined}
-          onValueChange={changeStaff}
-        >
-          <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="スタッフ選択" />
-          </SelectTrigger>
-          <SelectContent>
-            {staffs.map((s) => (
-              <SelectItem key={s.id} value={String(s.id)}>
-                {s.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <StaffSelect
+          staffs={staffs}
+          value={selectedStaffId}
+          onChange={changeStaff}
+        />
       )}
     </div>
+  );
+}
+
+/**
+ * Staff select wrapper that supplies Base UI's required `items` map so
+ * <SelectValue> can render the staff *name* in the trigger rather than
+ * the raw id string. See components/layout/ShopSelector.tsx for the
+ * same pattern (this is a known Base UI quirk).
+ */
+function StaffSelect({
+  staffs,
+  value,
+  onChange,
+}: {
+  staffs: Array<{ id: number; name: string }>;
+  value: number | null;
+  onChange: (value: string | null) => void;
+}) {
+  const itemsMap = useMemo(
+    () => Object.fromEntries(staffs.map((s) => [String(s.id), s.name])),
+    [staffs]
+  );
+  return (
+    <Select
+      value={value ? String(value) : undefined}
+      items={itemsMap}
+      onValueChange={onChange}
+    >
+      <SelectTrigger className="w-[160px]">
+        <SelectValue placeholder="スタッフ選択" />
+      </SelectTrigger>
+      <SelectContent>
+        {staffs.map((s) => (
+          <SelectItem key={s.id} value={String(s.id)}>
+            {s.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

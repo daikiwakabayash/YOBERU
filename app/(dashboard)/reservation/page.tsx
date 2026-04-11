@@ -147,6 +147,9 @@ export default async function ReservationPage({
         frameMin: 15,
         weekDates: [],
         staffName: null,
+        staffUtilizationRate: null,
+        staffOpenMin: 0,
+        staffBusyMin: 0,
       };
     }
 

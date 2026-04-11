@@ -62,13 +62,61 @@ export async function searchCustomers(
   limit: number = 10
 ): Promise<CustomerSummary[]> {
   const supabase = await createClient();
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  // ---------------------------------------------------------------
+  // Numeric queries → カルテナンバー (customers.code) lookup.
+  //
+  // Staff type just the number to pull up a returning patient, so
+  // "12" should hit customer #12 first. Because the column is stored
+  // as a string we need to match two shapes:
+  //   1. exact new-format:    code = "12"
+  //   2. legacy zero-padded:  code = "00000012"
+  // We also allow prefix matching ("1" → 1, 10-19, 100...) so the
+  // search dropdown starts returning candidates as the user types.
+  // The final list is de-duped and re-ordered so exact-code matches
+  // always sit at the top.
+  // ---------------------------------------------------------------
+  if (/^\d+$/.test(trimmed)) {
+    const padded = trimmed.padStart(8, "0");
+    const { data: codeHits, error: codeErr } = await supabase
+      .from("customers")
+      .select("id, code, last_name, first_name, phone_number_1")
+      .eq("shop_id", shopId)
+      .is("deleted_at", null)
+      .or(
+        `code.eq.${trimmed},code.eq.${padded},code.ilike.${trimmed}%,phone_number_1.ilike.%${trimmed}%`
+      )
+      .limit(limit);
+    if (codeErr) throw codeErr;
+    const rows = (codeHits ?? []) as CustomerSummary[];
+    // Exact code match wins — sort it to position 0.
+    rows.sort((a, b) => {
+      const aExact =
+        a.code === trimmed || a.code === padded ? 0 : 1;
+      const bExact =
+        b.code === trimmed || b.code === padded ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+      // Otherwise numeric-ish ordering by code so shorter codes show
+      // up first (1, 10, 11, 12... rather than 12, 13, 1).
+      const an = parseInt(a.code ?? "0", 10) || 0;
+      const bn = parseInt(b.code ?? "0", 10) || 0;
+      return an - bn;
+    });
+    return rows;
+  }
+
+  // ---------------------------------------------------------------
+  // Non-numeric queries → name / kana / phone / (partial) code.
+  // ---------------------------------------------------------------
   const { data, error } = await supabase
     .from("customers")
     .select("id, code, last_name, first_name, phone_number_1")
     .eq("shop_id", shopId)
     .is("deleted_at", null)
     .or(
-      `last_name.ilike.%${query}%,first_name.ilike.%${query}%,last_name_kana.ilike.%${query}%,first_name_kana.ilike.%${query}%,phone_number_1.ilike.%${query}%,code.ilike.%${query}%`
+      `last_name.ilike.%${trimmed}%,first_name.ilike.%${trimmed}%,last_name_kana.ilike.%${trimmed}%,first_name_kana.ilike.%${trimmed}%,phone_number_1.ilike.%${trimmed}%,code.ilike.%${trimmed}%`
     )
     .limit(limit);
   if (error) throw error;
