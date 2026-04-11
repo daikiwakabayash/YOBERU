@@ -190,6 +190,20 @@ export function AppointmentDetailSheet({
     null | "google" | "hotpepper"
   >(null);
 
+  // ---- Full customer dossier for the right-side patient DB panel ----
+  // Matches the /customer/:id page shape (basic info + recent history +
+  // derived totals). Loaded on-demand whenever the active customer
+  // changes so the staff can see who they're on the phone with at a
+  // glance.
+  type CustomerFullDetail = Awaited<
+    ReturnType<
+      typeof import("@/feature/customer/services/getCustomers").getCustomerFullDetail
+    >
+  >;
+  const [customerDetail, setCustomerDetail] =
+    useState<CustomerFullDetail | null>(null);
+  const [customerDetailLoading, setCustomerDetailLoading] = useState(false);
+
   // ---- Billing ----
   const [additionalCharge, setAdditionalCharge] = useState(
     String(appointment?.additionalCharge ?? 0)
@@ -270,6 +284,32 @@ export function AppointmentDetailSheet({
   // picked from the search.
   const activeCustomerId =
     appointment?.customerId ?? selectedCustomer?.id ?? null;
+
+  // Load the full customer dossier (basic info + recent history +
+  // totals) whenever the attached customer changes. Powers the right
+  // hand patient DB panel.
+  useEffect(() => {
+    if (!activeCustomerId) {
+      setCustomerDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setCustomerDetailLoading(true);
+    import("@/feature/customer/services/getCustomers")
+      .then((m) => m.getCustomerFullDetail(activeCustomerId))
+      .then((res) => {
+        if (!cancelled) setCustomerDetail(res);
+      })
+      .catch(() => {
+        if (!cancelled) setCustomerDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCustomerDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCustomerId]);
 
   // Load G口コミ / H口コミ receipt status for the active customer.
   // Runs once per customer-id change; the state is stored on the
@@ -797,28 +837,30 @@ export function AppointmentDetailSheet({
 
   // Expanded = right patient-info panel is shown. We animate the sheet
   // width between two sizes:
-  //   - No customer attached  → narrow (~420px) docked on the left so
+  //   - No customer attached  → narrow (480px) docked on the left so
   //                              the calendar behind remains visible
-  //   - Customer attached     → full viewport width, left 420px is the
-  //                              form, right flex-1 is the patient DB
-  // `transition-[max-width]` smooths the switch; Radix Sheet preserves
-  // scroll position through the width change.
+  //   - Customer attached     → full viewport width, so the patient DB
+  //                              panel can occupy the right side
+  //
+  // IMPORTANT: the default Sheet class includes `data-[side=left]:sm:max-w-sm`
+  // which has higher CSS specificity than our utility class `sm:max-w-none`
+  // (attribute selector wins). That was silently pinning the sheet at
+  // 384px and causing the "UIが切れる" bug. Forcing `maxWidth` via
+  // inline style wins against the data-attribute selector.
   //
   // NOTE: side="left" — per product direction the new-reservation
-  // panel slides in from the left so it sits over the sidebar. When
-  // expanded, the sheet stretches across the full viewport so the
-  // right side can serve as a full-screen patient dashboard.
+  // panel slides in from the left so it sits over the sidebar.
   const expanded = !!rightPanelCustomer;
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent
         side="left"
-        className={`overflow-hidden p-0 transition-[max-width] duration-300 ease-out ${
-          expanded
-            ? "w-screen sm:max-w-none"
-            : "w-full sm:max-w-[420px]"
-        }`}
+        className="overflow-hidden p-0 transition-[max-width] duration-300 ease-out"
+        style={{
+          maxWidth: expanded ? "100vw" : "480px",
+          width: expanded ? "100vw" : "100%",
+        }}
       >
         {/* ------- Header ------- */}
         <SheetHeader className="sticky top-0 z-10 border-b bg-white px-6 py-4">
@@ -867,7 +909,7 @@ export function AppointmentDetailSheet({
           </div>
         </SheetHeader>
 
-        {/* Two-column body. Left = form (fixed 420px when expanded so
+        {/* Two-column body. Left = form (fixed 480px when expanded so
             the right patient panel can take the rest), full-width
             otherwise. Right = patient DB, only rendered in expanded
             mode (see below). */}
@@ -875,7 +917,7 @@ export function AppointmentDetailSheet({
         <div
           className={`space-y-6 overflow-y-auto px-6 py-5 ${
             expanded
-              ? "w-[420px] shrink-0 border-r"
+              ? "w-[480px] shrink-0 border-r"
               : "flex-1"
           }`}
         >
@@ -1496,122 +1538,341 @@ export function AppointmentDetailSheet({
           )}
         </div>
         {/* ===== Right column: 患者DB (expanded only) =====
-            Rendered only when a customer is attached to the flow so
-            the sheet can collapse back to ~420px for the initial "顧客
-            検索" state. With full viewport width when expanded we can
-            lay out the patient panel as a real dashboard instead of a
-            cramped sidebar. */}
+            Mirrors /customer/:id so "久しぶりに来院された患者さんへの
+            電話対応" can happen with all the context already visible. */}
         {expanded && rightPanelCustomer && (
           <div className="flex-1 overflow-y-auto bg-gray-50 px-8 py-6">
-            <div className="mx-auto max-w-4xl space-y-6">
-              {/* --- Header row --- */}
-              <div className="flex items-start justify-between gap-6 rounded-xl border bg-white px-6 py-5 shadow-sm">
-                <div>
-                  <div className="text-[11px] font-bold uppercase text-gray-400">
-                    患者データベース
-                  </div>
-                  <div className="mt-1 flex items-center gap-3">
-                    <Link
-                      href={`/customer/${rightPanelCustomer.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-2xl font-black text-gray-900 hover:text-blue-600 hover:underline"
-                    >
-                      {rightPanelCustomer.name}
-                    </Link>
-                    {rightPanelCustomer.code && (
-                      <span className="rounded-md bg-gray-900 px-2 py-0.5 text-sm font-black text-white">
-                        No.{rightPanelCustomer.code}
-                      </span>
-                    )}
-                    <ExternalLink className="h-4 w-4 text-gray-400" />
-                  </div>
-                  {rightPanelCustomer.phone && (
-                    <div className="mt-1 text-sm text-gray-500">
-                      {rightPanelCustomer.phone}
-                    </div>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg border bg-gray-50 px-4 py-2">
-                    <div className="text-[10px] text-gray-500">来店回数</div>
-                    <div className="text-xl font-black text-gray-900">
-                      {(rightPanelCustomer.visitCount ?? 0) > 0
-                        ? `${rightPanelCustomer.visitCount}回`
-                        : "-"}
-                    </div>
-                  </div>
-                  <div className="rounded-lg border bg-gray-50 px-4 py-2">
-                    <div className="text-[10px] text-gray-500">顧客ID</div>
-                    <div className="text-xl font-black text-gray-900">
-                      #{rightPanelCustomer.id}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* --- 前回カルテ --- */}
-              <div className="rounded-xl border bg-white px-6 py-5 shadow-sm">
-                <div className="mb-2 text-[11px] font-bold uppercase text-gray-400">
-                  前回カルテ
-                </div>
-                {lastVisitLoading ? (
-                  <div className="text-sm text-gray-400">読み込み中...</div>
-                ) : lastVisit ? (
-                  <div className="space-y-2">
-                    <div className="text-xs text-gray-500">
-                      {lastVisit.start_at?.slice(0, 10)}{" "}
-                      {lastVisit.start_at?.slice(11, 16)}
-                      {lastVisit.staffs?.name && (
-                        <> · 担当 {lastVisit.staffs.name}</>
-                      )}
-                    </div>
-                    {lastVisit.customer_record ? (
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
-                        {lastVisit.customer_record}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-gray-400">
-                        前回はカルテ未記入
-                      </p>
-                    )}
-                  </div>
-                ) : appointment ? (
-                  <div className="text-sm text-gray-400">
-                    このお客様は履歴がありません
-                  </div>
-                ) : (
-                  <div className="text-sm text-gray-400">
-                    過去の来店履歴がありません
-                  </div>
-                )}
-              </div>
-
-              {/* --- 現在のカルテ (live mirror of the form field) --- */}
-              <div className="rounded-xl border bg-white px-6 py-5 shadow-sm">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="text-[11px] font-bold uppercase text-gray-400">
-                    今回のカルテ (入力中)
-                  </div>
-                  <div className="text-[10px] text-gray-400">
-                    左側のカルテ欄と連動
-                  </div>
-                </div>
-                {customerRecord ? (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
-                    {customerRecord}
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-400">
-                    左側のカルテ欄に記入すると、ここに同時表示されます
-                  </p>
-                )}
-              </div>
-            </div>
+            <CustomerDossierPanel
+              rightPanelCustomer={rightPanelCustomer}
+              detail={customerDetail}
+              loading={customerDetailLoading}
+              stripZeros={stripZeros}
+            />
           </div>
         )}
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CustomerDossierPanel
+// ---------------------------------------------------------------------------
+// Rendered inside the right half of the detail sheet when a customer
+// is attached. Mirrors the /customer/:id page as faithfully as the
+// sheet width allows: 4 KPI cards (来店回数 / 累計売上 / ステータス /
+// 最終来院) + 基本情報 card + 来院履歴 list (latest 50, newest first).
+//
+// Kept in the same file to avoid a trivial component split — the panel
+// is never reused outside this sheet.
+// ---------------------------------------------------------------------------
+
+type DossierCustomer = {
+  id: number;
+  name: string;
+  code: string | null;
+  phone: string | null;
+};
+
+type DossierDetail = {
+  customer: {
+    id: number;
+    code: string;
+    last_name: string | null;
+    first_name: string | null;
+    last_name_kana: string | null;
+    first_name_kana: string | null;
+    phone_number_1: string | null;
+    phone_number_2: string | null;
+    email: string | null;
+    zip_code: string | null;
+    address: string | null;
+    gender: number;
+    birth_date: string | null;
+    type: number;
+    occupation: string | null;
+    line_id: string | null;
+    description: string | null;
+    created_at: string;
+  };
+  visitCount: number;
+  totalSales: number;
+  lastVisitDate: string | null;
+  appointments: Array<{
+    id: number;
+    startAt: string;
+    endAt: string;
+    status: number;
+    sales: number;
+    customerRecord: string | null;
+    memo: string | null;
+    menuName: string;
+    staffName: string | null;
+  }>;
+};
+
+const GENDER_LABELS: Record<number, string> = {
+  0: "男性",
+  1: "女性",
+  2: "その他",
+};
+const TYPE_LABELS: Record<number, { label: string; cls: string }> = {
+  0: { label: "一般", cls: "bg-gray-100 text-gray-700" },
+  1: { label: "会員", cls: "bg-blue-100 text-blue-700" },
+  2: { label: "退会", cls: "bg-red-100 text-red-700" },
+};
+
+function CustomerDossierPanel({
+  rightPanelCustomer,
+  detail,
+  loading,
+  stripZeros,
+}: {
+  rightPanelCustomer: DossierCustomer;
+  detail: DossierDetail | null;
+  loading: boolean;
+  stripZeros: (code: string | null | undefined) => string | null;
+}) {
+  // Until the dossier arrives, fall back to the sparse data we already
+  // have from the calendar / search (so the header doesn't flicker).
+  const customer = detail?.customer ?? null;
+  const fullName =
+    customer
+      ? [customer.last_name, customer.first_name].filter(Boolean).join(" ") ||
+        rightPanelCustomer.name
+      : rightPanelCustomer.name;
+  const kanaName = customer
+    ? [customer.last_name_kana, customer.first_name_kana]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  const visitCount = detail?.visitCount ?? 0;
+  const totalSales = detail?.totalSales ?? 0;
+  const lastVisitDate = detail?.lastVisitDate ?? "-";
+  const typeInfo =
+    TYPE_LABELS[customer?.type ?? 0] ?? TYPE_LABELS[0];
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-5">
+      {/* ===== Header row — name + カルテ No + 4 KPI cards ===== */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-bold uppercase text-gray-400">
+            患者データベース
+          </div>
+          <div className="mt-1 flex items-center gap-3">
+            <Link
+              href={`/customer/${rightPanelCustomer.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-2xl font-black text-gray-900 hover:text-blue-600 hover:underline"
+            >
+              {fullName}
+            </Link>
+            {stripZeros(rightPanelCustomer.code) && (
+              <span className="rounded-md bg-gray-900 px-2 py-0.5 text-sm font-black text-white">
+                No.{stripZeros(rightPanelCustomer.code)}
+              </span>
+            )}
+            <Badge
+              variant="outline"
+              className={`text-xs ${typeInfo.cls}`}
+            >
+              {typeInfo.label}
+            </Badge>
+            <ExternalLink className="h-4 w-4 text-gray-400" />
+          </div>
+          {kanaName && (
+            <div className="mt-0.5 text-xs text-gray-500">{kanaName}</div>
+          )}
+        </div>
+      </div>
+
+      {/* ===== 4 KPI cards — 来店回数 / 累計売上 / ステータス / 最終来院 ===== */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="rounded-xl border bg-white px-5 py-4 shadow-sm">
+          <div className="text-xs text-gray-500">来院回数</div>
+          <div className="mt-1 text-2xl font-black text-gray-900">
+            {loading ? "…" : `${visitCount}回`}
+          </div>
+        </div>
+        <div className="rounded-xl border bg-white px-5 py-4 shadow-sm">
+          <div className="text-xs text-gray-500">累計売上</div>
+          <div className="mt-1 text-2xl font-black text-gray-900">
+            {loading ? "…" : `¥${totalSales.toLocaleString()}`}
+          </div>
+        </div>
+        <div className="rounded-xl border bg-white px-5 py-4 shadow-sm">
+          <div className="text-xs text-gray-500">ステータス</div>
+          <div className="mt-1">
+            <Badge className={typeInfo.cls}>{typeInfo.label}</Badge>
+          </div>
+        </div>
+        <div className="rounded-xl border bg-white px-5 py-4 shadow-sm">
+          <div className="text-xs text-gray-500">最終来院</div>
+          <div className="mt-1 text-lg font-bold text-gray-900">
+            {loading ? "…" : lastVisitDate}
+          </div>
+        </div>
+      </div>
+
+      {/* ===== Main grid — 基本情報 (1/3) + 来院履歴 (2/3) ===== */}
+      <div className="grid gap-5 lg:grid-cols-3">
+        {/* Basic info */}
+        <div className="rounded-xl border bg-white p-5 shadow-sm">
+          <div className="mb-3 text-sm font-bold text-gray-900">基本情報</div>
+          {loading ? (
+            <div className="text-sm text-gray-400">読み込み中...</div>
+          ) : !customer ? (
+            <div className="text-sm text-gray-400">
+              顧客情報の取得に失敗しました
+            </div>
+          ) : (
+            <div className="space-y-3 text-sm">
+              {customer.phone_number_1 && (
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 text-gray-400">電話</span>
+                  <span className="text-gray-800">
+                    {customer.phone_number_1}
+                  </span>
+                </div>
+              )}
+              {customer.email && (
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 text-gray-400">Email</span>
+                  <span className="break-all text-gray-800">
+                    {customer.email}
+                  </span>
+                </div>
+              )}
+              {customer.address && (
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 text-gray-400">住所</span>
+                  <span className="text-gray-800">
+                    {customer.zip_code && (
+                      <span className="text-gray-500">
+                        〒{customer.zip_code}{" "}
+                      </span>
+                    )}
+                    {customer.address}
+                  </span>
+                </div>
+              )}
+              <Separator />
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-gray-400">性別: </span>
+                  <span className="text-gray-800">
+                    {GENDER_LABELS[customer.gender ?? 0] ?? "-"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">生年月日: </span>
+                  <span className="text-gray-800">
+                    {customer.birth_date || "-"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">職業: </span>
+                  <span className="text-gray-800">
+                    {customer.occupation || "-"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">LINE: </span>
+                  <span className="text-gray-800">
+                    {customer.line_id || "-"}
+                  </span>
+                </div>
+              </div>
+              {customer.description && (
+                <>
+                  <Separator />
+                  <div>
+                    <div className="text-[11px] font-bold text-gray-400">
+                      メモ
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
+                      {customer.description}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Visit history */}
+        <div className="rounded-xl border bg-white p-5 shadow-sm lg:col-span-2">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-bold text-gray-900">
+              来院履歴・カルテ
+            </div>
+            {detail && (
+              <div className="text-[11px] text-gray-400">
+                直近 {detail.appointments.length} 件
+              </div>
+            )}
+          </div>
+          {loading ? (
+            <div className="text-sm text-gray-400">読み込み中...</div>
+          ) : !detail || detail.appointments.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-400">
+              来院履歴がありません
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {detail.appointments.map((a) => {
+                const date = a.startAt.slice(0, 10);
+                const time = a.startAt.slice(11, 16);
+                const endTime = a.endAt.slice(11, 16);
+                const isCancelled =
+                  a.status === 3 || a.status === 4 || a.status === 99;
+                return (
+                  <div
+                    key={a.id}
+                    className={`rounded-lg border p-3 ${
+                      isCancelled ? "opacity-60" : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-bold text-gray-900">{date}</span>
+                      <span className="text-xs text-gray-500">
+                        {time}-{endTime}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {a.menuName}
+                      </Badge>
+                      {isCancelled && (
+                        <Badge className="bg-red-100 text-[10px] text-red-600">
+                          {a.status === 4 ? "当日キャンセル" : "キャンセル"}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
+                      {a.staffName && <span>担当 {a.staffName}</span>}
+                      {a.sales > 0 && (
+                        <span>¥{a.sales.toLocaleString()}</span>
+                      )}
+                    </div>
+                    {a.customerRecord && (
+                      <div className="mt-2 rounded bg-gray-50 p-2 text-xs">
+                        <div className="mb-0.5 text-[10px] font-bold text-gray-400">
+                          カルテ
+                        </div>
+                        <p className="whitespace-pre-wrap text-gray-700">
+                          {a.customerRecord}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
