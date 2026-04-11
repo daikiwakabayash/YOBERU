@@ -396,21 +396,37 @@ export function ReservationCalendar({
                   const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
 
                   // ---------------- Cancelled: narrow right strip ----------------
+                  // Rendered as a real <button> with onClick so taps on
+                  // tablets/iPads reliably open the sheet. onMouseDown
+                  // was unreliable because it runs before click, and
+                  // browser hit-testing on a narrow strip over an active
+                  // card sometimes routed clicks back to the parent
+                  // grid. A button + onClick is the idiomatic fix.
                   if (isAnyCancelled) {
                     return (
-                      <div
+                      <button
                         key={appt.id}
+                        type="button"
                         data-appt={appt.id}
-                        className={`absolute rounded-md border-2 ${borderColor} ${bgColor} px-1.5 py-1 transition-shadow hover:shadow-md cursor-pointer`}
+                        className={`absolute overflow-hidden rounded-md border-2 text-left ${borderColor} ${bgColor} px-1.5 py-1 transition-shadow hover:shadow-md cursor-pointer`}
                         style={{
                           top,
                           height,
                           right: 6,
                           width: "32%",
-                          zIndex: 6,
+                          zIndex: 20,
                         }}
-                        onMouseDown={(e) => handleDragStart(appt, e)}
-                        title={`${appt.customerName} (${isSameDayCancelled ? "当日キャンセル" : "キャンセル"})`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedAppt(appt);
+                        }}
+                        onMouseDown={(e) => {
+                          // Belt-and-suspenders: some browsers need us
+                          // to claim the mousedown so a drag handler on
+                          // a parent doesn't swallow the click.
+                          e.stopPropagation();
+                        }}
+                        title={`${appt.customerName} (${isSameDayCancelled ? "当日キャンセル" : "キャンセル"}) - タップで詳細`}
                       >
                         <div className="flex items-center gap-1">
                           <span
@@ -425,7 +441,7 @@ export function ReservationCalendar({
                         <div className="truncate text-[10px] text-gray-500 line-through">
                           {appt.menuName}
                         </div>
-                      </div>
+                      </button>
                     );
                   }
 
