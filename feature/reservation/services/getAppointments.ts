@@ -64,3 +64,37 @@ export async function getCustomerAppointments(
   if (error) throw error;
   return { data: data ?? [], count: count ?? 0 };
 }
+
+/**
+ * Fetch the customer's most recent past, non-cancelled appointment so we can
+ * surface the previous visit's chart (customer_record) on the new-booking
+ * panel for returning customers. Returns null on error or when there is no
+ * prior visit.
+ */
+export async function getLastVisitForCustomer(customerId: number) {
+  const supabase = await createClient();
+  try {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("id, start_at, customer_record, menu_manage_id, staffs(name)")
+      .eq("customer_id", customerId)
+      .is("deleted_at", null)
+      .is("cancelled_at", null)
+      .lt("start_at", new Date().toISOString())
+      .order("start_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    // Supabase typegen models the FK join as an array even for to-one
+    // relations, so cast through unknown to the shape we actually want.
+    return data as unknown as {
+      id: number;
+      start_at: string;
+      customer_record: string | null;
+      menu_manage_id: string | null;
+      staffs: { name: string } | null;
+    };
+  } catch {
+    return null;
+  }
+}

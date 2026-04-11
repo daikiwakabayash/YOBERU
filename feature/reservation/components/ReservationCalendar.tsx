@@ -316,11 +316,16 @@ export function ReservationCalendar({
                   const startTime = appt.startAt.slice(11, 16);
                   const endTime = appt.endAt.slice(11, 16);
 
-                  // Colors based on customer type + status
-                  const isNew = appt.isNewCustomer || appt.visitCount <= 1;
+                  // Colors based on customer type + status.
+                  // visit_count = 1 means "this is the customer's first
+                  // actual visit" per the schema comment in 00002.
+                  // (`isNewCustomer` is also pre-computed upstream as
+                  // `appt.visit_count === 1` after backfill.)
+                  const isNew = appt.isNewCustomer || appt.visitCount === 1;
                   const isPast = appt.status === 2;
                   const isInProgress = appt.status === 1;
                   const isCancelled = appt.status === 3 || appt.status === 99;
+                  const isSameDayCancelled = appt.status === 4;
 
                   let borderColor = "border-blue-300";
                   let bgColor = "bg-white";
@@ -340,6 +345,11 @@ export function ReservationCalendar({
                     statusBadge = "施術中";
                     statusBadgeColor = "bg-green-100 text-green-700";
                     borderColor = "border-green-400";
+                  } else if (isSameDayCancelled) {
+                    statusBadge = "当日キャンセル";
+                    statusBadgeColor = "bg-red-100 text-red-700";
+                    borderColor = "border-red-300";
+                    bgColor = "bg-red-50/40";
                   } else if (isCancelled) {
                     statusBadge = "キャンセル";
                     statusBadgeColor = "bg-red-100 text-red-600";
@@ -391,7 +401,13 @@ export function ReservationCalendar({
                           {appt.customerName}
                         </span>
                         {isNew ? (
-                          <span className="rounded bg-red-500 px-1.5 py-0 text-[10px] font-bold text-white">
+                          <span
+                            className="rounded px-1.5 py-0 text-[10px] font-bold"
+                            style={{
+                              backgroundColor: appt.sourceColor ?? "#ef4444",
+                              color: appt.sourceTextColor ?? "#ffffff",
+                            }}
+                          >
                             {appt.source ? `${appt.source}新規` : "新規"}
                           </span>
                         ) : (

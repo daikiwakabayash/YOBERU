@@ -22,8 +22,13 @@ import { useTransition, useState } from "react";
 interface StoreFormProps {
   initialData?: StoreFormValues & { id?: number };
   brandId: number;
-  areaId: number;
   userId: number;
+  /**
+   * All brand areas available for selection. The form renders a
+   * Select bound to `area_id`. Should be non-empty for a successful
+   * registration — pages should fetch areas server-side.
+   */
+  areas?: Array<{ id: number; name: string }>;
 }
 
 const FRAME_MIN_OPTIONS = [
@@ -47,19 +52,21 @@ const storeResolver = zodResolver(storeSchema) as Resolver<StoreFormValues>;
 export function StoreForm({
   initialData,
   brandId,
-  areaId,
   userId,
+  areas = [],
 }: StoreFormProps) {
   const isEdit = !!initialData?.id;
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
+
+  const defaultAreaId = initialData?.area_id ?? areas[0]?.id ?? 0;
 
   const form = useForm<StoreFormValues>({
     resolver: storeResolver,
     defaultValues: initialData ?? {
       uuid: crypto.randomUUID(),
       brand_id: brandId,
-      area_id: areaId,
+      area_id: defaultAreaId,
       user_id: userId,
       name: "",
       frame_min: 30,
@@ -117,8 +124,34 @@ export function StoreForm({
           {/* Hidden fields */}
           <input type="hidden" {...form.register("uuid")} />
           <input type="hidden" {...form.register("brand_id")} />
-          <input type="hidden" {...form.register("area_id")} />
           <input type="hidden" {...form.register("user_id")} />
+
+          {/* 地域セレクタ */}
+          {areas.length === 0 ? (
+            <div className="rounded-md bg-amber-50 p-3 text-xs text-amber-800 md:col-span-2">
+              地域マスターが空です。先に地域を登録してください。
+            </div>
+          ) : (
+            <FormField form={form} name="area_id" label="地域" required>
+              {(field) => (
+                <Select
+                  value={Number(field.value ?? 0)}
+                  onValueChange={(val) => field.onChange(Number(val))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="地域を選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {areas.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
+          )}
 
           {/* 店舗名 */}
           <FormField form={form} name="name" label="店舗名" required>

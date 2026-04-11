@@ -392,8 +392,14 @@ export function WeeklyReservationCalendar({
                           {appt.customerName}
                         </span>
                         {isNew && (
-                          <span className="shrink-0 rounded bg-red-500 px-1 py-0 text-[9px] font-bold text-white">
-                            新規
+                          <span
+                            className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
+                            style={{
+                              backgroundColor: appt.sourceColor ?? "#ef4444",
+                              color: appt.sourceTextColor ?? "#ffffff",
+                            }}
+                          >
+                            {appt.source ? `${appt.source}新規` : "新規"}
                           </span>
                         )}
                       </div>

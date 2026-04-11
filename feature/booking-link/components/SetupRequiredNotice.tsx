@@ -96,6 +96,64 @@ CREATE INDEX IF NOT EXISTS idx_reminder_logs_appointment
   ON reminder_logs (appointment_id);
 CREATE INDEX IF NOT EXISTS idx_reminder_logs_sent_at
   ON reminder_logs (sent_at);
+
+-- ============================================================
+-- Migration 005: 来店経路カラー + 問診票システム
+-- ============================================================
+
+-- visit_sources に色カラムを追加
+ALTER TABLE visit_sources
+  ADD COLUMN IF NOT EXISTS color VARCHAR(7) DEFAULT '#ef4444';
+ALTER TABLE visit_sources
+  ADD COLUMN IF NOT EXISTS label_text_color VARCHAR(7) DEFAULT '#ffffff';
+
+UPDATE visit_sources SET color = '#2563eb' WHERE name = 'Meta広告' AND color = '#ef4444';
+UPDATE visit_sources SET color = '#000000' WHERE name = 'TikTok広告' AND color = '#ef4444';
+UPDATE visit_sources SET color = '#e1306c' WHERE name = 'Instagram' AND color = '#ef4444';
+UPDATE visit_sources SET color = '#059669' WHERE name = 'HP/SEO' AND color = '#ef4444';
+UPDATE visit_sources SET color = '#4285f4' WHERE name = 'Google検索' AND color = '#ef4444';
+UPDATE visit_sources SET color = '#f59e0b' WHERE name = '紹介' AND color = '#ef4444';
+UPDATE visit_sources SET color = '#8b5cf6' WHERE name = 'チラシ' AND color = '#ef4444';
+UPDATE visit_sources SET color = '#6b7280' WHERE name = '通りがかり' AND color = '#ef4444';
+
+-- 問診票テンプレート
+CREATE TABLE IF NOT EXISTS questionnaires (
+  id SERIAL PRIMARY KEY,
+  brand_id INT NOT NULL,
+  shop_id INT,
+  slug VARCHAR(64) NOT NULL UNIQUE,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  is_public BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_questionnaires_brand ON questionnaires (brand_id);
+CREATE INDEX IF NOT EXISTS idx_questionnaires_slug ON questionnaires (slug);
+
+-- 問診票回答
+CREATE TABLE IF NOT EXISTS questionnaire_responses (
+  id BIGSERIAL PRIMARY KEY,
+  questionnaire_id INT NOT NULL REFERENCES questionnaires(id),
+  customer_id BIGINT,
+  answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_qresponses_questionnaire
+  ON questionnaire_responses (questionnaire_id);
+CREATE INDEX IF NOT EXISTS idx_qresponses_customer
+  ON questionnaire_responses (customer_id);
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at') THEN
+    DROP TRIGGER IF EXISTS set_updated_at ON questionnaires;
+    CREATE TRIGGER set_updated_at BEFORE UPDATE ON questionnaires
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  END IF;
+END $$;
 `;
 
 export function SetupRequiredNotice() {

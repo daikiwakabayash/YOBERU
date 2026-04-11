@@ -5,21 +5,22 @@ import { CustomerList } from "@/feature/customer/components/CustomerList";
 import { getCustomers } from "@/feature/customer/services/getCustomers";
 import { Plus } from "lucide-react";
 import type { Customer } from "@/feature/customer/types";
+import { getActiveShopId } from "@/helper/lib/shop-context";
 
-// TODO: shopId should come from session/context. Using 1 as placeholder.
-const SHOP_ID = 1;
+export const dynamic = "force-dynamic";
 
 interface CustomerListPageProps {
   searchParams: Promise<{ search?: string; type?: string; page?: string }>;
 }
 
 export default async function CustomerListPage({ searchParams }: CustomerListPageProps) {
+  const shopId = await getActiveShopId();
   const params = await searchParams;
   let customers: Customer[] = [];
   let totalCount = 0;
 
   try {
-    const result = await getCustomers(SHOP_ID, {
+    const result = await getCustomers(shopId, {
       search: params.search,
       type: params.type !== undefined ? Number(params.type) : undefined,
       page: params.page ? Number(params.page) : 1,

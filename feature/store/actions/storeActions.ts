@@ -27,7 +27,7 @@ export async function createStore(formData: FormData) {
   if (error) return { error: error.message };
 
   revalidatePath("/store");
-  redirect("/store/register");
+  redirect("/store");
 }
 
 export async function updateStore(id: number, formData: FormData) {
@@ -55,8 +55,9 @@ export async function updateStore(id: number, formData: FormData) {
     .eq("id", id);
   if (error) return { error: error.message };
 
+  revalidatePath("/store");
   revalidatePath(`/store/${id}`);
-  redirect(`/store/${id}`);
+  redirect("/store");
 }
 
 export async function deleteStore(id: number) {

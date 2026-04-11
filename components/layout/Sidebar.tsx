@@ -18,6 +18,8 @@ import {
   Grid3X3,
   Link2,
   CreditCard,
+  Megaphone,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -45,6 +47,8 @@ const navigation = [
       { name: "メニュー", href: "/menu", icon: Utensils },
       { name: "設備", href: "/facility", icon: Grid3X3 },
       { name: "支払方法", href: "/payment-method", icon: CreditCard },
+      { name: "来店経路", href: "/visit-source", icon: Megaphone },
+      { name: "問診票", href: "/questionnaire", icon: ClipboardList },
     ],
   },
   {

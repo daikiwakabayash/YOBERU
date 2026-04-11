@@ -87,3 +87,23 @@ export async function deleteStaff(id: number) {
   revalidatePath("/staff");
   return { success: true };
 }
+
+/**
+ * Lightweight action to update only allocate_order (priority for
+ * auto-assignment on no-designation bookings). Lower number = higher
+ * priority.
+ */
+export async function updateStaffAllocateOrder(
+  id: number,
+  allocateOrder: number
+) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("staffs")
+    .update({ allocate_order: allocateOrder })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/staff");
+  revalidatePath("/reservation");
+  return { success: true };
+}

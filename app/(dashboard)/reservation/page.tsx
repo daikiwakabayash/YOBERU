@@ -10,9 +10,10 @@ import { createClient } from "@/helper/lib/supabase/server";
 import type { CalendarData } from "@/feature/reservation/types";
 import type { WeeklyCalendarData } from "@/feature/reservation/services/getWeeklyCalendarData";
 import { Suspense } from "react";
-
-const SHOP_ID = 1;
-const BRAND_ID = 1;
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
 // Disable caching so master updates reflect immediately
 export const dynamic = "force-dynamic";
@@ -43,6 +44,9 @@ export default async function ReservationPage({
   const viewMode = params.view === "week" ? "week" : "day";
   const staffId = params.staff ? Number(params.staff) : null;
 
+  const shopId = await getActiveShopId();
+  const brandId = await getActiveBrandId();
+
   const supabase = await createClient();
 
   // Parallel fetch: each query is independent & resilient to missing tables
@@ -52,7 +56,7 @@ export default async function ReservationPage({
         supabase
           .from("staffs")
           .select("id, name")
-          .eq("shop_id", SHOP_ID)
+          .eq("shop_id", shopId)
           .is("deleted_at", null)
           .eq("is_public", true)
           .order("allocate_order", { ascending: true, nullsFirst: false })
@@ -66,16 +70,16 @@ export default async function ReservationPage({
         supabase
           .from("menus")
           .select("menu_manage_id, name, price, duration")
-          .eq("brand_id", BRAND_ID)
-          .or(`shop_id.is.null,shop_id.eq.${SHOP_ID}`)
+          .eq("brand_id", brandId)
+          .or(`shop_id.is.null,shop_id.eq.${shopId}`)
           .is("deleted_at", null)
           .order("sort_number")
       ),
-      safeQuery<{ id: number; name: string }>(
+      safeQuery<{ id: number; name: string; color: string | null; label_text_color: string | null }>(
         supabase
           .from("visit_sources")
-          .select("id, name")
-          .eq("shop_id", SHOP_ID)
+          .select("id, name, color, label_text_color")
+          .eq("shop_id", shopId)
           .eq("is_active", true)
           .is("deleted_at", null)
           .order("sort_number")
@@ -84,16 +88,16 @@ export default async function ReservationPage({
         supabase
           .from("payment_methods")
           .select("code, name")
-          .eq("shop_id", SHOP_ID)
+          .eq("shop_id", shopId)
           .eq("is_active", true)
           .is("deleted_at", null)
           .order("sort_number")
       ),
       viewMode === "day"
-        ? getCalendarData(SHOP_ID, date).catch(() => null)
+        ? getCalendarData(shopId, date).catch(() => null)
         : Promise.resolve(null),
       viewMode === "week" && staffId
-        ? getWeeklyCalendarData(SHOP_ID, date, staffId).catch(() => null)
+        ? getWeeklyCalendarData(shopId, date, staffId).catch(() => null)
         : Promise.resolve(null),
     ]);
 
@@ -107,7 +111,7 @@ export default async function ReservationPage({
     let weekData: WeeklyCalendarData | null = weekDataEarly;
     if (!weekData && effectiveStaffId) {
       try {
-        weekData = await getWeeklyCalendarData(SHOP_ID, date, effectiveStaffId);
+        weekData = await getWeeklyCalendarData(shopId, date, effectiveStaffId);
       } catch {
         weekData = null;
       }
@@ -144,8 +148,8 @@ export default async function ReservationPage({
             menus={menus}
             visitSources={visitSources}
             paymentMethods={paymentMethods}
-            shopId={SHOP_ID}
-            brandId={BRAND_ID}
+            shopId={shopId}
+            brandId={brandId}
             staffId={effectiveStaffId}
           />
         </div>
@@ -184,8 +188,8 @@ export default async function ReservationPage({
           menus={menus}
           visitSources={visitSources}
           paymentMethods={paymentMethods}
-          shopId={SHOP_ID}
-          brandId={BRAND_ID}
+          shopId={shopId}
+          brandId={brandId}
         />
       </div>
     </div>

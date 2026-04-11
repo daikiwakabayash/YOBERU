@@ -11,17 +11,17 @@ import {
 } from "@/components/ui/table";
 import { Plus, Pencil } from "lucide-react";
 import { getStores } from "@/feature/store/services/getStores";
-
-const BRAND_ID = 1;
+import { getActiveBrandId } from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
 type StoreRow = Awaited<ReturnType<typeof getStores>>[number];
 
 export default async function StoreListPage() {
+  const brandId = await getActiveBrandId();
   let stores: StoreRow[] = [];
   try {
-    stores = await getStores(BRAND_ID);
+    stores = await getStores(brandId);
   } catch {
     // Fallback to empty list on error (e.g. table missing or FK issue)
   }

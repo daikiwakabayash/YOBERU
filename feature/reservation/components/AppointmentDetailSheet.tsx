@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import Link from "next/link";
 import {
   Sheet,
   SheetContent,
@@ -14,21 +15,31 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { Search, UserPlus, X } from "lucide-react";
+import { Search, UserPlus, X, ExternalLink } from "lucide-react";
 import type { CalendarAppointment } from "../types";
 import {
   createAppointment,
   updateAppointment,
   cancelAppointment,
+  sameDayCancelAppointment,
 } from "../actions/reservationActions";
 import {
   checkinAppointment,
   completeAppointment,
 } from "@/feature/reception/actions/receptionActions";
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
+import { getLastVisitForCustomer } from "@/feature/reservation/services/getAppointments";
 import type { CustomerSummary } from "@/feature/customer/types";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { toast } from "sonner";
+
+type LastVisit = {
+  id: number;
+  start_at: string;
+  customer_record: string | null;
+  menu_manage_id: string | null;
+  staffs: { name: string } | null;
+};
 
 // ---------------------------------------------------------------------------
 // Props
@@ -63,6 +74,7 @@ const STATUS_BADGE: Record<number, { label: string; cls: string }> = {
   1: { label: "施術中", cls: "border-green-500 text-green-700 bg-green-50" },
   2: { label: "完了", cls: "border-gray-300 text-gray-500 bg-gray-50" },
   3: { label: "キャンセル", cls: "border-red-300 text-red-500 bg-red-50" },
+  4: { label: "当日キャンセル", cls: "border-red-400 text-red-700 bg-red-50" },
 };
 
 const PLAN_CARDS = [
@@ -109,6 +121,15 @@ export function AppointmentDetailSheet({
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
   const searchDebounce = useRef<NodeJS.Timeout | null>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // ---- Previous visit (loaded when an existing customer is selected) ----
+  const [lastVisit, setLastVisit] = useState<LastVisit | null>(null);
+  const [lastVisitLoading, setLastVisitLoading] = useState(false);
+
+  // For an existing-customer new booking we hide the visit-source picker
+  // (the source was captured at first registration) and instead surface the
+  // previous visit's chart so the staff can prep without context-switching.
+  const isReturningCustomerBooking = isNew && !!selectedCustomer;
 
   // ---- Status ----
   const [status, setStatus] = useState(appointment?.status ?? 0);
@@ -204,6 +225,30 @@ export function AppointmentDetailSheet({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Load the previous visit's chart when an existing customer is picked.
+  // Cleared if the user removes the selection.
+  useEffect(() => {
+    if (!isNew || !selectedCustomer) {
+      setLastVisit(null);
+      return;
+    }
+    let cancelled = false;
+    setLastVisitLoading(true);
+    getLastVisitForCustomer(selectedCustomer.id)
+      .then((data) => {
+        if (!cancelled) setLastVisit(data);
+      })
+      .catch(() => {
+        if (!cancelled) setLastVisit(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLastVisitLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isNew, selectedCustomer]);
+
   // -----------------------------------------------------------------------
   // Menu toggle
   // -----------------------------------------------------------------------
@@ -240,6 +285,40 @@ export function AppointmentDetailSheet({
       setStatus(3);
       onClose();
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // 当日キャンセル: records the cancellation reason in customer_record so
+  // future bookings can surface it via getLastVisitForCustomer / 前回カルテ.
+  // Skips visit_count + last_visit_date updates (no-show ≠ visit).
+  // -----------------------------------------------------------------------
+  async function handleSameDayCancel() {
+    if (!appointment) return;
+    const reason = customerRecord.trim();
+    if (!reason) {
+      if (
+        !confirm(
+          "キャンセル理由が未入力です。理由なしで当日キャンセルを記録しますか？"
+        )
+      ) {
+        return;
+      }
+    } else if (
+      !confirm("この予約を当日キャンセルとして記録します。よろしいですか？")
+    ) {
+      return;
+    }
+
+    setSaving(true);
+    const result = await sameDayCancelAppointment(appointment.id, reason);
+    setSaving(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setStatus(4);
+    toast.success("当日キャンセルとして記録しました");
+    onClose();
   }
 
   // -----------------------------------------------------------------------
@@ -361,7 +440,9 @@ export function AppointmentDetailSheet({
         toast.error("電話番号を入力してください");
         return;
       }
-      if (!visitSourceId) {
+      // 来店経路 is only required when registering a brand-new customer.
+      // For returning customers we trust the source already on file.
+      if (isCreatingCustomer && !visitSourceId) {
         toast.error("来店経路を選択してください");
         return;
       }
@@ -518,9 +599,16 @@ export function AppointmentDetailSheet({
                 "新規予約"
               ) : (
                 <span className="flex items-center gap-2 text-sm">
-                  <span className="font-black text-gray-900">
+                  <Link
+                    href={`/customer/${appointment.customerId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group inline-flex items-center gap-1 font-black text-gray-900 hover:text-blue-600 hover:underline"
+                    title="顧客詳細を新しいタブで開く"
+                  >
                     {appointment.customerName}
-                  </span>
+                    <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                  </Link>
                   {appointment.customerPhone && (
                     <>
                       <span className="text-gray-300">|</span>
@@ -630,11 +718,18 @@ export function AppointmentDetailSheet({
           {/* Selected customer badge (new booking) */}
           {isNew && selectedCustomer && (
             <section className="flex items-center gap-2 rounded-lg border bg-gray-50 px-3 py-2">
-              <span className="text-sm font-bold">
+              <Link
+                href={`/customer/${selectedCustomer.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center gap-1 text-sm font-bold text-gray-900 hover:text-blue-600 hover:underline"
+                title="顧客詳細を新しいタブで開く"
+              >
                 {[selectedCustomer.last_name, selectedCustomer.first_name]
                   .filter(Boolean)
-                  .join(" ")}
-              </span>
+                  .join(" ") || "-"}
+                <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+              </Link>
               {selectedCustomer.phone_number_1 && (
                 <span className="text-xs text-muted-foreground">
                   {selectedCustomer.phone_number_1}
@@ -681,31 +776,87 @@ export function AppointmentDetailSheet({
             </section>
           )}
 
-          {/* ===== Section: Visit Source (来店経路) ===== */}
-          <section className="space-y-2">
-            <Label className="text-xs font-bold text-gray-500">
-              来店経路
-              {isNew && <span className="ml-1 text-red-500">*必須</span>}
-            </Label>
-            <div className="flex flex-wrap gap-1.5">
-              {visitSources.map((vs) => (
-                <button
-                  key={vs.id}
-                  type="button"
-                  onClick={() =>
-                    setVisitSourceId(visitSourceId === vs.id ? null : vs.id)
-                  }
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    visitSourceId === vs.id
-                      ? "border-orange-400 bg-orange-500 text-white"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-orange-300 hover:bg-orange-50"
-                  }`}
-                >
-                  {vs.name}
-                </button>
-              ))}
-            </div>
-          </section>
+          {/* ===== Section: Returning customer → 前回カルテ ===== */}
+          {isReturningCustomerBooking ? (
+            <section className="space-y-2">
+              <Label className="text-xs font-bold text-gray-500">
+                前回カルテ
+              </Label>
+              {lastVisitLoading ? (
+                <div className="rounded-lg border bg-gray-50 px-3 py-3 text-xs text-muted-foreground">
+                  読み込み中...
+                </div>
+              ) : lastVisit ? (
+                (() => {
+                  const dateStr = lastVisit.start_at?.slice(0, 10) ?? "";
+                  const timeStr = lastVisit.start_at?.slice(11, 16) ?? "";
+                  const menuName =
+                    menus.find(
+                      (m) => m.menu_manage_id === lastVisit.menu_manage_id
+                    )?.name ?? lastVisit.menu_manage_id ?? "";
+                  return (
+                    <div className="space-y-2 rounded-lg border bg-gray-50 px-3 py-3">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+                        <span className="font-bold text-gray-800">
+                          {dateStr} {timeStr}
+                        </span>
+                        {menuName && (
+                          <>
+                            <span className="text-gray-300">|</span>
+                            <span>{menuName}</span>
+                          </>
+                        )}
+                        {lastVisit.staffs?.name && (
+                          <>
+                            <span className="text-gray-300">|</span>
+                            <span>担当 {lastVisit.staffs.name}</span>
+                          </>
+                        )}
+                      </div>
+                      {lastVisit.customer_record ? (
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
+                          {lastVisit.customer_record}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          前回はカルテに記載がありません
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="rounded-lg border bg-gray-50 px-3 py-3 text-xs text-muted-foreground">
+                  過去の来店履歴がありません
+                </div>
+              )}
+            </section>
+          ) : (
+            <section className="space-y-2">
+              <Label className="text-xs font-bold text-gray-500">
+                来店経路
+                {isNew && <span className="ml-1 text-red-500">*必須</span>}
+              </Label>
+              <div className="flex flex-wrap gap-1.5">
+                {visitSources.map((vs) => (
+                  <button
+                    key={vs.id}
+                    type="button"
+                    onClick={() =>
+                      setVisitSourceId(visitSourceId === vs.id ? null : vs.id)
+                    }
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      visitSourceId === vs.id
+                        ? "border-orange-400 bg-orange-500 text-white"
+                        : "border-gray-200 bg-white text-gray-600 hover:border-orange-300 hover:bg-orange-50"
+                    }`}
+                  >
+                    {vs.name}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           <Separator />
 
@@ -888,18 +1039,33 @@ export function AppointmentDetailSheet({
             </Button>
           )}
 
+          {/* ===== 当日キャンセル button (existing 待機/施術中 only) ===== */}
+          {!isNew && (status === 0 || status === 1) && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-2 border-red-400 py-5 text-base font-bold text-red-600 hover:bg-red-50"
+              onClick={handleSameDayCancel}
+              disabled={saving}
+            >
+              {saving ? "処理中..." : "当日キャンセル"}
+            </Button>
+          )}
+
           {/* ===== Submit button ===== */}
           <Button
             size="lg"
             className="w-full bg-orange-500 py-6 text-base font-black hover:bg-orange-600"
             onClick={handleSubmit}
-            disabled={saving || status === 2 || status === 3}
+            disabled={saving || status === 2 || status === 3 || status === 4}
           >
             {saving
               ? "処理中..."
               : status === 2
                 ? "会計確定済み"
-                : "会計を確定する"}
+                : status === 4
+                  ? "当日キャンセル済み"
+                  : "会計を確定する"}
           </Button>
         </div>
       </SheetContent>

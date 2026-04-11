@@ -2,13 +2,13 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { BookingLinkList } from "@/feature/booking-link/components/BookingLinkList";
 import { getBookingLinks } from "@/feature/booking-link/services/getBookingLinks";
 import { SetupRequiredNotice } from "@/feature/booking-link/components/SetupRequiredNotice";
-
-const BRAND_ID = 1;
+import { getActiveBrandId } from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function BookingLinkPage() {
-  const { data: links, setupRequired } = await getBookingLinks(BRAND_ID);
+  const brandId = await getActiveBrandId();
+  const { data: links, setupRequired } = await getBookingLinks(brandId);
 
   return (
     <div>
