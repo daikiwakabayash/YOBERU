@@ -73,18 +73,26 @@ export async function getDailyStaffUtilization(
     });
   }
 
-  // 2. Sum busyMin from active appointments (status 1 or 2) on this date
+  // 2. Sum busyMin from active appointments (status 1 or 2) on this date.
+  //    SELECT only the columns we actually need so the query is robust
+  //    against migration drift (no FK joins, no newer columns).
   const nextDate = new Date(date + "T00:00:00");
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = toLocalDateString(nextDate);
 
-  const { data: apptRes } = await supabase
+  const { data: apptRes, error: apptErr } = await supabase
     .from("appointments")
-    .select("staff_id, start_at, end_at, status, customers(last_name, first_name)")
+    .select("staff_id, start_at, end_at, status")
     .eq("shop_id", shopId)
     .gte("start_at", `${date}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
     .is("deleted_at", null);
+  if (apptErr) {
+    console.error(
+      "[getDailyStaffUtilization] appointment query failed",
+      apptErr
+    );
+  }
 
   type AppointmentLite = {
     staff_id: number;
@@ -213,7 +221,13 @@ export async function getRangeStaffUtilization(
     .is("deleted_at", null);
   if (staffId) apptQuery = apptQuery.eq("staff_id", staffId);
 
-  const { data: apptRes } = await apptQuery;
+  const { data: apptRes, error: apptErr } = await apptQuery;
+  if (apptErr) {
+    console.error(
+      "[getRangeStaffUtilization] appointment query failed",
+      apptErr
+    );
+  }
   type AppointmentLite = {
     staff_id: number;
     start_at: string;

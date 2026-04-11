@@ -21,15 +21,22 @@ export async function getCalendarData(
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = toLocalDateString(nextDate);
 
-  // Parallel: shop settings + effective shifts + appointments
-  const [shopRes, effectiveShifts, apptRes] = await Promise.all([
-    supabase.from("shops").select("frame_min").eq("id", shopId).single(),
-    getEffectiveShifts(shopId, date).catch(() => []),
-    supabase
+  // Helper: select-string with all the modern columns. If a column the
+  // SELECT references doesn't exist yet (e.g. is_member_join was added
+  // by migration 00007 and the user hasn't run it), PostgREST returns
+  // an error and we'd silently render an EMPTY calendar — that was the
+  // root cause of the "予約が反映されなくなった" report. The fallback
+  // SELECT below uses only columns from migration 00001 + 00002 which
+  // every deployment has.
+  const FULL_SELECT =
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)";
+  const SAFE_SELECT =
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count)";
+
+  function fetchAppointments(select: string) {
+    return supabase
       .from("appointments")
-      .select(
-        "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)"
-      )
+      .select(select)
       .eq("shop_id", shopId)
       .gte("start_at", `${date}T00:00:00`)
       .lt("start_at", `${nextDateStr}T00:00:00`)
@@ -39,11 +46,73 @@ export async function getCalendarData(
       // checkStaffAvailability still filters cancelled out, so the slot
       // remains free for new bookings.
       .is("deleted_at", null)
-      .order("start_at"),
+      .order("start_at");
+  }
+
+  // Parallel: shop settings + effective shifts + appointments
+  const [shopRes, effectiveShifts, apptResRaw] = await Promise.all([
+    supabase.from("shops").select("frame_min").eq("id", shopId).single(),
+    getEffectiveShifts(shopId, date).catch(() => []),
+    fetchAppointments(FULL_SELECT),
   ]);
 
+  // If the appointment query failed because of a missing newer column
+  // (most commonly is_member_join from migration 00007), retry with the
+  // SAFE select. Anything else falls through to the empty array.
+  let apptRes = apptResRaw;
+  if (apptRes.error) {
+    const msg = String(apptRes.error.message ?? "");
+    if (msg.includes("is_member_join") || msg.includes("does not exist")) {
+      console.error(
+        "[getCalendarData] full appointment SELECT failed, retrying SAFE select",
+        apptRes.error
+      );
+      apptRes = await fetchAppointments(SAFE_SELECT);
+    } else {
+      console.error("[getCalendarData] appointment query failed", apptRes.error);
+    }
+  }
+
   const frameMin = shopRes.data?.frame_min ?? 15;
-  const appointments = apptRes.data;
+  // Because we pass `select` as a string at runtime (so we can swap to
+  // SAFE_SELECT on error), Supabase typegen widens the return type to a
+  // generic union that loses the column names. Cast back to the shape
+  // the rest of this file actually uses. is_member_join is optional
+  // because the SAFE select doesn't include it.
+  type RawAppointment = {
+    id: number;
+    staff_id: number;
+    customer_id: number;
+    start_at: string;
+    end_at: string;
+    status: number;
+    type: number;
+    menu_manage_id: string;
+    memo: string | null;
+    sales: number | null;
+    customer_record: string | null;
+    visit_count: number | null;
+    visit_source_id: number | null;
+    additional_charge: number | null;
+    payment_method: string | null;
+    cancelled_at: string | null;
+    is_member_join?: boolean | null;
+    customers:
+      | {
+          last_name: string | null;
+          first_name: string | null;
+          phone_number_1: string | null;
+          visit_count: number | null;
+        }
+      | Array<{
+          last_name: string | null;
+          first_name: string | null;
+          phone_number_1: string | null;
+          visit_count: number | null;
+        }>
+      | null;
+  };
+  const appointments = (apptRes.data ?? []) as unknown as RawAppointment[];
 
   // Fetch visit sources separately with colors (avoids implicit FK join fragility)
   let sourceMap = new Map<

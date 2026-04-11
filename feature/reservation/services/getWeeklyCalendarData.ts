@@ -32,34 +32,94 @@ export async function getWeeklyCalendarData(
   lastDay.setDate(lastDay.getDate() + 1);
   const weekEndExclusive = toLocalDateString(lastDay);
 
-  // Build appointments query
-  let apptQuery = supabase
-    .from("appointments")
-    .select(
-      "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)"
-    )
-    .eq("shop_id", shopId)
-    .gte("start_at", `${weekStart}T00:00:00`)
-    .lt("start_at", `${weekEndExclusive}T00:00:00`)
-    // cancelled_at intentionally NOT filtered — see getCalendarData.ts
-    .is("deleted_at", null)
-    .order("start_at");
+  // Build appointments query. See getCalendarData.ts for the rationale
+  // behind keeping a SAFE fallback select — pre-migration-00007
+  // deployments don't have `is_member_join` and the query would silently
+  // return null otherwise.
+  const FULL_SELECT =
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)";
+  const SAFE_SELECT =
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count)";
 
-  if (staffId) {
-    apptQuery = apptQuery.eq("staff_id", staffId);
+  function buildQuery(select: string) {
+    let q = supabase
+      .from("appointments")
+      .select(select)
+      .eq("shop_id", shopId)
+      .gte("start_at", `${weekStart}T00:00:00`)
+      .lt("start_at", `${weekEndExclusive}T00:00:00`)
+      // cancelled_at intentionally NOT filtered — see getCalendarData.ts
+      .is("deleted_at", null)
+      .order("start_at");
+    if (staffId) {
+      q = q.eq("staff_id", staffId);
+    }
+    return q;
   }
 
   // Parallel: shop + appointments + staff name
-  const [shopRes, apptRes, staffRes] = await Promise.all([
+  const [shopRes, apptResRaw, staffRes] = await Promise.all([
     supabase.from("shops").select("frame_min").eq("id", shopId).single(),
-    apptQuery,
+    buildQuery(FULL_SELECT),
     staffId
       ? supabase.from("staffs").select("name").eq("id", staffId).single()
       : Promise.resolve({ data: null }),
   ]);
 
+  let apptRes = apptResRaw;
+  if (apptRes.error) {
+    const msg = String(apptRes.error.message ?? "");
+    if (msg.includes("is_member_join") || msg.includes("does not exist")) {
+      console.error(
+        "[getWeeklyCalendarData] full SELECT failed, retrying SAFE select",
+        apptRes.error
+      );
+      apptRes = await buildQuery(SAFE_SELECT);
+    } else {
+      console.error(
+        "[getWeeklyCalendarData] appointment query failed",
+        apptRes.error
+      );
+    }
+  }
+
   const frameMin = shopRes.data?.frame_min ?? 15;
-  const appointments = apptRes.data;
+  // Cast back from the widened generic select-string return type. See
+  // getCalendarData.ts for the rationale.
+  type RawAppointment = {
+    id: number;
+    staff_id: number;
+    customer_id: number;
+    start_at: string;
+    end_at: string;
+    status: number;
+    type: number;
+    menu_manage_id: string;
+    memo: string | null;
+    sales: number | null;
+    customer_record: string | null;
+    visit_count: number | null;
+    visit_source_id: number | null;
+    additional_charge: number | null;
+    payment_method: string | null;
+    cancelled_at: string | null;
+    is_member_join?: boolean | null;
+    customers:
+      | {
+          last_name: string | null;
+          first_name: string | null;
+          phone_number_1: string | null;
+          visit_count: number | null;
+        }
+      | Array<{
+          last_name: string | null;
+          first_name: string | null;
+          phone_number_1: string | null;
+          visit_count: number | null;
+        }>
+      | null;
+  };
+  const appointments = (apptRes.data ?? []) as unknown as RawAppointment[];
   const staffName: string | null = staffRes.data
     ? (staffRes.data as { name: string }).name
     : null;
