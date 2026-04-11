@@ -20,6 +20,7 @@ export const storeSchema = z.object({
   shop_url: z.string().optional().or(z.literal("")),
   is_public: z.boolean().default(true),
   sort_number: z.coerce.number().int().min(0).default(0),
+  enable_meeting_booking: z.boolean().default(true),
 });
 
 export type StoreFormValues = z.infer<typeof storeSchema>;

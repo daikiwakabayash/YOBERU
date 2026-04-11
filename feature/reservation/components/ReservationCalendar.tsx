@@ -15,6 +15,7 @@ interface ReservationCalendarProps {
   paymentMethods?: Array<{ code: string; name: string }>;
   shopId?: number;
   brandId?: number;
+  enableMeetingBooking?: boolean;
 }
 
 const SLOT_HEIGHT = 44;
@@ -29,6 +30,7 @@ export function ReservationCalendar({
   paymentMethods = [],
   shopId = 1,
   brandId = 1,
+  enableMeetingBooking = true,
 }: ReservationCalendarProps) {
   const { staffs, appointments, timeSlots, frameMin } = data;
   const [selectedAppt, setSelectedAppt] = useState<CalendarAppointment | null>(null);
@@ -679,6 +681,7 @@ export function ReservationCalendar({
         paymentMethods={paymentMethods}
         shopId={shopId}
         brandId={brandId}
+        enableMeetingBooking={enableMeetingBooking}
       />
     </>
   );

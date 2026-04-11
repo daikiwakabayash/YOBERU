@@ -3,14 +3,24 @@ import { z } from "zod";
 export const appointmentSchema = z.object({
   brand_id: z.number().int().positive(),
   shop_id: z.number().int().positive(),
-  customer_id: z.number().int().positive("顧客を選択してください"),
+  // customer_id is optional for meeting / その他 bookings (type 1/2).
+  // Those are slot-block entries with no customer attached.
+  customer_id: z
+    .number()
+    .int()
+    .positive("顧客を選択してください")
+    .nullable()
+    .optional(),
   staff_id: z.number().int().positive("スタッフを選択してください"),
-  menu_manage_id: z.string().min(1, "メニューを選択してください"),
+  // menu_manage_id is optional for meeting/その他 — those don't map to
+  // a menu in the catalog.
+  menu_manage_id: z.string().optional().or(z.literal("")),
   type: z.coerce.number().int().min(0).max(99),
   start_at: z.string().min(1, "開始日時は必須です"),
   end_at: z.string().min(1, "終了日時は必須です"),
   memo: z.string().optional().or(z.literal("")),
   customer_record: z.string().optional().or(z.literal("")),
+  other_label: z.string().max(128).optional().or(z.literal("")),
   is_couple: z.boolean().default(false),
   sales: z.coerce.number().int().min(0),
   status: z.coerce.number().int().min(0),

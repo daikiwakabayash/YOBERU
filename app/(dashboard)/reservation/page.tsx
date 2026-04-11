@@ -49,6 +49,27 @@ export default async function ReservationPage({
 
   const supabase = await createClient();
 
+  // Fetch the shop's meeting-booking toggle up front (migration 00010).
+  // Falls back to TRUE if the column doesn't exist yet.
+  let enableMeetingBooking = true;
+  try {
+    const { data: shopRow } = await supabase
+      .from("shops")
+      .select("enable_meeting_booking")
+      .eq("id", shopId)
+      .maybeSingle();
+    if (
+      shopRow &&
+      typeof (shopRow as { enable_meeting_booking?: unknown })
+        .enable_meeting_booking === "boolean"
+    ) {
+      enableMeetingBooking = (shopRow as { enable_meeting_booking: boolean })
+        .enable_meeting_booking;
+    }
+  } catch {
+    /* column missing — keep default */
+  }
+
   // Parallel fetch: each query is independent & resilient to missing tables
   const [allStaffs, menus, visitSources, paymentMethods, dayData, weekDataEarly] =
     await Promise.all([
@@ -67,10 +88,13 @@ export default async function ReservationPage({
         price: number;
         duration: number;
       }>(
+        // status = TRUE → 「公開」のみ。非公開に設定したメニューは予約
+        // 入力パネルにも出さない (マスター側の表示トグルを尊重)。
         supabase
           .from("menus")
           .select("menu_manage_id, name, price, duration")
           .eq("brand_id", brandId)
+          .eq("status", true)
           .or(`shop_id.is.null,shop_id.eq.${shopId}`)
           .is("deleted_at", null)
           .order("sort_number")
@@ -151,6 +175,7 @@ export default async function ReservationPage({
             shopId={shopId}
             brandId={brandId}
             staffId={effectiveStaffId}
+            enableMeetingBooking={enableMeetingBooking}
           />
         </div>
       </div>
@@ -190,6 +215,7 @@ export default async function ReservationPage({
           paymentMethods={paymentMethods}
           shopId={shopId}
           brandId={brandId}
+          enableMeetingBooking={enableMeetingBooking}
         />
       </div>
     </div>
