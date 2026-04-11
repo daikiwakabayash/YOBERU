@@ -95,11 +95,14 @@ export async function getMarketingByShop(params: {
     byShop.set(s.id, emptyShopTotals(s.id, s.name));
   }
 
-  // 2. All appointments across the brand in range (one query)
+  // 2. All appointments across the brand in range (one query).
+  //    Marketing = 新規のみ → filter visit_count = 1.
+  //    See getMarketingData.ts for the spec rationale.
   let apptQuery = supabase
     .from("appointments")
-    .select("shop_id, status, sales, visit_source_id, is_member_join")
+    .select("shop_id, status, sales, visit_source_id, is_member_join, visit_count")
     .eq("brand_id", brandId)
+    .eq("visit_count", 1)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null);
@@ -122,6 +125,7 @@ export async function getMarketingByShop(params: {
     sales: number | null;
     visit_source_id: number | null;
     is_member_join: boolean | null;
+    visit_count: number | null;
   }>;
   const adSpend = (adSpendRes ?? []) as Array<{
     shop_id: number;
@@ -130,6 +134,8 @@ export async function getMarketingByShop(params: {
   }>;
 
   for (const a of appointments) {
+    // Defensive re-check for legacy rows with NULL visit_count.
+    if ((a.visit_count ?? 0) !== 1) continue;
     const bucket =
       byShop.get(a.shop_id) ?? emptyShopTotals(a.shop_id, "(不明)");
     if (!byShop.has(a.shop_id)) byShop.set(a.shop_id, bucket);

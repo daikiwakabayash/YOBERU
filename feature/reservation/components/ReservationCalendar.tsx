@@ -72,7 +72,12 @@ export function ReservationCalendar({
 
   const handleDragStart = useCallback(
     (appt: CalendarAppointment, e: React.MouseEvent) => {
-      e.preventDefault();
+      // IMPORTANT: DO NOT call e.preventDefault() here. mousedown is
+      // synthesized from the initial touchstart on touch devices, and
+      // preventing default there cancels the browser's scroll-gesture
+      // decision for the whole touch sequence — that's the "1回目スク
+      // ロールできない" bug. Text selection is suppressed via the
+      // `select-none` class on the card itself.
       e.stopPropagation();
       // Cancelled appointments are read-only on the calendar — no drag,
       // just open the detail sheet so staff can see the reason / history.
@@ -555,7 +560,7 @@ export function ReservationCalendar({
                     <div
                       key={appt.id}
                       data-appt={appt.id}
-                      className={`absolute rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg ${
+                      className={`absolute select-none rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg ${
                         isBeingDragged
                           ? "cursor-grabbing opacity-60 z-50"
                           : "cursor-grab"

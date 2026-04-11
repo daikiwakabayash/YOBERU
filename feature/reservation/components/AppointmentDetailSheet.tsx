@@ -155,6 +155,16 @@ export function AppointmentDetailSheet({
     appointment?.isMemberJoin ?? false
   );
 
+  // ---- Customer reviews (G口コミ / H口コミ) ----
+  // Persisted on the customer row (not the appointment) so toggling
+  // once sticks across every future visit. Loaded lazily when the
+  // sheet opens for a known customer.
+  const [hasGoogleReview, setHasGoogleReview] = useState(false);
+  const [hasHotpepperReview, setHasHotpepperReview] = useState(false);
+  const [reviewSaving, setReviewSaving] = useState<
+    null | "google" | "hotpepper"
+  >(null);
+
   // ---- Billing ----
   const [additionalCharge, setAdditionalCharge] = useState(
     String(appointment?.additionalCharge ?? 0)
@@ -229,6 +239,77 @@ export function AppointmentDetailSheet({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Resolve the "current" customer id — works for both existing
+  // appointments and new bookings where an existing customer was just
+  // picked from the search.
+  const activeCustomerId =
+    appointment?.customerId ?? selectedCustomer?.id ?? null;
+
+  // Load G口コミ / H口コミ receipt status for the active customer.
+  // Runs once per customer-id change; the state is stored on the
+  // customer row itself so it persists across visits.
+  useEffect(() => {
+    if (!activeCustomerId) {
+      setHasGoogleReview(false);
+      setHasHotpepperReview(false);
+      return;
+    }
+    let cancelled = false;
+    import("@/feature/customer/actions/customerActions")
+      .then((m) => m.getCustomerReviewStatus(activeCustomerId))
+      .then((res) => {
+        if (cancelled || !res) return;
+        setHasGoogleReview(res.hasGoogleReview);
+        setHasHotpepperReview(res.hasHotpepperReview);
+      })
+      .catch(() => {
+        /* migration 00009 not run yet — leave defaults */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCustomerId]);
+
+  // Toggle a review checkbox optimistically and persist via server
+  // action. Reverts the UI state on error so the user can retry.
+  async function handleToggleReview(kind: "google" | "hotpepper") {
+    if (!activeCustomerId) {
+      toast.error("顧客を選択してから口コミを記録してください");
+      return;
+    }
+    const prev = kind === "google" ? hasGoogleReview : hasHotpepperReview;
+    const next = !prev;
+    if (kind === "google") setHasGoogleReview(next);
+    else setHasHotpepperReview(next);
+    setReviewSaving(kind);
+    try {
+      const { setCustomerReviewStatus } = await import(
+        "@/feature/customer/actions/customerActions"
+      );
+      const res = await setCustomerReviewStatus(activeCustomerId, {
+        [kind]: next,
+      });
+      if ("error" in res) {
+        // Revert optimistic update
+        if (kind === "google") setHasGoogleReview(prev);
+        else setHasHotpepperReview(prev);
+        toast.error(res.error);
+      } else {
+        toast.success(
+          next
+            ? `${kind === "google" ? "Google" : "HotPepper"}口コミを記録しました`
+            : `${kind === "google" ? "Google" : "HotPepper"}口コミを取り消しました`
+        );
+      }
+    } catch {
+      if (kind === "google") setHasGoogleReview(prev);
+      else setHasHotpepperReview(prev);
+      toast.error("保存に失敗しました (migration 00009 未適用の可能性)");
+    } finally {
+      setReviewSaving(null);
+    }
+  }
 
   // Load the previous visit's chart when an existing customer is picked.
   // Cleared if the user removes the selection.
@@ -994,6 +1075,47 @@ export function AppointmentDetailSheet({
               <span className="text-lg font-black">
                 ¥{total.toLocaleString()}
               </span>
+            </div>
+
+            {/* ===== G口コミ / H口コミ checkboxes =====
+                Stored on the customer row so once checked, the flag
+                survives across every future visit. Fed into the 経営
+                指標 ダッシュボードの G口コミ / H口コミ hero cards. */}
+            <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
+              <div className="text-[11px] font-bold text-emerald-700">
+                口コミ受領チェック
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={hasGoogleReview}
+                  disabled={!activeCustomerId || reviewSaving !== null}
+                  onChange={() => handleToggleReview("google")}
+                  className="h-4 w-4 shrink-0 cursor-pointer accent-emerald-600"
+                />
+                <span className="font-bold text-gray-800">G口コミ</span>
+                <span className="text-[11px] text-gray-500">
+                  Googleレビューを頂いた
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={hasHotpepperReview}
+                  disabled={!activeCustomerId || reviewSaving !== null}
+                  onChange={() => handleToggleReview("hotpepper")}
+                  className="h-4 w-4 shrink-0 cursor-pointer accent-emerald-600"
+                />
+                <span className="font-bold text-gray-800">H口コミ</span>
+                <span className="text-[11px] text-gray-500">
+                  HotPepperレビューを頂いた
+                </span>
+              </label>
+              {!activeCustomerId && (
+                <p className="text-[10px] text-gray-400">
+                  顧客を選択すると口コミを記録できます
+                </p>
+              )}
             </div>
           </section>
 

@@ -131,14 +131,38 @@ export async function getKpiData(params: {
   if (staffId) apptQuery = apptQuery.eq("staff_id", staffId);
 
   // 2. Customer population for churn (shop-wide, not date-filtered so we
-  //    have a denominator). Light query (id + leaved_at only).
+  //    have a denominator). Also pulls the 口コミ receipt columns so the
+  //    KPI hero can show "何人が Google / HotPepper レビューをくれたか".
+  //    Migration 00009 added these columns — fall back gracefully if the
+  //    deployment hasn't applied it yet.
   const custPopQuery = supabase
     .from("customers")
-    .select("id, leaved_at")
+    .select(
+      "id, leaved_at, google_review_received_at, hotpepper_review_received_at"
+    )
     .eq("shop_id", shopId)
     .is("deleted_at", null);
 
-  const [apptRes, custRes] = await Promise.all([apptQuery, custPopQuery]);
+  const [apptRes, custResRaw] = await Promise.all([apptQuery, custPopQuery]);
+  // If the review columns don't exist yet, retry without them so we
+  // still get a usable KPI page. The fallback's row shape is a subset
+  // of the original so we widen via `as unknown as typeof custResRaw`.
+  let custRes = custResRaw;
+  if (custRes.error) {
+    const msg = String(custRes.error.message ?? "");
+    if (
+      msg.includes("google_review_received_at") ||
+      msg.includes("hotpepper_review_received_at") ||
+      msg.includes("does not exist")
+    ) {
+      const fallback = await supabase
+        .from("customers")
+        .select("id, leaved_at")
+        .eq("shop_id", shopId)
+        .is("deleted_at", null);
+      custRes = fallback as unknown as typeof custResRaw;
+    }
+  }
   if (apptRes.error) {
     return emptyKpi(shopId, startDate, endDate, staffId);
   }
@@ -155,6 +179,8 @@ export async function getKpiData(params: {
   const customers = (custRes.data ?? []) as Array<{
     id: number;
     leaved_at: string | null;
+    google_review_received_at?: string | null;
+    hotpepper_review_received_at?: string | null;
   }>;
 
   // --- Totals ------------------------------------------------------------
@@ -240,6 +266,17 @@ export async function getKpiData(params: {
   totals.totalAcquired = newCustomerSet.size;
   totals.joinRate =
     newVisitDenominator > 0 ? totals.joinCount / newVisitDenominator : 0;
+
+  // --- 口コミ (shop-wide cumulative, NOT date-filtered) ------------------
+  // Staff toggle these flags once per customer; the KPI card shows the
+  // running total of customers-who-have-reviewed, similar to a lifetime
+  // counter. Date filtering was deliberate — asking a customer for a
+  // review at a past visit would otherwise zero out the hero card for
+  // the current month even though the review still counts.
+  for (const c of customers) {
+    if (c.google_review_received_at) totals.googleReviews += 1;
+    if (c.hotpepper_review_received_at) totals.hotpepperReviews += 1;
+  }
 
   // --- Churn (simplified) ------------------------------------------------
   // Count customers whose leaved_at falls in [startDate, endDate].

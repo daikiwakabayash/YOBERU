@@ -137,13 +137,26 @@ export async function getMarketingData(params: {
   const nextM = em === 12 ? 1 : em + 1;
   const endTsExclusive = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00+09:00`;
 
-  // 1. Appointments in range for this shop
+  // 1. Appointments in range for this shop.
+  //
+  // Marketing analytics = 新規のみ.
+  // Per product spec ("マーケティング分析の実来院などは全て初回の新規の
+  // みだけの数をカウントする。キャンセルなども。") every metric on the
+  // marketing dashboard — 実来院 / キャンセル / 入会 / 売上 / 予約数 —
+  // must only count the customer's FIRST-EVER appointment. Return
+  // visits don't belong here.
+  //
+  // We filter on `visit_count = 1`. That column is stamped by
+  // reservationActions.createAppointment as the customer's cumulative
+  // visit number at the time of booking, so visit_count=1 means "this
+  // is the booking that made them a customer".
   let apptQuery = supabase
     .from("appointments")
     .select(
-      "id, status, start_at, sales, visit_source_id, is_member_join, cancelled_at"
+      "id, status, start_at, sales, visit_source_id, is_member_join, cancelled_at, visit_count"
     )
     .eq("shop_id", shopId)
+    .eq("visit_count", 1)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null);
@@ -195,7 +208,12 @@ export async function getMarketingData(params: {
     sales: number | null;
     visit_source_id: number | null;
     is_member_join: boolean | null;
+    visit_count: number | null;
   }>) {
+    // Defensive: even though the SELECT already filters visit_count=1,
+    // legacy rows may have NULL visit_count (pre-migration 00006).
+    // Exclude them so the dashboard matches spec strictly.
+    if ((a.visit_count ?? 0) !== 1) continue;
     const ym = appointmentYearMonth(a.start_at);
     const mb = monthBuckets.get(ym) ?? (() => {
       const b = emptyTotals();
