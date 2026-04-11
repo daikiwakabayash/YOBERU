@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getBookingLinkBySlug } from "@/feature/booking-link/services/getBookingLinks";
+import { getShopAvailability } from "@/feature/booking-link/services/getShopAvailability";
 import { createClient } from "@/helper/lib/supabase/server";
 import { PublicBookingWizard } from "@/feature/booking-link/components/PublicBookingWizard";
 
@@ -145,6 +146,33 @@ export default async function PublicBookingPage({
   const initialLang: "ja" | "en" =
     langParam === "en" ? "en" : langParam === "ja" ? "ja" : link.language === "en" ? "en" : "ja";
 
+  // Pre-compute the open / closed availability for each shop the link
+  // can resolve to, for the next ~6 weeks. The wizard uses this to mark
+  // closed dates as "−" and slots outside the open window as "×".
+  // Resolved per shop_id and merged so multi-shop links show the union.
+  const today = new Date();
+  const startStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const future = new Date(today);
+  future.setDate(future.getDate() + 6 * 7);
+  const endStr = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, "0")}-${String(future.getDate()).padStart(2, "0")}`;
+
+  const availabilityByShop: Record<
+    number,
+    Awaited<ReturnType<typeof getShopAvailability>>
+  > = {};
+  for (const s of shops) {
+    try {
+      availabilityByShop[s.id] = await getShopAvailability(
+        s.id,
+        startStr,
+        endStr
+      );
+    } catch (e) {
+      console.error("[book/[slug]] availability fetch failed", e);
+      availabilityByShop[s.id] = {};
+    }
+  }
+
   return (
     <div className="min-h-screen bg-white">
       <PublicBookingWizard
@@ -165,6 +193,7 @@ export default async function PublicBookingPage({
         menus={menus}
         utmSource={utm_source ?? null}
         lang={initialLang}
+        availabilityByShop={availabilityByShop}
       />
     </div>
   );

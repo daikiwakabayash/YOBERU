@@ -14,6 +14,7 @@ import type {
 } from "./types";
 import { useT } from "../../i18n/useT";
 import type { Lang } from "../../i18n/dictionary";
+import type { ShopAvailabilityDay } from "../../services/getShopAvailability";
 
 interface Step1Props {
   state: BookingState;
@@ -27,6 +28,10 @@ interface Step1Props {
   lang?: Lang;
   /** True when navigated here from Step 3 edit — shows back/next buttons */
   fromEdit?: boolean;
+  availabilityByShop?: Record<
+    number,
+    Record<string, ShopAvailabilityDay | null>
+  >;
 }
 
 /**
@@ -44,9 +49,20 @@ export function Step1StoreDateTime({
   menus,
   onNext,
   lang = "ja",
+  availabilityByShop,
 }: Step1Props) {
   const { t } = useT(lang);
   const [mapShop, setMapShop] = useState<PublicShop | null>(null);
+
+  // The calendar only knows about one shop's availability at a time.
+  // When the user has picked a shop, scope to that shop's map; otherwise
+  // fall back to the first shop's map (single-shop links) or undefined.
+  const shopAvailability = (() => {
+    if (!availabilityByShop) return undefined;
+    if (state.shopId) return availabilityByShop[state.shopId];
+    if (shops.length === 1) return availabilityByShop[shops[0].id];
+    return undefined;
+  })();
   const [expandedField, setExpandedField] = useState<
     "area" | "shop" | "staff" | "menu" | "datetime" | null
   >(() => {
@@ -373,6 +389,7 @@ export function Step1StoreDateTime({
               selectedDate={state.date}
               selectedTime={state.time}
               onSelect={(date, time) => setState({ date, time })}
+              availability={shopAvailability}
             />
           </div>
         )}

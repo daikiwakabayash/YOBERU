@@ -13,10 +13,27 @@ const TIME_SLOTS: string[] = (() => {
   return slots;
 })();
 
+/**
+ * Per-day shop availability passed in by the parent. `null` for a date
+ * means "closed / no staff scheduled". When undefined the calendar
+ * falls back to the legacy "open everywhere" behaviour so unrelated
+ * call sites keep working.
+ */
+export interface DayAvailability {
+  startMin: number; // inclusive
+  endMin: number;   // exclusive
+}
+
 interface AvailabilityCalendarProps {
   selectedDate: string | null; // YYYY-MM-DD
   selectedTime: string | null; // HH:MM
   onSelect: (date: string, time: string) => void;
+  /**
+   * Map of YYYY-MM-DD → open window (or null when closed). When provided
+   * the calendar marks closed dates as "−" and time slots outside the
+   * open window as "×".
+   */
+  availability?: Record<string, DayAvailability | null>;
 }
 
 function toLocalDateString(d: Date): string {
@@ -45,6 +62,7 @@ export function AvailabilityCalendar({
   selectedDate,
   selectedTime,
   onSelect,
+  availability,
 }: AvailabilityCalendarProps) {
   const [weekStart, setWeekStart] = useState(() => {
     const today = new Date();
@@ -66,9 +84,13 @@ export function AvailabilityCalendar({
   const monthLabel = `${weekStart.getFullYear()}年${weekStart.getMonth() + 1}月`;
 
   /**
-   * Availability placeholder.
-   * TODO: Replace with real shift + appointment lookup.
-   * For now: past = "-", future = "○", after 20:00 = "×"
+   * Availability resolution priority:
+   *  1. Past (date < today, or today's already-passed slot) → "-"
+   *  2. `availability` was provided AND date is closed → "-"
+   *  3. `availability` was provided AND slot is outside open window → "×"
+   *  4. open
+   *
+   * Falls back to "always open" if the parent didn't pass `availability`.
    */
   function getAvailability(date: Date, time: string): "o" | "x" | "-" {
     const dateStr = toLocalDateString(date);
@@ -76,9 +98,11 @@ export function AvailabilityCalendar({
     const [h, m] = time.split(":").map(Number);
     const slotMin = h * 60 + m;
     if (dateStr === today && slotMin <= nowMinutes) return "-";
-    // Example: randomly mark some as unavailable for demo realism
-    const seed = (date.getDate() * 31 + h * 7 + m) % 13;
-    if (seed === 0 || seed === 5) return "x";
+    if (availability) {
+      const day = availability[dateStr];
+      if (day == null) return "-"; // closed: no staff scheduled
+      if (slotMin < day.startMin || slotMin >= day.endMin) return "x";
+    }
     return "o";
   }
 
