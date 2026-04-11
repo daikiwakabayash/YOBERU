@@ -8,6 +8,7 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
   return bookingLinkSchema.safeParse({
     brand_id: Number(raw.brand_id),
     shop_id: raw.shop_id ? Number(raw.shop_id) : null,
+    shop_ids: raw.shop_ids ? JSON.parse(String(raw.shop_ids)) : [],
     slug: raw.slug,
     title: raw.title,
     memo: raw.memo || null,
@@ -29,6 +30,10 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
   });
 }
 
+function isMissingShopIdsColumn(msg: string): boolean {
+  return msg.includes("shop_ids") && msg.includes("column");
+}
+
 export async function createBookingLink(formData: FormData) {
   const supabase = await createClient();
   const raw = Object.fromEntries(formData.entries());
@@ -38,12 +43,20 @@ export async function createBookingLink(formData: FormData) {
   }
 
   // Convert empty strings to null
-  const insertData = Object.fromEntries(
+  const insertData: Record<string, unknown> = Object.fromEntries(
     Object.entries(parsed.data).map(([k, v]) => [k, v === "" ? null : v])
   );
 
   try {
-    const { error } = await supabase.from("booking_links").insert(insertData);
+    let { error } = await supabase.from("booking_links").insert(insertData);
+    // If the new shop_ids column hasn't been added yet, retry without it
+    // so the form keeps working pre-migration.
+    if (error && isMissingShopIdsColumn(error.message ?? "")) {
+      const fallback = { ...insertData };
+      delete fallback.shop_ids;
+      const retry = await supabase.from("booking_links").insert(fallback);
+      error = retry.error;
+    }
     if (error) {
       return { error: error.message };
     }
@@ -62,14 +75,23 @@ export async function updateBookingLink(id: number, formData: FormData) {
   const parsed = parseForm(raw);
   if (!parsed.success) return { error: parsed.error.flatten().fieldErrors };
 
-  const updateData = Object.fromEntries(
+  const updateData: Record<string, unknown> = Object.fromEntries(
     Object.entries(parsed.data).map(([k, v]) => [k, v === "" ? null : v])
   );
 
-  const { error } = await supabase
+  let { error } = await supabase
     .from("booking_links")
     .update(updateData)
     .eq("id", id);
+  if (error && isMissingShopIdsColumn(error.message ?? "")) {
+    const fallback = { ...updateData };
+    delete fallback.shop_ids;
+    const retry = await supabase
+      .from("booking_links")
+      .update(fallback)
+      .eq("id", id);
+    error = retry.error;
+  }
   if (error) return { error: error.message };
   revalidatePath("/booking-link");
   revalidatePath(`/booking-link/${id}`);
@@ -182,7 +204,13 @@ export async function submitPublicBooking(formData: FormData) {
   }
 
   const brandId = link.data.brand_id as number;
+  const linkShopIds: number[] = Array.isArray(link.data.shop_ids)
+    ? (link.data.shop_ids as number[])
+    : [];
   const shopId = Number(raw.shop_id || link.data.shop_id);
+  if (linkShopIds.length > 0 && shopId && !linkShopIds.includes(shopId)) {
+    return { error: "選択された店舗はこの予約リンクの対象外です" };
+  }
   const menuManageId = String(raw.menu_manage_id);
   const staffId = raw.staff_id ? Number(raw.staff_id) : null;
   const startAt = String(raw.start_at); // "YYYY-MM-DDTHH:MM:00"

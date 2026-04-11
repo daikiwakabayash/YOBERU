@@ -19,6 +19,7 @@ import { ReminderSettingsSection } from "./ReminderSettingsSection";
 
 interface BookingLinkFormProps {
   brandId: number;
+  shops: Array<{ id: number; name: string }>;
   menus: Array<{
     menu_manage_id: string;
     name: string;
@@ -32,6 +33,7 @@ interface BookingLinkFormProps {
 
 export function BookingLinkForm({
   brandId,
+  shops,
   menus,
   visitSources,
   initialData,
@@ -43,6 +45,13 @@ export function BookingLinkForm({
   const [title, setTitle] = useState(initialData?.title ?? "");
   const [memo, setMemo] = useState(initialData?.memo ?? "");
   const [language, setLanguage] = useState(initialData?.language ?? "ja");
+  const [selectedShopIds, setSelectedShopIds] = useState<number[]>(
+    initialData?.shop_ids && initialData.shop_ids.length > 0
+      ? initialData.shop_ids
+      : initialData?.shop_id
+        ? [initialData.shop_id]
+        : []
+  );
   const [selectedMenuIds, setSelectedMenuIds] = useState<string[]>(
     initialData?.menu_manage_ids ?? []
   );
@@ -89,6 +98,12 @@ export function BookingLinkForm({
     );
   }
 
+  function toggleShop(id: number) {
+    setSelectedShopIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
   async function handleSubmit() {
     if (!slug.trim() || !title.trim()) {
       toast.error("タイトルとURLスラッグを入力してください");
@@ -97,7 +112,12 @@ export function BookingLinkForm({
     setSaving(true);
     const form = new FormData();
     form.set("brand_id", String(brandId));
-    form.set("shop_id", "1"); // TODO: multi-shop selection
+    // Legacy shop_id: keep first selected shop for backward compatibility
+    // (the public route falls back to this if shop_ids is empty).
+    if (selectedShopIds.length > 0) {
+      form.set("shop_id", String(selectedShopIds[0]));
+    }
+    form.set("shop_ids", JSON.stringify(selectedShopIds));
     form.set("slug", slug.trim());
     form.set("title", title.trim());
     form.set("memo", memo);
@@ -209,6 +229,51 @@ export function BookingLinkForm({
               rows={2}
               placeholder="管理メモ"
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Shop selection (multi) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">対象店舗</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            このリンクで予約を受け付ける店舗を選択してください。複数選択
+            すると、お客様は予約フォーム上で店舗を選べるようになります。
+            未選択の場合はブランド配下の全店舗が対象になります。
+          </p>
+          {shops.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              店舗が登録されていません。
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {shops.map((s) => {
+                const selected = selectedShopIds.includes(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => toggleShop(s.id)}
+                    className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                      selected
+                        ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="text-[11px] text-gray-400">
+            選択中:{" "}
+            {selectedShopIds.length === 0
+              ? "全店舗 (ブランド配下)"
+              : `${selectedShopIds.length}店舗`}
           </div>
         </CardContent>
       </Card>

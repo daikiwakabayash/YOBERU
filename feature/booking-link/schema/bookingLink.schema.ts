@@ -14,6 +14,9 @@ export const reminderSettingSchema = z.object({
 export const bookingLinkSchema = z.object({
   brand_id: z.number().int().positive(),
   shop_id: z.number().int().nullable(),
+  // New: zero-or-more shop IDs the link is restricted to. Empty array
+  // means "all brand shops" (= legacy shop_id IS NULL behaviour).
+  shop_ids: z.array(z.number().int().positive()).default([]),
   slug: z
     .string()
     .min(1, "URLスラッグを入力してください")

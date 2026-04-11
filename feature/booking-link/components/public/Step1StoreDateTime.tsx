@@ -12,6 +12,8 @@ import type {
   PublicMenu,
   PublicLink,
 } from "./types";
+import { useT } from "../../i18n/useT";
+import type { Lang } from "../../i18n/dictionary";
 
 interface Step1Props {
   state: BookingState;
@@ -22,6 +24,7 @@ interface Step1Props {
   staffs: PublicStaff[];
   menus: PublicMenu[];
   onNext: () => void;
+  lang?: Lang;
   /** True when navigated here from Step 3 edit — shows back/next buttons */
   fromEdit?: boolean;
 }
@@ -40,7 +43,9 @@ export function Step1StoreDateTime({
   staffs,
   menus,
   onNext,
+  lang = "ja",
 }: Step1Props) {
+  const { t } = useT(lang);
   const [mapShop, setMapShop] = useState<PublicShop | null>(null);
   const [expandedField, setExpandedField] = useState<
     "area" | "shop" | "staff" | "menu" | "datetime" | null
@@ -113,7 +118,7 @@ export function Step1StoreDateTime({
             ‹
           </button>
           <h2 className="flex-1 text-center text-base font-medium">
-            ご予約フォーム
+            {t("formTitle")}
           </h2>
           <div className="w-4" />
         </div>
@@ -122,13 +127,13 @@ export function Step1StoreDateTime({
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
         {/* Step indicator */}
-        <StepHeader stepNumber={1} total={3} title="店舗と日時を選ぶ" />
+        <StepHeader stepNumber={1} total={3} title={t("step1Title")} />
 
         {/* エリア (only if multiple areas) */}
         {areas.length > 1 && (
           <SelectRow
             icon={<MapPin className="h-4 w-4" />}
-            label="ご希望のエリア"
+            label={t("fieldArea")}
             value={selectedArea?.name ?? null}
             expanded={expandedField === "area"}
             onToggle={() =>
@@ -154,7 +159,7 @@ export function Step1StoreDateTime({
                   >
                     <span>{a.name}</span>
                     {selected && (
-                      <span className="text-xs text-emerald-600">選択中</span>
+                      <span className="text-xs text-emerald-600">{t("selected")}</span>
                     )}
                   </button>
                 );
@@ -167,7 +172,7 @@ export function Step1StoreDateTime({
         {showShop && (
           <SelectRow
             icon={<MapPin className="h-4 w-4" />}
-            label="店舗"
+            label={t("fieldShop")}
             value={selectedShop?.name ?? null}
             expanded={expandedField === "shop"}
             onToggle={() =>
@@ -184,7 +189,7 @@ export function Step1StoreDateTime({
                   className="mt-1 flex items-center gap-1 text-[11px] text-emerald-600 hover:underline"
                 >
                   <MapPin className="h-3 w-3" />
-                  MAP {selectedShop.nearest_station_access ?? ""}
+                  {t("map")} {selectedShop.nearest_station_access ?? ""}
                 </button>
               ) : null
             }
@@ -214,7 +219,7 @@ export function Step1StoreDateTime({
                     >
                       <span>{s.name}</span>
                       {selected && (
-                        <span className="text-xs text-emerald-600">選択中</span>
+                        <span className="text-xs text-emerald-600">{t("selected")}</span>
                       )}
                     </button>
                     {selected && (
@@ -223,16 +228,14 @@ export function Step1StoreDateTime({
                         onClick={() => setMapShop(s)}
                         className="ml-2 flex items-center gap-1 text-[11px] text-emerald-600 hover:underline"
                       >
-                        <MapPin className="h-3 w-3" /> MAPで場所を確認
+                        <MapPin className="h-3 w-3" /> {t("mapShowLocation")}
                       </button>
                     )}
                   </div>
                 );
               })}
               {shopsInArea.length === 0 && (
-                <p className="text-xs text-gray-400">
-                  このエリアに店舗はありません。
-                </p>
+                <p className="text-xs text-gray-400">{t("noShopsInArea")}</p>
               )}
             </div>
           </SelectRow>
@@ -242,11 +245,9 @@ export function Step1StoreDateTime({
         {showStaff && (
           <SelectRow
             icon={<User className="h-4 w-4" />}
-            label="ご希望のスタッフ"
+            label={t("fieldStaff")}
             value={
-              state.staffId === 0
-                ? "おまかせ"
-                : selectedStaff?.name ?? null
+              state.staffId === 0 ? t("anyStaff") : selectedStaff?.name ?? null
             }
             expanded={expandedField === "staff"}
             onToggle={() =>
@@ -267,7 +268,7 @@ export function Step1StoreDateTime({
                       : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
                   }`}
                 >
-                  <span>おまかせ</span>
+                  <span>{t("anyStaff")}</span>
                 </button>
               )}
               {staffsInShop.map((s) => {
@@ -288,15 +289,13 @@ export function Step1StoreDateTime({
                   >
                     <span>{s.name}</span>
                     {selected && (
-                      <span className="text-xs text-emerald-600">選択中</span>
+                      <span className="text-xs text-emerald-600">{t("selected")}</span>
                     )}
                   </button>
                 );
               })}
               {staffsInShop.length === 0 && (
-                <p className="text-xs text-gray-400">
-                  この店舗のスタッフは登録されていません。
-                </p>
+                <p className="text-xs text-gray-400">{t("noStaffsInShop")}</p>
               )}
             </div>
           </SelectRow>
@@ -306,12 +305,12 @@ export function Step1StoreDateTime({
         {showMenu && (
           <SelectRow
             icon={<Tag className="h-4 w-4" />}
-            label="ご希望のメニュー"
+            label={t("fieldMenu")}
             value={
               selectedMenu
                 ? `${link.alias_menu_name ?? selectedMenu.name} ${
                     selectedMenu.price
-                      ? `${selectedMenu.price.toLocaleString()}円`
+                      ? `${selectedMenu.price.toLocaleString()}${t("yenSuffix")}`
                       : ""
                   }`.trim()
                 : null
@@ -343,11 +342,13 @@ export function Step1StoreDateTime({
                         {link.alias_menu_name ?? m.name}
                       </div>
                       <div className="text-[11px] text-gray-500">
-                        {m.duration}分 {m.price > 0 && `/ ¥${m.price.toLocaleString()}`}
+                        {m.duration}
+                        {t("minutes")}{" "}
+                        {m.price > 0 && `/ ¥${m.price.toLocaleString()}`}
                       </div>
                     </div>
                     {selected && (
-                      <span className="text-xs text-emerald-600">選択中</span>
+                      <span className="text-xs text-emerald-600">{t("selected")}</span>
                     )}
                   </button>
                 );
@@ -361,7 +362,7 @@ export function Step1StoreDateTime({
           <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3">
             <div className="mb-2 flex items-center gap-2 text-sm text-gray-700">
               <Calendar className="h-4 w-4" />
-              <span className="font-medium">ご希望の日時</span>
+              <span className="font-medium">{t("fieldDateTime")}</span>
               {state.date && state.time && (
                 <span className="ml-auto text-xs text-emerald-600">
                   {state.date.slice(5).replace("-", "/")} {state.time}
@@ -379,7 +380,7 @@ export function Step1StoreDateTime({
         {!showDateTime && (
           <div className="mt-4 flex items-center gap-2 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-500">
             <Info className="h-3 w-3" />
-            前の項目を選択すると次が表示されます
+            {t("helpExpandNext")}
           </div>
         )}
       </div>
@@ -396,7 +397,7 @@ export function Step1StoreDateTime({
               : "cursor-not-allowed bg-gray-300"
           }`}
         >
-          ご注文確認へ
+          {t("proceedToConfirm")}
         </button>
       </div>
 

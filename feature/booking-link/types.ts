@@ -11,6 +11,8 @@ export interface BookingLink {
   id: number;
   brand_id: number;
   shop_id: number | null;
+  /** Multi-shop targeting (00008). Empty array = all brand shops. */
+  shop_ids: number[];
   slug: string;
   title: string;
   memo: string | null;

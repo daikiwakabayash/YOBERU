@@ -8,6 +8,8 @@ import type {
   PublicMenu,
   PublicShop,
 } from "./types";
+import { useT } from "../../i18n/useT";
+import type { Lang } from "../../i18n/dictionary";
 
 interface Step2Props {
   state: BookingState;
@@ -17,6 +19,7 @@ interface Step2Props {
   menu: PublicMenu | null;
   onBack: () => void;
   onNext: () => void;
+  lang?: Lang;
 }
 
 /**
@@ -43,7 +46,9 @@ export function Step2CustomerInfo({
   menu,
   onBack,
   onNext,
+  lang = "ja",
 }: Step2Props) {
+  const { t } = useT(lang);
   const valid = isStep2Valid(state, link.require_cancel_policy);
 
   return (
@@ -56,10 +61,10 @@ export function Step2CustomerInfo({
             onClick={onBack}
             className="text-sm text-gray-500 hover:text-gray-700"
           >
-            ‹ 戻る
+            ‹ {t("back")}
           </button>
           <h2 className="flex-1 text-center text-base font-medium">
-            ご予約フォーム
+            {t("formTitle")}
           </h2>
           <div className="w-10" />
         </div>
@@ -67,12 +72,13 @@ export function Step2CustomerInfo({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
-        <StepHeader stepNumber={2} total={3} title="お客様情報の入力" />
+        <StepHeader stepNumber={2} total={3} title={t("step2Title")} />
 
         {/* Name fields */}
         <div className="mb-3 grid grid-cols-2 gap-3">
           <LabeledInput
-            label="姓"
+            label={t("fieldLastName")}
+            requiredLabel={t("fieldNameRequired")}
             required
             value={state.lastName}
             onChange={(v) => setState({ lastName: v })}
@@ -80,7 +86,8 @@ export function Step2CustomerInfo({
             valid={state.lastName.trim().length > 0}
           />
           <LabeledInput
-            label="名"
+            label={t("fieldFirstName")}
+            requiredLabel={t("fieldNameRequired")}
             required
             value={state.firstName}
             onChange={(v) => setState({ firstName: v })}
@@ -88,7 +95,8 @@ export function Step2CustomerInfo({
             valid={state.firstName.trim().length > 0}
           />
           <LabeledInput
-            label="せい"
+            label={t("fieldLastNameKana")}
+            requiredLabel={t("fieldNameRequired")}
             required
             value={state.lastNameKana}
             onChange={(v) => setState({ lastNameKana: v })}
@@ -96,7 +104,8 @@ export function Step2CustomerInfo({
             valid={state.lastNameKana.trim().length > 0}
           />
           <LabeledInput
-            label="めい"
+            label={t("fieldFirstNameKana")}
+            requiredLabel={t("fieldNameRequired")}
             required
             value={state.firstNameKana}
             onChange={(v) => setState({ firstNameKana: v })}
@@ -108,9 +117,9 @@ export function Step2CustomerInfo({
         {/* Phone */}
         <div className="mb-3">
           <LabeledInput
-            label="電話番号"
+            label={t("fieldPhone")}
+            requiredLabel={t("fieldNameRequired")}
             required
-            hint="ハイフン不要です（例: 09012345678）"
             value={state.phone}
             onChange={(v) => setState({ phone: v })}
             placeholder="09012345678"
@@ -123,7 +132,8 @@ export function Step2CustomerInfo({
         {/* Email */}
         <div className="mb-4">
           <LabeledInput
-            label="メールアドレス"
+            label={t("fieldEmail")}
+            requiredLabel={t("fieldNameRequired")}
             required
             value={state.email}
             onChange={(v) => setState({ email: v })}
@@ -138,7 +148,7 @@ export function Step2CustomerInfo({
           <div className="mb-4 rounded-lg border border-gray-200 bg-white p-3">
             <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
               <span>📋</span>
-              キャンセルポリシーをご確認ください。
+              {t("cancelPolicyHeading")}
             </div>
             {link.cancel_policy_text && (
               <p className="mb-3 whitespace-pre-wrap text-[12px] text-gray-600">
@@ -146,7 +156,9 @@ export function Step2CustomerInfo({
               </p>
             )}
             <label className="flex cursor-pointer items-center justify-end gap-1.5">
-              <span className="text-xs text-gray-600">確認しました。</span>
+              <span className="text-xs text-gray-600">
+                {t("cancelPolicyAccept")}
+              </span>
               <input
                 type="checkbox"
                 checked={state.cancelPolicyAccepted}
@@ -183,8 +195,9 @@ export function Step2CustomerInfo({
               <Tag className="h-3 w-3 text-gray-400" />
               <span>
                 {link.alias_menu_name ?? menu.name}
-                {menu.duration > 0 && `(${menu.duration}分)`}
-                {menu.price > 0 && ` ${menu.price.toLocaleString()}円`}
+                {menu.duration > 0 && `(${menu.duration}${t("minutes")})`}
+                {menu.price > 0 &&
+                  ` ${menu.price.toLocaleString()}${t("yenSuffix")}`}
               </span>
             </div>
           )}
@@ -211,7 +224,7 @@ export function Step2CustomerInfo({
               : "cursor-not-allowed bg-gray-300"
           }`}
         >
-          ご注文確認へ
+          {t("proceedToConfirm")}
         </button>
       </div>
     </div>
@@ -221,6 +234,7 @@ export function Step2CustomerInfo({
 function LabeledInput({
   label,
   required,
+  requiredLabel,
   hint,
   value,
   onChange,
@@ -232,6 +246,7 @@ function LabeledInput({
 }: {
   label: string;
   required?: boolean;
+  requiredLabel?: string;
   hint?: string;
   value: string;
   onChange: (v: string) => void;
@@ -247,7 +262,7 @@ function LabeledInput({
         <label className="text-xs font-medium text-gray-700">{label}</label>
         {required && (
           <span className="rounded bg-red-100 px-1 py-0.5 text-[9px] font-bold text-red-600">
-            必須
+            {requiredLabel ?? "必須"}
           </span>
         )}
         {hint && <span className="text-[10px] text-gray-400">{hint}</span>}

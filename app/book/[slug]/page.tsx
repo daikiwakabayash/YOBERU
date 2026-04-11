@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 interface PublicBookingPageProps {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ utm_source?: string }>;
+  searchParams: Promise<{ utm_source?: string; lang?: string }>;
 }
 
 async function safeQuery<T>(
@@ -41,7 +41,7 @@ export default async function PublicBookingPage({
   searchParams,
 }: PublicBookingPageProps) {
   const { slug } = await params;
-  const { utm_source } = await searchParams;
+  const { utm_source, lang: langParam } = await searchParams;
 
   const link = await getBookingLinkBySlug(slug);
   if (!link) notFound();
@@ -71,9 +71,26 @@ export default async function PublicBookingPage({
         )
       : [];
 
-  // Load shops - filtered by brand_id, and if shop_id specified on link, only that one
+  // Load shops. Resolution priority:
+  //   1. link.shop_ids (multi-shop, post-migration 00008) → only those
+  //   2. link.shop_id (legacy single-shop) → only that shop
+  //   3. fallback → all is_public shops in the brand
   let shops: PublicShop[] = [];
-  if (link.shop_id) {
+  const linkShopIds: number[] =
+    Array.isArray(link.shop_ids) && link.shop_ids.length > 0
+      ? link.shop_ids
+      : [];
+  if (linkShopIds.length > 0) {
+    shops = await safeQuery<PublicShop>(
+      supabase
+        .from("shops")
+        .select("id, name, area_id, zip_code, address, nearest_station_access")
+        .in("id", linkShopIds)
+        .eq("is_public", true)
+        .is("deleted_at", null)
+        .order("sort_number")
+    );
+  } else if (link.shop_id) {
     shops = await safeQuery<PublicShop>(
       supabase
         .from("shops")
@@ -123,6 +140,11 @@ export default async function PublicBookingPage({
         )
       : [];
 
+  // Resolve language: explicit ?lang=… wins, otherwise fall back to the
+  // booking link's stored `language` (defaults to "ja").
+  const initialLang: "ja" | "en" =
+    langParam === "en" ? "en" : langParam === "ja" ? "ja" : link.language === "en" ? "en" : "ja";
+
   return (
     <div className="min-h-screen bg-white">
       <PublicBookingWizard
@@ -142,6 +164,7 @@ export default async function PublicBookingPage({
         staffs={staffs}
         menus={menus}
         utmSource={utm_source ?? null}
+        lang={initialLang}
       />
     </div>
   );

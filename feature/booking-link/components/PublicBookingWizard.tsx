@@ -6,6 +6,7 @@ import { Step1StoreDateTime } from "./public/Step1StoreDateTime";
 import { Step2CustomerInfo } from "./public/Step2CustomerInfo";
 import { Step3Confirm } from "./public/Step3Confirm";
 import { Step4Complete } from "./public/Step4Complete";
+import { LanguageToggle } from "./public/LanguageToggle";
 import type {
   BookingState,
   PublicArea,
@@ -16,6 +17,8 @@ import type {
 } from "./public/types";
 import { submitPublicBooking } from "../actions/bookingLinkActions";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
+import { useT } from "../i18n/useT";
+import type { Lang } from "../i18n/dictionary";
 
 type WizardStep = 1 | 2 | 3 | 4;
 
@@ -26,6 +29,7 @@ interface PublicBookingWizardProps {
   staffs: PublicStaff[];
   menus: PublicMenu[];
   utmSource: string | null;
+  lang?: Lang;
 }
 
 const INITIAL_STATE: BookingState = {
@@ -51,7 +55,9 @@ export function PublicBookingWizard({
   staffs,
   menus,
   utmSource,
+  lang = "ja",
 }: PublicBookingWizardProps) {
+  const { t } = useT(lang);
   const [step, setStep] = useState<WizardStep>(1);
   const [state, setState] = useState<BookingState>(() => ({
     ...INITIAL_STATE,
@@ -77,11 +83,11 @@ export function PublicBookingWizard({
 
   async function handleSubmit() {
     if (!state.shopId || !state.menuManageId || !state.date || !state.time) {
-      toast.error("選択内容が不完全です");
+      toast.error(t("selectionIncomplete"));
       return;
     }
     if (!selectedMenu) {
-      toast.error("メニューが選択されていません");
+      toast.error(t("menuNotSelected"));
       return;
     }
 
@@ -122,46 +128,57 @@ export function PublicBookingWizard({
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col bg-white sm:my-4 sm:min-h-0 sm:rounded-xl sm:shadow-lg">
-      {step === 1 && (
-        <Step1StoreDateTime
-          state={state}
-          setState={patchState}
-          link={link}
-          areas={areas}
-          shops={shops}
-          staffs={staffs}
-          menus={menus}
-          onNext={() => setStep(2)}
-        />
-      )}
-      {step === 2 && (
-        <Step2CustomerInfo
-          state={state}
-          setState={patchState}
-          link={link}
-          shop={selectedShop}
-          menu={selectedMenu}
-          onBack={() => setStep(1)}
-          onNext={() => setStep(3)}
-        />
-      )}
-      {step === 3 && (
-        <Step3Confirm
-          state={state}
-          link={link}
-          shop={selectedShop}
-          staff={selectedStaff}
-          menu={selectedMenu}
-          onBack={() => setStep(2)}
-          onEdit={(target) => setStep(target === "step1" ? 1 : 2)}
-          onSubmit={handleSubmit}
-          submitting={submitting}
-        />
-      )}
-      {step === 4 && (
-        <Step4Complete link={link} confirmedDateTime={confirmedDateTime} />
-      )}
-    </div>
+    <>
+      {/* Floating language toggle (top-right of viewport) */}
+      <LanguageToggle active={lang} />
+      <div className="mx-auto flex min-h-screen max-w-md flex-col bg-white sm:my-4 sm:min-h-0 sm:rounded-xl sm:shadow-lg">
+        {step === 1 && (
+          <Step1StoreDateTime
+            state={state}
+            setState={patchState}
+            link={link}
+            areas={areas}
+            shops={shops}
+            staffs={staffs}
+            menus={menus}
+            onNext={() => setStep(2)}
+            lang={lang}
+          />
+        )}
+        {step === 2 && (
+          <Step2CustomerInfo
+            state={state}
+            setState={patchState}
+            link={link}
+            shop={selectedShop}
+            menu={selectedMenu}
+            onBack={() => setStep(1)}
+            onNext={() => setStep(3)}
+            lang={lang}
+          />
+        )}
+        {step === 3 && (
+          <Step3Confirm
+            state={state}
+            link={link}
+            shop={selectedShop}
+            staff={selectedStaff}
+            menu={selectedMenu}
+            onBack={() => setStep(2)}
+            onEdit={(target) => setStep(target === "step1" ? 1 : 2)}
+            onSubmit={handleSubmit}
+            submitting={submitting}
+            lang={lang}
+          />
+        )}
+        {step === 4 && (
+          <Step4Complete
+            link={link}
+            confirmedDateTime={confirmedDateTime}
+            lang={lang}
+          />
+        )}
+      </div>
+    </>
   );
 }

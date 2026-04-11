@@ -25,7 +25,7 @@ export default async function BookingLinkRegisterPage() {
   const brandId = await getActiveBrandId();
   const supabase = await createClient();
 
-  const [menuData, sourceData, categoryData] = await Promise.all([
+  const [menuData, sourceData, categoryData, shopsData] = await Promise.all([
     safeQuery<{
       menu_manage_id: string;
       name: string;
@@ -59,6 +59,15 @@ export default async function BookingLinkRegisterPage() {
         .is("deleted_at", null)
         .order("sort_number")
     ),
+    safeQuery<{ id: number; name: string }>(
+      supabase
+        .from("shops")
+        .select("id, name")
+        .eq("brand_id", brandId)
+        .is("deleted_at", null)
+        .order("sort_number", { ascending: true, nullsFirst: false })
+        .order("id", { ascending: true })
+    ),
   ]);
 
   const categoryMap = new Map(categoryData.map((c) => [c.id, c.name]));
@@ -77,7 +86,12 @@ export default async function BookingLinkRegisterPage() {
     <div>
       <PageHeader title="強制リンク作成" description="新規予約リンクを発行" />
       <div className="p-6">
-        <BookingLinkForm brandId={brandId} menus={menus} visitSources={sourceData} />
+        <BookingLinkForm
+          brandId={brandId}
+          shops={shopsData}
+          menus={menus}
+          visitSources={sourceData}
+        />
       </div>
     </div>
   );
