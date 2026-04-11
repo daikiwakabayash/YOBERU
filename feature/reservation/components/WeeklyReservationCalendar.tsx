@@ -53,7 +53,14 @@ export function WeeklyReservationCalendar({
     staffUtilizationRate,
     staffOpenMin,
     staffBusyMin,
+    dailyUtilization,
   } = data;
+  // Map date → daily util row for O(1) lookup in the header render.
+  const dailyUtilByDate = useMemo(() => {
+    const m = new Map<string, (typeof dailyUtilization)[number]>();
+    for (const d of dailyUtilization) m.set(d.date, d);
+    return m;
+  }, [dailyUtilization]);
   const [selectedAppt, setSelectedAppt] = useState<CalendarAppointment | null>(null);
   const [newBooking, setNewBooking] = useState<{
     staffId: number;
@@ -301,6 +308,32 @@ export function WeeklyReservationCalendar({
                 >
                   {month}/{day}
                 </div>
+                {/* Per-day utilization badge — same palette as the
+                    weekly banner (85%↑=red, 60%↑=amber, <60%=green,
+                    no shift → grey "—"). Only rendered when a staff
+                    is selected so the week header has util data. */}
+                {(() => {
+                  const du = dailyUtilByDate.get(dateStr);
+                  if (!du) return null;
+                  const pct =
+                    du.rate != null ? Math.round(du.rate * 100) : null;
+                  const cls =
+                    pct == null
+                      ? "bg-gray-100 text-gray-400"
+                      : pct >= 85
+                        ? "bg-red-100 text-red-700"
+                        : pct >= 60
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-emerald-100 text-emerald-700";
+                  return (
+                    <span
+                      className={`mt-1 rounded px-1.5 py-0.5 text-[10px] font-bold ${cls}`}
+                      title={`${dateStr} 稼働率 — 開放 ${du.openMin}分 / 稼働 ${du.busyMin}分`}
+                    >
+                      {pct != null ? `${pct}%` : "—"}
+                    </span>
+                  );
+                })()}
               </div>
             );
           })}

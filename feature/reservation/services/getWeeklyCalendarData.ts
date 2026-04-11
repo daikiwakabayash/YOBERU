@@ -3,8 +3,23 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
 import { getWeekDates } from "@/helper/utils/weekday";
-import { getRangeStaffUtilization } from "@/feature/sales/services/getStaffUtilization";
+import {
+  getDailyStaffUtilization,
+  getRangeStaffUtilization,
+} from "@/feature/sales/services/getStaffUtilization";
 import type { CalendarAppointment } from "../types";
+
+/**
+ * Per-day utilization breakdown for the week header. Contains one
+ * entry per weekDate (7 entries). `rate` is null when the day has
+ * no shift at all (so the UI can render "—" instead of "0%").
+ */
+export interface DailyUtilization {
+  date: string;
+  rate: number | null;
+  openMin: number;
+  busyMin: number;
+}
 
 export interface WeeklyCalendarData {
   appointments: CalendarAppointment[];
@@ -18,6 +33,8 @@ export interface WeeklyCalendarData {
   staffOpenMin: number;
   /** Total busy minutes for the week (numerator). */
   staffBusyMin: number;
+  /** Per-day utilization rendered in the week header (7 entries). */
+  dailyUtilization: DailyUtilization[];
 }
 
 /**
@@ -288,26 +305,60 @@ export async function getWeeklyCalendarData(
   // "稼働率 47%" badge just like the day view does per staff column.
   // Only computed when a staff is selected (week view is always staff-
   // filtered) — otherwise the range aggregation has no target.
+  //
+  // We also compute per-day utilization (7 entries) so the column
+  // headers can surface "this Tuesday the staff was 62% busy". These
+  // run in parallel so the week load cost is bounded by the slowest
+  // day, not linear.
   let staffUtilizationRate: number | null = null;
   let staffOpenMin = 0;
   let staffBusyMin = 0;
+  let dailyUtilization: DailyUtilization[] = weekDates.map((d) => ({
+    date: d,
+    rate: null,
+    openMin: 0,
+    busyMin: 0,
+  }));
+
   if (staffId) {
-    try {
-      const util = await getRangeStaffUtilization(
+    const [rangeUtil, ...perDayResults] = await Promise.all([
+      getRangeStaffUtilization(
         shopId,
         weekStart,
         weekDates[6],
         staffId
-      );
-      const row = util.get(staffId);
+      ).catch(() => null),
+      ...weekDates.map((d) =>
+        getDailyStaffUtilization(shopId, d).catch(
+          () => new Map<
+            number,
+            { openMin: number; busyMin: number; rate: number }
+          >()
+        )
+      ),
+    ]);
+
+    if (rangeUtil) {
+      const row = rangeUtil.get(staffId);
       if (row) {
         staffOpenMin = row.openMin;
         staffBusyMin = row.busyMin;
         staffUtilizationRate = row.openMin > 0 ? row.rate : null;
       }
-    } catch {
-      /* swallow — utilization is a nice-to-have */
     }
+
+    dailyUtilization = weekDates.map((d, i) => {
+      const row = perDayResults[i]?.get(staffId);
+      if (!row) {
+        return { date: d, rate: null, openMin: 0, busyMin: 0 };
+      }
+      return {
+        date: d,
+        openMin: row.openMin,
+        busyMin: row.busyMin,
+        rate: row.openMin > 0 ? row.rate : null,
+      };
+    });
   }
 
   return {
@@ -319,5 +370,6 @@ export async function getWeeklyCalendarData(
     staffUtilizationRate,
     staffOpenMin,
     staffBusyMin,
+    dailyUtilization,
   };
 }
