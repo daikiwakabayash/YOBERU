@@ -93,8 +93,14 @@ export async function getDailyReport(
 ): Promise<DailyReportData> {
   const supabase = await createClient();
 
+  // Daily report = past + today only. Clamp the upper bound to today
+  // (Asia/Tokyo) so future-dated bookings don't pollute the report —
+  // those belong on the calendar, not the daily numbers.
+  const today = toLocalDateString(new Date());
+  const effectiveEnd = endDate > today ? today : endDate;
+
   // Day-exclusive upper bound (start_at < end + 1)
-  const nextDate = new Date(endDate + "T00:00:00");
+  const nextDate = new Date(effectiveEnd + "T00:00:00");
   nextDate.setDate(nextDate.getDate() + 1);
   const nextDateStr = toLocalDateString(nextDate);
 

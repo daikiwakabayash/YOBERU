@@ -141,13 +141,21 @@ export async function createAppointment(formData: FormData) {
   const supabase = await createClient();
   const raw = Object.fromEntries(formData.entries());
 
+  // type 0 = 通常予約, type 1 = ミーティング, type 2 = その他.
+  // Meeting / other bookings are slot-block entries without a customer
+  // — we coerce customer_id to null (not zero) so the validator accepts
+  // them via the .nullable() clause.
+  const apptType = Number(raw.type || 0);
+  const isSlotBlock = apptType === 1 || apptType === 2;
+
   const parsed = appointmentSchema.safeParse({
     ...raw,
     brand_id: Number(raw.brand_id),
     shop_id: Number(raw.shop_id),
-    customer_id: Number(raw.customer_id),
+    customer_id:
+      isSlotBlock || !raw.customer_id ? null : Number(raw.customer_id),
     staff_id: Number(raw.staff_id),
-    type: Number(raw.type || 0),
+    type: apptType,
     is_couple: raw.is_couple === "true",
     sales: Number(raw.sales || 0),
     status: Number(raw.status || 0),
@@ -173,24 +181,42 @@ export async function createAppointment(formData: FormData) {
 
   // Stamp the per-appointment visit_count snapshot from the customer's
   // current cumulative count + 1, so visit_count = 1 means "first visit".
-  // Falls back to 1 if the lookup fails.
-  let stampedVisitCount = 1;
-  try {
-    const { data: cust } = await supabase
-      .from("customers")
-      .select("visit_count")
-      .eq("id", parsed.data.customer_id)
-      .maybeSingle();
-    stampedVisitCount = (cust?.visit_count ?? 0) + 1;
-  } catch {
-    // ignore — keep 1
+  // Meeting / other entries skip this (no customer).
+  let stampedVisitCount: number | null = null;
+  if (!isSlotBlock && parsed.data.customer_id) {
+    stampedVisitCount = 1;
+    try {
+      const { data: cust } = await supabase
+        .from("customers")
+        .select("visit_count")
+        .eq("id", parsed.data.customer_id)
+        .maybeSingle();
+      stampedVisitCount = (cust?.visit_count ?? 0) + 1;
+    } catch {
+      /* keep default 1 */
+    }
   }
 
-  const { error } = await supabase.from("appointments").insert({
+  // Build the insert row — drop empty menu_manage_id / other_label so
+  // the DB accepts NULL for them. Meeting / other bookings use a
+  // placeholder menu id so the NOT NULL constraint on menu_manage_id
+  // (from the initial schema) still validates; we key off `type` for
+  // every aggregation instead.
+  const insertRow: Record<string, unknown> = {
     ...parsed.data,
     code,
     visit_count: stampedVisitCount,
-  });
+  };
+  if (!parsed.data.menu_manage_id) {
+    insertRow.menu_manage_id = isSlotBlock
+      ? apptType === 1
+        ? "SYS-MEETING"
+        : "SYS-OTHER"
+      : "";
+  }
+  if (!parsed.data.other_label) delete insertRow.other_label;
+
+  const { error } = await supabase.from("appointments").insert(insertRow);
 
   if (error) return { error: error.message };
 

@@ -17,6 +17,7 @@ export async function createStore(formData: FormData) {
     scale: Number(raw.scale),
     sort_number: Number(raw.sort_number || 0),
     is_public: raw.is_public === "true",
+    enable_meeting_booking: raw.enable_meeting_booking !== "false",
   });
 
   if (!parsed.success) {
@@ -43,6 +44,7 @@ export async function updateStore(id: number, formData: FormData) {
     scale: Number(raw.scale),
     sort_number: Number(raw.sort_number || 0),
     is_public: raw.is_public === "true",
+    enable_meeting_booking: raw.enable_meeting_booking !== "false",
   });
 
   if (!parsed.success) {

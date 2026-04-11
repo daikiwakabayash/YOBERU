@@ -17,6 +17,7 @@ interface WeeklyReservationCalendarProps {
   shopId?: number;
   brandId?: number;
   staffId?: number | null;
+  enableMeetingBooking?: boolean;
 }
 
 const SLOT_HEIGHT = 44;
@@ -31,6 +32,7 @@ export function WeeklyReservationCalendar({
   shopId = 1,
   brandId = 1,
   staffId,
+  enableMeetingBooking = true,
 }: WeeklyReservationCalendarProps) {
   const { appointments, timeSlots, frameMin, weekDates } = data;
   const [selectedAppt, setSelectedAppt] = useState<CalendarAppointment | null>(null);
@@ -456,6 +458,7 @@ export function WeeklyReservationCalendar({
         paymentMethods={paymentMethods}
         shopId={shopId}
         brandId={brandId}
+        enableMeetingBooking={enableMeetingBooking}
       />
     </>
   );

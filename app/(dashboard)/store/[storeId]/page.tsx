@@ -58,6 +58,7 @@ export default async function StoreDetailPage({ params }: StoreDetailPageProps) 
     shop_url: store.shop_url ?? "",
     is_public: store.is_public,
     sort_number: store.sort_number ?? 0,
+    enable_meeting_booking: store.enable_meeting_booking ?? true,
   };
 
   return (

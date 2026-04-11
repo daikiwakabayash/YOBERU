@@ -7,20 +7,26 @@ import { getShopAvailability } from "@/feature/booking-link/services/getShopAvai
 
 /**
  * Staff utilization (稼働率) — how much of a staff member's open
- * shift time is actually filled with treatments.
+ * shift time is filled with bookings.
  *
  *   稼働率 = busyMin / openMin
  *
  *   openMin = sum of effective shift durations on the date(s)
- *   busyMin = sum of (end_at - start_at) for completed (status=2) and
- *             in-progress (status=1) appointments. Cancelled (3 / 4 /
- *             99) and waiting (0) intentionally do NOT count yet —
- *             rate reflects actual treatment time only.
+ *   busyMin = sum of (end_at - start_at) for any non-cancelled
+ *             appointment. We include status:
+ *               0 (待機, scheduled but not yet checked in)
+ *               1 (施術中, in progress)
+ *               2 (完了, completed)
+ *             We exclude:
+ *               3 (キャンセル) / 4 (当日キャンセル) / 99 (no-show)
+ *
+ *   The earlier version only counted status 1+2 which made the badge
+ *   stuck at 0% for any day where the staff hadn't yet started their
+ *   first treatment — exactly the "稼働率が反応してない" report.
  *
  * Future: when we introduce a "type=meeting" appointment flag we'll
- * exclude those from busyMin too, per the spec ("MTGなどは稼働率の
- * 計算には入れない"). For now all appointments (except cancellations)
- * count as treatment time.
+ * exclude those from busyMin too per the spec ("MTGなどは稼働率の
+ * 計算には入れない").
  */
 
 export interface StaffUtilizationRow {
@@ -82,7 +88,7 @@ export async function getDailyStaffUtilization(
 
   const { data: apptRes, error: apptErr } = await supabase
     .from("appointments")
-    .select("staff_id, start_at, end_at, status")
+    .select("staff_id, start_at, end_at, status, type")
     .eq("shop_id", shopId)
     .gte("start_at", `${date}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
@@ -99,9 +105,16 @@ export async function getDailyStaffUtilization(
     start_at: string;
     end_at: string;
     status: number;
+    type: number | null;
   };
   for (const a of (apptRes ?? []) as AppointmentLite[]) {
-    if (a.status !== 1 && a.status !== 2) continue;
+    // Exclude cancelled / no-show; everything else (waiting, in-progress,
+    // completed) counts as "枠に予約が入ってる" 稼働時間.
+    if (a.status === 3 || a.status === 4 || a.status === 99) continue;
+    // Meeting / その他 (type 1/2) block the slot but do NOT count
+    // toward utilization — per spec ("ミーティングと『その他』の入力
+    // 分については稼働率のカウントには含めない").
+    if (a.type === 1 || a.type === 2) continue;
     const sMin = parseHHMM(a.start_at?.slice(11, 16));
     const eMin = parseHHMM(a.end_at?.slice(11, 16));
     if (sMin == null || eMin == null) continue;
@@ -214,7 +227,7 @@ export async function getRangeStaffUtilization(
 
   let apptQuery = supabase
     .from("appointments")
-    .select("staff_id, start_at, end_at, status")
+    .select("staff_id, start_at, end_at, status, type")
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
@@ -233,9 +246,15 @@ export async function getRangeStaffUtilization(
     start_at: string;
     end_at: string;
     status: number;
+    type: number | null;
   };
   for (const a of (apptRes ?? []) as AppointmentLite[]) {
-    if (a.status !== 1 && a.status !== 2) continue;
+    // Exclude cancelled / no-show; everything else (waiting, in-progress,
+    // completed) counts as "枠に予約が入ってる" 稼働時間.
+    if (a.status === 3 || a.status === 4 || a.status === 99) continue;
+    // Meeting / その他 are slot blockers that don't count toward
+    // utilization. See getDailyStaffUtilization for the rationale.
+    if (a.type === 1 || a.type === 2) continue;
     const sMin = parseHHMM(a.start_at?.slice(11, 16));
     const eMin = parseHHMM(a.end_at?.slice(11, 16));
     if (sMin == null || eMin == null) continue;

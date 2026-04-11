@@ -36,12 +36,15 @@ export async function getMarketingByMenu(params: {
   const nextM = em === 12 ? 1 : em + 1;
   const endTsExclusive = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00+09:00`;
 
+  // Marketing = 新規のみ → filter visit_count=1. See getMarketingData.ts
+  // for the spec rationale.
   let q = supabase
     .from("appointments")
     .select(
-      "menu_manage_id, status, sales, is_member_join, visit_source_id"
+      "menu_manage_id, status, sales, is_member_join, visit_source_id, visit_count"
     )
     .eq("shop_id", shopId)
+    .eq("visit_count", 1)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null);
@@ -54,11 +57,13 @@ export async function getMarketingByMenu(params: {
     status: number;
     sales: number | null;
     is_member_join: boolean | null;
+    visit_count: number | null;
   }>;
 
   // Bucket by menu_manage_id
   const byMenu = new Map<string, MenuTotals>();
   for (const a of appointments) {
+    if ((a.visit_count ?? 0) !== 1) continue;
     let bucket = byMenu.get(a.menu_manage_id);
     if (!bucket) {
       bucket = {

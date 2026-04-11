@@ -109,3 +109,73 @@ export async function deleteCustomer(id: number) {
   revalidatePath("/customer");
   return { success: true };
 }
+
+/**
+ * Read the G口コミ / H口コミ receipt status for one customer.
+ *
+ * Used by AppointmentDetailSheet to pre-fill the checkboxes the FIRST
+ * time the sheet is opened for a customer — the state then persists
+ * across future visits because it's stored on `customers`, not on
+ * individual appointments.
+ *
+ * Returns `null` if the column doesn't exist yet (migration 00009 not
+ * run) so callers can fail safe.
+ */
+export async function getCustomerReviewStatus(customerId: number): Promise<{
+  hasGoogleReview: boolean;
+  hasHotpepperReview: boolean;
+} | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("customers")
+    .select("google_review_received_at, hotpepper_review_received_at")
+    .eq("id", customerId)
+    .maybeSingle();
+  if (error) {
+    // Most common cause: migration 00009 hasn't been applied. Surface
+    // null instead of throwing so the UI still renders.
+    console.error("[getCustomerReviewStatus]", error);
+    return null;
+  }
+  return {
+    hasGoogleReview: !!data?.google_review_received_at,
+    hasHotpepperReview: !!data?.hotpepper_review_received_at,
+  };
+}
+
+/**
+ * Persist whether this customer has given us a Google / HotPepper
+ * review. `true` writes NOW() to the column, `false` clears it.
+ *
+ * Idempotent — the caller can toggle the checkbox any number of times
+ * and we'll never double-count in the KPI dashboard (it's a presence
+ * check, not a count of toggles).
+ */
+export async function setCustomerReviewStatus(
+  customerId: number,
+  params: { google?: boolean; hotpepper?: boolean }
+): Promise<{ success: true } | { error: string }> {
+  const supabase = await createClient();
+  const patch: Record<string, string | null> = {};
+  if (params.google !== undefined) {
+    patch.google_review_received_at = params.google
+      ? new Date().toISOString()
+      : null;
+  }
+  if (params.hotpepper !== undefined) {
+    patch.hotpepper_review_received_at = params.hotpepper
+      ? new Date().toISOString()
+      : null;
+  }
+  if (Object.keys(patch).length === 0) return { success: true };
+
+  const { error } = await supabase
+    .from("customers")
+    .update(patch)
+    .eq("id", customerId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/reservation");
+  revalidatePath("/kpi");
+  return { success: true };
+}

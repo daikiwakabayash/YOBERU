@@ -18,10 +18,20 @@ export default function DashboardLayout({
         <DashboardHeader />
         <main
           className="flex-1 overflow-y-auto bg-gray-50"
-          // overscroll-contain: stop scroll chaining to the (h-dvh)
-          // parent which otherwise can swallow the first wheel/touch
-          // event when the inner scroll is at its top edge.
-          style={{ overscrollBehavior: "contain" }}
+          style={{
+            // iOS momentum scrolling. Without this, once the first
+            // touch gesture decision is (belatedly) resolved the
+            // scroll feels "stuck" until the second swipe — exactly
+            // the "一回目がかなり遅い" symptom.
+            WebkitOverflowScrolling: "touch",
+            // Force the main scroll container to claim vertical pan
+            // itself, independent of whatever touchAction the inner
+            // cards declare. Some Chromium versions decide gesture
+            // intent on the FIRST ancestor whose touch-action is
+            // anything other than auto, so we make that ancestor the
+            // scroller instead of the app card.
+            touchAction: "pan-y",
+          }}
         >
           {children}
         </main>

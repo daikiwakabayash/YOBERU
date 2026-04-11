@@ -81,6 +81,7 @@ export function StoreForm({
       shop_url: "",
       is_public: true,
       sort_number: 0,
+      enable_meeting_booking: true,
     },
   });
 
@@ -361,6 +362,24 @@ export function StoreForm({
               }
             />
             <Label>公開する</Label>
+          </div>
+
+          {/* ミーティング / その他ボタンの表示 */}
+          <div className="flex items-start gap-3 md:col-span-2">
+            <Switch
+              checked={form.watch("enable_meeting_booking") ?? true}
+              onCheckedChange={(checked) =>
+                form.setValue("enable_meeting_booking", checked, {
+                  shouldValidate: true,
+                })
+              }
+            />
+            <div>
+              <Label>ミーティング / その他 の予約入力を表示する</Label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                予約入力パネルに「ミーティング」「その他」の入力ボタンを表示します。これらは時間枠だけを抑える用途で、稼働率・売上には含まれません。
+              </p>
+            </div>
           </div>
 
           {/* Server error */}
