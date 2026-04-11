@@ -181,8 +181,13 @@ export async function getCalendarData(
     };
   });
 
-  // 6. Generate time slots (default 9:00 - 21:00)
-  const timeSlots = generateTimeSlots(9, 21, frameMin);
+  // 6. Generate time slots — fit the union of every working staff's
+  //    shift hours plus any appointment that bleeds outside those bounds.
+  //    Default 9–21 if there's nothing to anchor on.
+  const timeSlots = generateTimeSlots(
+    ...computeDayRange(staffs, appointments ?? []),
+    frameMin
+  );
 
   return {
     staffs,
@@ -190,4 +195,58 @@ export async function getCalendarData(
     timeSlots,
     frameMin,
   };
+}
+
+/**
+ * Returns [startHour, endHour] (whole hours) covering every working
+ * staff's shift and any appointment in the appointments array.
+ *
+ * Rules:
+ *  - Floor the earliest start to the hour (e.g. 8:30 → 8)
+ *  - Ceil the latest end to the hour (e.g. 21:30 → 22)
+ *  - Default to 9..21 when no anchor exists
+ *  - Clamp to 0..24
+ */
+function computeDayRange(
+  staffs: Array<{ isWorking: boolean; shiftStart: string | null; shiftEnd: string | null }>,
+  appointments: Array<{ start_at: string | null; end_at: string | null }>
+): [number, number] {
+  let minMin: number | null = null;
+  let maxMin: number | null = null;
+
+  function consider(startHHMM: string | null | undefined, endHHMM: string | null | undefined) {
+    if (startHHMM) {
+      const h = Number(startHHMM.slice(0, 2));
+      const m = Number(startHHMM.slice(3, 5));
+      if (Number.isFinite(h) && Number.isFinite(m)) {
+        const v = h * 60 + m;
+        minMin = minMin == null ? v : Math.min(minMin, v);
+      }
+    }
+    if (endHHMM) {
+      const h = Number(endHHMM.slice(0, 2));
+      const m = Number(endHHMM.slice(3, 5));
+      if (Number.isFinite(h) && Number.isFinite(m)) {
+        const v = h * 60 + m;
+        maxMin = maxMin == null ? v : Math.max(maxMin, v);
+      }
+    }
+  }
+
+  for (const s of staffs) {
+    if (!s.isWorking) continue;
+    consider(s.shiftStart ?? null, s.shiftEnd ?? null);
+  }
+  for (const a of appointments) {
+    consider(a.start_at?.slice(11, 16) ?? null, a.end_at?.slice(11, 16) ?? null);
+  }
+
+  if (minMin == null || maxMin == null) {
+    return [9, 21];
+  }
+  // Floor start to hour, ceil end to hour
+  const startHour = Math.max(0, Math.floor(minMin / 60));
+  const endHour = Math.min(24, Math.ceil(maxMin / 60));
+  if (endHour <= startHour) return [startHour, Math.min(24, startHour + 1)];
+  return [startHour, endHour];
 }

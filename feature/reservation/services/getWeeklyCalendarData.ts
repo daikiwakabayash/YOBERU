@@ -157,8 +157,40 @@ export async function getWeeklyCalendarData(
     };
   });
 
-  // 7. Generate time slots
-  const timeSlots = generateTimeSlots(9, 21, frameMin);
+  // 7. Generate time slots — fit the union of every appointment's
+  //    time range so the week view always covers the visible bookings.
+  //    Defaults 9..21 when there's nothing to anchor on.
+  let minMin: number | null = null;
+  let maxMin: number | null = null;
+  for (const a of appointments ?? []) {
+    const startHHMM = (a.start_at as string | null)?.slice(11, 16) ?? null;
+    const endHHMM = (a.end_at as string | null)?.slice(11, 16) ?? null;
+    if (startHHMM) {
+      const h = Number(startHHMM.slice(0, 2));
+      const m = Number(startHHMM.slice(3, 5));
+      if (Number.isFinite(h) && Number.isFinite(m)) {
+        const v = h * 60 + m;
+        minMin = minMin == null ? v : Math.min(minMin, v);
+      }
+    }
+    if (endHHMM) {
+      const h = Number(endHHMM.slice(0, 2));
+      const m = Number(endHHMM.slice(3, 5));
+      if (Number.isFinite(h) && Number.isFinite(m)) {
+        const v = h * 60 + m;
+        maxMin = maxMin == null ? v : Math.max(maxMin, v);
+      }
+    }
+  }
+  const startHour =
+    minMin == null ? 9 : Math.max(0, Math.floor(minMin / 60));
+  const endHour =
+    maxMin == null ? 21 : Math.min(24, Math.ceil(maxMin / 60));
+  const timeSlots = generateTimeSlots(
+    startHour,
+    Math.max(endHour, startHour + 1),
+    frameMin
+  );
 
   return {
     appointments: calendarAppointments,

@@ -283,7 +283,11 @@ export function ReservationCalendar({
                 <div
                   key={slot}
                   className="absolute right-0 flex items-start justify-end pr-3"
-                  style={{ top: idx * slotHeightPx - 8 }}
+                  // The label sits *below* its hour line. The previous
+                  // value of -8 made the very first label (9:00) clip
+                  // above the grid container — by anchoring to +6 every
+                  // label is fully visible inside its slot.
+                  style={{ top: idx * slotHeightPx + 6 }}
                 >
                   <span className="text-[13px] font-semibold text-gray-500">
                     {slot}
@@ -347,7 +351,11 @@ export function ReservationCalendar({
                         isHour ? "border-gray-200" : "border-gray-100/60"
                       } ${
                         !isInShift
-                          ? "bg-gray-50/60"
+                          ? // Off-shift slots used to be `bg-gray-50/60`
+                            // which was almost invisible. A diagonal
+                            // hatched darker gray makes "this staff is
+                            // not on shift here" obvious at a glance.
+                            "bg-gray-200/70 bg-[repeating-linear-gradient(45deg,_rgba(120,120,130,0.10)_0px,_rgba(120,120,130,0.10)_6px,_transparent_6px,_transparent_12px)]"
                           : isOccupied
                             ? "bg-gray-100/40"
                             : "cursor-pointer hover:bg-blue-50/30"
