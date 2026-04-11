@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Wallet,
   Sparkles,
+  Crown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -64,6 +65,7 @@ const navigation = [
   {
     label: "分析",
     items: [
+      { name: "経営指標", href: "/kpi", icon: Crown },
       { name: "売上", href: "/sales", icon: BarChart3 },
       { name: "マーケティング", href: "/marketing", icon: Sparkles },
       { name: "ダッシュボード", href: "/", icon: LayoutDashboard },

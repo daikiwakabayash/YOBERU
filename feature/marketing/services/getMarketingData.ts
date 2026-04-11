@@ -118,9 +118,16 @@ export async function getMarketingData(params: {
   startMonth: string; // 'YYYY-MM'
   endMonth: string;   // 'YYYY-MM' (inclusive)
   visitSourceId?: number | null;
+  staffId?: number | null;
 }): Promise<MarketingData> {
-  const { brandId: _brandId, shopId, startMonth, endMonth, visitSourceId } =
-    params;
+  const {
+    brandId: _brandId,
+    shopId,
+    startMonth,
+    endMonth,
+    visitSourceId,
+    staffId,
+  } = params;
   const supabase = await createClient();
 
   // Start of startMonth and end of endMonth (exclusive = start of next month)
@@ -142,6 +149,9 @@ export async function getMarketingData(params: {
     .is("deleted_at", null);
   if (visitSourceId) {
     apptQuery = apptQuery.eq("visit_source_id", visitSourceId);
+  }
+  if (staffId) {
+    apptQuery = apptQuery.eq("staff_id", staffId);
   }
 
   const [apptRes, sourcesRes, shopRes, adSpendRes] = await Promise.all([

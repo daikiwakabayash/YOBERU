@@ -21,6 +21,12 @@ interface AdSpendFormProps {
   visitSources: Array<{ id: number; name: string }>;
   rows: AdSpendRow[];
   monthOptions: string[]; // YYYY-MM
+  /**
+   * Set true when the underlying ad_spend table is missing (migration
+   * not yet applied). Disables the save button and the row actions so
+   * the user gets a clear "do the migration first" experience.
+   */
+  disabled?: boolean;
 }
 
 function yen(n: number): string {
@@ -45,6 +51,7 @@ export function AdSpendForm({
   visitSources,
   rows,
   monthOptions,
+  disabled = false,
 }: AdSpendFormProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -185,8 +192,12 @@ export function AdSpendForm({
                 placeholder="任意 (例: CPC キャンペーン名)"
               />
             </div>
-            <Button onClick={handleSubmit} disabled={pending} className="w-full">
-              {pending ? "保存中..." : "保存する"}
+            <Button
+              onClick={handleSubmit}
+              disabled={pending || disabled}
+              className="w-full"
+            >
+              {pending ? "保存中..." : disabled ? "セットアップ未完了" : "保存する"}
             </Button>
             <p className="text-[11px] text-muted-foreground">
               同じ 月 × 媒体 の組み合わせは上書き保存されます。
@@ -248,6 +259,7 @@ export function AdSpendForm({
                             size="sm"
                             variant="ghost"
                             onClick={() => handleEdit(r)}
+                            disabled={disabled}
                           >
                             編集
                           </Button>
@@ -255,6 +267,7 @@ export function AdSpendForm({
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDelete(r.id)}
+                            disabled={disabled}
                           >
                             <Trash2 className="h-4 w-4 text-red-500" />
                           </Button>

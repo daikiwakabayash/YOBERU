@@ -6,12 +6,15 @@ import { useCallback } from "react";
 /**
  * Client-side filter bar for the marketing dashboard. Writes to the URL
  * query string so the server component re-runs with the new params.
+ * Preserves unrelated params (notably ?tab=...).
  */
 interface MarketingFiltersProps {
   startMonth: string;
   endMonth: string;
   visitSourceId: number | null;
+  staffId: number | null;
   visitSources: Array<{ id: number; name: string }>;
+  staffs: Array<{ id: number; name: string }>;
   monthOptions: string[]; // ['2025-10', '2025-11', ...]
 }
 
@@ -19,7 +22,9 @@ export function MarketingFilters({
   startMonth,
   endMonth,
   visitSourceId,
+  staffId,
   visitSources,
+  staffs,
   monthOptions,
 }: MarketingFiltersProps) {
   const router = useRouter();
@@ -39,7 +44,7 @@ export function MarketingFilters({
   );
 
   return (
-    <div className="flex flex-wrap items-end gap-4 rounded-lg border bg-white p-4 shadow-sm">
+    <div className="sticky top-0 z-10 flex flex-wrap items-end gap-4 rounded-lg border bg-white/95 p-4 shadow-sm backdrop-blur">
       <div className="space-y-1">
         <label className="text-xs font-medium text-gray-500">期間</label>
         <div className="flex items-center gap-2">
@@ -83,9 +88,24 @@ export function MarketingFilters({
           ))}
         </select>
       </div>
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-gray-500">スタッフ</label>
+        <select
+          className="h-9 min-w-[160px] rounded-md border px-3 text-sm"
+          value={staffId == null ? "" : String(staffId)}
+          onChange={(e) => updateParam("staff", e.target.value || null)}
+        >
+          <option value="">全スタッフ</option>
+          {staffs.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="ml-auto text-[11px] text-gray-400">
-        {/* Count hint e.g. "N media × M months" */}
         {visitSources.length}媒体 × {monthRangeCount(startMonth, endMonth)}ヶ月
+        {staffs.length > 0 && ` × ${staffs.length}名`}
       </div>
     </div>
   );
