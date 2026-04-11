@@ -431,6 +431,51 @@ export function WeeklyReservationCalendar({
 
                   const isDragging = isDraggingReal && dragAppt?.id === appt.id;
 
+                  // Slot block (meeting / other / break / custom) renders
+                  // with the master palette color instead of the customer
+                  // card. Handled as an early return below.
+                  const isSlotBlock = !!appt.slotBlock;
+                  if (isSlotBlock && appt.slotBlock) {
+                    const sb = appt.slotBlock;
+                    const blockColor = sb.color ?? "#9333ea";
+                    const subText =
+                      sb.code === "other"
+                        ? appt.otherLabel || appt.customerRecord || ""
+                        : appt.memo || appt.customerRecord || "";
+                    return (
+                      <div
+                        key={appt.id}
+                        data-appt={appt.id}
+                        className="absolute left-1.5 right-1.5 cursor-pointer select-none overflow-hidden rounded-md border-l-4 bg-white px-2 py-1.5 shadow-sm transition-shadow hover:shadow-md"
+                        style={{
+                          top: isDragging ? dragTop : top,
+                          height,
+                          zIndex: isDragging ? 50 : 5,
+                          borderLeftColor: blockColor,
+                          backgroundColor: `${blockColor}12`,
+                        }}
+                        onMouseDown={(e) => handleDragStart(appt, e)}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span
+                            className="rounded px-1 py-0 text-[9px] font-bold"
+                            style={{
+                              backgroundColor: blockColor,
+                              color: sb.labelTextColor ?? "#ffffff",
+                            }}
+                          >
+                            {sb.label}
+                          </span>
+                        </div>
+                        {subText && (
+                          <div className="mt-0.5 truncate text-[10px] text-gray-700">
+                            {subText}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
                   // Colors based on customer type + status
                   const isNew = appt.isNewCustomer || appt.visitCount <= 1;
                   const isPast = appt.status === 2;

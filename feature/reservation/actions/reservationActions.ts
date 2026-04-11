@@ -293,10 +293,18 @@ export async function createAppointment(formData: FormData) {
     insertRow.menu_manage_id = isSlotBlock
       ? apptType === 1
         ? "SYS-MEETING"
-        : "SYS-OTHER"
+        : apptType === 2
+          ? "SYS-OTHER"
+          : "SYS-BREAK"
       : "";
   }
   if (!parsed.data.other_label) delete insertRow.other_label;
+  // Pass-through slot_block_type_code so the calendar can look up the
+  // master palette when rendering. Only present when the UI explicitly
+  // sent it (slot-block bookings).
+  if (raw.slot_block_type_code) {
+    insertRow.slot_block_type_code = raw.slot_block_type_code;
+  }
 
   const { error } = await supabase.from("appointments").insert(insertRow);
 
@@ -329,6 +337,13 @@ export async function updateAppointment(id: number, formData: FormData) {
     updateData.additional_charge = Number(raw.additional_charge);
   if (raw.is_member_join !== undefined)
     updateData.is_member_join = raw.is_member_join === "true";
+  // Slot block editing: let the user swap between meeting / other /
+  // break and change the free-form title on an existing row.
+  if (raw.type !== undefined) updateData.type = Number(raw.type);
+  if (raw.slot_block_type_code !== undefined)
+    updateData.slot_block_type_code = raw.slot_block_type_code || null;
+  if (raw.other_label !== undefined)
+    updateData.other_label = raw.other_label || null;
 
   // If time or staff changed, verify no overlap
   if (updateData.staff_id || updateData.start_at || updateData.end_at) {

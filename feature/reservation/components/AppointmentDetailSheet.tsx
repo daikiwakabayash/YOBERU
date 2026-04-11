@@ -113,15 +113,40 @@ export function AppointmentDetailSheet({
 }: AppointmentDetailSheetProps) {
   const isNew = !appointment;
 
-  // ---- Booking mode (new booking only) ------------------------------
+  // ---- Existing slot-block detection --------------------------------
+  // If we're opening an existing appointment and the calendar service
+  // flagged it as a slot block (meeting / other / break / custom), we
+  // skip the customer detail flow entirely and render the slot-block
+  // editor instead — even though the row already exists.
+  const existingSlotBlockCode = appointment?.slotBlock?.code ?? null;
+  const isExistingSlotBlock = !!existingSlotBlockCode;
+
+  // ---- Booking mode --------------------------------------------------
   // "regular"  = 通常予約 (default; existing flow)
   // "meeting"  = スタッフ MTG 等、枠だけ抑える
   // "other"    = その他、タイトルと時間を自由入力して枠を抑える
-  const [bookingMode, setBookingMode] = useState<
-    "regular" | "meeting" | "other"
-  >("regular");
-  const [slotBlockDuration, setSlotBlockDuration] = useState<number>(30);
-  const [otherLabel, setOtherLabel] = useState("");
+  // "break"    = 休憩
+  //
+  // Defaults to whatever the existing appointment is (so clicking a
+  // meeting on the calendar re-opens the meeting editor), otherwise
+  // "regular" for brand-new bookings.
+  type BookingMode = "regular" | "meeting" | "other" | "break";
+  const [bookingMode, setBookingMode] = useState<BookingMode>(() => {
+    if (existingSlotBlockCode === "meeting") return "meeting";
+    if (existingSlotBlockCode === "other") return "other";
+    if (existingSlotBlockCode === "break") return "break";
+    return "regular";
+  });
+  const [slotBlockDuration, setSlotBlockDuration] = useState<number>(() => {
+    if (appointment) {
+      const startMin = timeToMinutes(appointment.startAt.slice(11, 16));
+      const endMin = timeToMinutes(appointment.endAt.slice(11, 16));
+      const dur = endMin - startMin;
+      return dur > 0 ? dur : 30;
+    }
+    return 30;
+  });
+  const [otherLabel, setOtherLabel] = useState(appointment?.otherLabel ?? "");
   const isSlotBlockMode = bookingMode !== "regular";
 
   // Fallback to built-in list if master data not provided
@@ -170,10 +195,16 @@ export function AppointmentDetailSheet({
     return [];
   });
 
-  // ---- Carte ----
-  const [customerRecord, setCustomerRecord] = useState(
-    appointment?.customerRecord ?? ""
-  );
+  // ---- Carte / slot block memo ----
+  // For regular appointments this is the カルテ text (customer_record
+  // column). For slot blocks (meeting / other / break) we store the
+  // note in the memo column instead — so initialize from whichever
+  // field has content, favoring memo for slot blocks.
+  const [customerRecord, setCustomerRecord] = useState(() => {
+    if (!appointment) return "";
+    if (appointment.slotBlock) return appointment.memo ?? "";
+    return appointment.customerRecord ?? "";
+  });
 
   // ---- Membership (marketing 入会率計算の分子) ----
   const [isMemberJoin, setIsMemberJoin] = useState(
@@ -586,13 +617,57 @@ export function AppointmentDetailSheet({
   // `type != 0` to exclude them.
   // -----------------------------------------------------------------------
   async function handleSaveSlotBlock() {
-    if (!newBooking) return;
     if (bookingMode === "other" && !otherLabel.trim()) {
       toast.error("内容を入力してください");
       return;
     }
+    // Map the current bookingMode to a (type, code) pair. type !== 0
+    // flags the row as a slot block so aggregation services exclude
+    // it; code drives the label + color via slot_block_types.
+    const slotBlockTypeNum =
+      bookingMode === "meeting" ? 1 : bookingMode === "other" ? 2 : 3;
+    const slotBlockCode = bookingMode;
+
     setSaving(true);
     try {
+      if (appointment && isExistingSlotBlock) {
+        // ----- UPDATE existing slot block -----
+        // Reuse the appointment's date, shift the end time if the user
+        // changed the duration chip.
+        const date = appointment.startAt.slice(0, 10);
+        const startTime = appointment.startAt.slice(11, 16);
+        const endTime = minutesToTime(
+          timeToMinutes(startTime) + slotBlockDuration
+        );
+        const form = new FormData();
+        form.set("start_at", `${date}T${startTime}:00`);
+        form.set("end_at", `${date}T${endTime}:00`);
+        form.set("memo", customerRecord);
+        if (bookingMode === "other") {
+          form.set("other_label", otherLabel.trim());
+        } else {
+          form.set("other_label", "");
+        }
+        form.set("type", String(slotBlockTypeNum));
+        form.set("slot_block_type_code", slotBlockCode);
+
+        const result = await updateAppointment(appointment.id, form);
+        if ("error" in result && result.error) {
+          toast.error(
+            typeof result.error === "string"
+              ? result.error
+              : "更新に失敗しました"
+          );
+          setSaving(false);
+          return;
+        }
+        toast.success("予定を更新しました");
+        onClose();
+        return;
+      }
+
+      // ----- CREATE new slot block -----
+      if (!newBooking) return;
       const startAt = `${newBooking.date}T${newBooking.time}:00`;
       const endTime = minutesToTime(
         timeToMinutes(newBooking.time) + slotBlockDuration
@@ -603,9 +678,11 @@ export function AppointmentDetailSheet({
       form.set("brand_id", String(brandId));
       form.set("shop_id", String(shopId));
       form.set("staff_id", String(newBooking.staffId));
-      // customer_id intentionally omitted — the schema treats missing
-      // customer as null when type is 1 or 2.
-      form.set("type", bookingMode === "meeting" ? "1" : "2");
+      // customer_id intentionally omitted — the server action attaches
+      // a per-shop system placeholder customer so the legacy NOT NULL
+      // constraint on appointments.customer_id is satisfied.
+      form.set("type", String(slotBlockTypeNum));
+      form.set("slot_block_type_code", slotBlockCode);
       form.set("start_at", startAt);
       form.set("end_at", endAt);
       form.set("status", "0");
@@ -629,8 +706,37 @@ export function AppointmentDetailSheet({
       toast.success(
         bookingMode === "meeting"
           ? "ミーティングを登録しました"
-          : "予定を登録しました"
+          : bookingMode === "break"
+            ? "休憩を登録しました"
+            : "予定を登録しました"
       );
+      onClose();
+    } catch {
+      toast.error("エラーが発生しました");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteSlotBlock() {
+    if (!appointment) return;
+    if (!confirm("この予定を削除しますか？")) return;
+    setSaving(true);
+    try {
+      const { deleteAppointment } = await import(
+        "../actions/reservationActions"
+      );
+      const result = await deleteAppointment(appointment.id);
+      if ("error" in result && result.error) {
+        toast.error(
+          typeof result.error === "string"
+            ? result.error
+            : "削除に失敗しました"
+        );
+        setSaving(false);
+        return;
+      }
+      toast.success("予定を削除しました");
       onClose();
     } catch {
       toast.error("エラーが発生しました");
@@ -815,25 +921,28 @@ export function AppointmentDetailSheet({
     const t = code.replace(/^0+/, "");
     return t.length > 0 ? t : "0";
   }
-  const rightPanelCustomer = appointment
-    ? {
-        id: appointment.customerId,
-        name: appointment.customerName,
-        code: stripZeros(appointment.customerCode),
-        phone: appointment.customerPhone,
-        visitCount: appointment.visitCount,
-      }
-    : selectedCustomer
+  // Slot-block appointments never get the patient dossier (there is
+  // no real customer behind them — just a system placeholder row).
+  const rightPanelCustomer =
+    appointment && !isExistingSlotBlock
       ? {
-          id: selectedCustomer.id,
-          name: `${selectedCustomer.last_name ?? ""} ${
-            selectedCustomer.first_name ?? ""
-          }`.trim() || "-",
-          code: stripZeros(selectedCustomer.code),
-          phone: selectedCustomer.phone_number_1 ?? null,
-          visitCount: null as number | null,
+          id: appointment.customerId,
+          name: appointment.customerName,
+          code: stripZeros(appointment.customerCode),
+          phone: appointment.customerPhone,
+          visitCount: appointment.visitCount,
         }
-      : null;
+      : !appointment && selectedCustomer
+        ? {
+            id: selectedCustomer.id,
+            name: `${selectedCustomer.last_name ?? ""} ${
+              selectedCustomer.first_name ?? ""
+            }`.trim() || "-",
+            code: stripZeros(selectedCustomer.code),
+            phone: selectedCustomer.phone_number_1 ?? null,
+            visitCount: null as number | null,
+          }
+        : null;
 
   // Expanded = right patient-info panel is shown. We animate the sheet
   // width between two sizes:
@@ -868,6 +977,23 @@ export function AppointmentDetailSheet({
             <SheetTitle className="text-base font-bold">
               {isNew ? (
                 "新規予約"
+              ) : isExistingSlotBlock && appointment?.slotBlock ? (
+                <span className="flex items-center gap-2 text-sm">
+                  <span
+                    className="rounded px-2 py-0.5 text-xs font-bold"
+                    style={{
+                      backgroundColor:
+                        appointment.slotBlock.color ?? "#9333ea",
+                      color:
+                        appointment.slotBlock.labelTextColor ?? "#ffffff",
+                    }}
+                  >
+                    {appointment.slotBlock.label}
+                  </span>
+                  <span className="font-medium text-gray-500">
+                    {startTime}〜
+                  </span>
+                </span>
               ) : (
                 <span className="flex items-center gap-2 text-sm">
                   <Link
@@ -937,27 +1063,32 @@ export function AppointmentDetailSheet({
             </div>
           )}
 
-          {/* ===== Mode switcher (new booking + master-config on) =====
-              Lets staff create a slot-block (ミーティング / その他) in
-              addition to a normal treatment appointment. Hidden entirely
-              when the shop setting is off. */}
-          {isNew && enableMeetingBooking && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setBookingMode("regular")}
-                className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
-                  bookingMode === "regular"
-                    ? "border-orange-400 bg-orange-50 text-orange-700"
-                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                新規予約を作成
-              </button>
+          {/* ===== Mode switcher =====
+              New bookings: pick between 通常予約 / ミーティング / 休憩 /
+              その他. Existing slot-block appointments: disable the
+              regular tab and let staff flip between slot-block modes
+              only (so accidentally switching to "regular" can't wipe
+              the meeting they're editing).
+              Hidden entirely when the shop master toggle is off. */}
+          {(isNew || isExistingSlotBlock) && enableMeetingBooking && (
+            <div className="flex flex-wrap gap-2">
+              {!isExistingSlotBlock && (
+                <button
+                  type="button"
+                  onClick={() => setBookingMode("regular")}
+                  className={`min-w-[100px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                    bookingMode === "regular"
+                      ? "border-orange-400 bg-orange-50 text-orange-700"
+                      : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+                  }`}
+                >
+                  新規予約を作成
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setBookingMode("meeting")}
-                className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                className={`min-w-[90px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
                   bookingMode === "meeting"
                     ? "border-purple-400 bg-purple-50 text-purple-700"
                     : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
@@ -967,8 +1098,19 @@ export function AppointmentDetailSheet({
               </button>
               <button
                 type="button"
+                onClick={() => setBookingMode("break")}
+                className={`min-w-[80px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                  bookingMode === "break"
+                    ? "border-amber-400 bg-amber-50 text-amber-700"
+                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+                }`}
+              >
+                休憩
+              </button>
+              <button
+                type="button"
                 onClick={() => setBookingMode("other")}
-                className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                className={`min-w-[80px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
                   bookingMode === "other"
                     ? "border-sky-400 bg-sky-50 text-sky-700"
                     : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
@@ -979,11 +1121,17 @@ export function AppointmentDetailSheet({
             </div>
           )}
 
-          {/* ===== Slot-block form (meeting / other) ===== */}
-          {isNew && isSlotBlockMode && (
+          {/* ===== Slot-block form (meeting / other / break) =====
+              Shown for new bookings in slot-block mode AND for
+              existing slot-block appointments (edit mode). */}
+          {(isNew || isExistingSlotBlock) && isSlotBlockMode && (
             <section className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
               <div className="text-[11px] font-bold text-gray-500">
-                {bookingMode === "meeting" ? "ミーティング内容" : "内容"}
+                {bookingMode === "meeting"
+                  ? "ミーティング内容"
+                  : bookingMode === "break"
+                    ? "休憩メモ"
+                    : "内容"}
               </div>
               {bookingMode === "other" && (
                 <Input
@@ -1032,15 +1180,30 @@ export function AppointmentDetailSheet({
               >
                 {saving
                   ? "保存中..."
-                  : bookingMode === "meeting"
-                    ? "ミーティングを登録"
-                    : "予定を登録"}
+                  : isExistingSlotBlock
+                    ? "予定を更新"
+                    : bookingMode === "meeting"
+                      ? "ミーティングを登録"
+                      : bookingMode === "break"
+                        ? "休憩を登録"
+                        : "予定を登録"}
               </Button>
+              {isExistingSlotBlock && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full border-2 border-red-400 text-red-600 hover:bg-red-50"
+                  onClick={handleDeleteSlotBlock}
+                  disabled={saving}
+                >
+                  この予定を削除
+                </Button>
+              )}
             </section>
           )}
 
           {/* ===== Regular booking form (hidden in slot-block mode) ===== */}
-          {!(isNew && isSlotBlockMode) && (
+          {!isSlotBlockMode && !isExistingSlotBlock && (
           <>
           {/* ===== Section: Customer (new booking only) ===== */}
           {isNew && !selectedCustomer && !isCreatingCustomer && (

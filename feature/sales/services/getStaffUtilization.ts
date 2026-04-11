@@ -111,10 +111,12 @@ export async function getDailyStaffUtilization(
     // Exclude cancelled / no-show; everything else (waiting, in-progress,
     // completed) counts as "枠に予約が入ってる" 稼働時間.
     if (a.status === 3 || a.status === 4 || a.status === 99) continue;
-    // Meeting / その他 (type 1/2) block the slot but do NOT count
-    // toward utilization — per spec ("ミーティングと『その他』の入力
-    // 分については稼働率のカウントには含めない").
-    if (a.type === 1 || a.type === 2) continue;
+    // Any non-zero type is a slot block (meeting / break / other /
+    // user-defined). They block the slot but do NOT count toward
+    // utilization per spec. Keeping this as a single `type !== 0`
+    // rule automatically handles future custom types added via the
+    // slot_block_types master.
+    if (a.type !== 0) continue;
     const sMin = parseHHMM(a.start_at?.slice(11, 16));
     const eMin = parseHHMM(a.end_at?.slice(11, 16));
     if (sMin == null || eMin == null) continue;
@@ -252,9 +254,8 @@ export async function getRangeStaffUtilization(
     // Exclude cancelled / no-show; everything else (waiting, in-progress,
     // completed) counts as "枠に予約が入ってる" 稼働時間.
     if (a.status === 3 || a.status === 4 || a.status === 99) continue;
-    // Meeting / その他 are slot blockers that don't count toward
-    // utilization. See getDailyStaffUtilization for the rationale.
-    if (a.type === 1 || a.type === 2) continue;
+    // Any non-zero type is a slot block. Excluded from utilization.
+    if (a.type !== 0) continue;
     const sMin = parseHHMM(a.start_at?.slice(11, 16));
     const eMin = parseHHMM(a.end_at?.slice(11, 16));
     if (sMin == null || eMin == null) continue;
