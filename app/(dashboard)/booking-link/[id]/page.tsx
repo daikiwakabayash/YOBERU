@@ -3,9 +3,10 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { BookingLinkForm } from "@/feature/booking-link/components/BookingLinkForm";
 import { getBookingLinkById } from "@/feature/booking-link/services/getBookingLinks";
 import { createClient } from "@/helper/lib/supabase/server";
-
-const SHOP_ID = 1;
-const BRAND_ID = 1;
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,9 @@ export default async function BookingLinkEditPage({
   const linkId = Number(id);
   if (isNaN(linkId)) notFound();
 
+  const shopId = await getActiveShopId();
+  const brandId = await getActiveBrandId();
+
   const link = await getBookingLinkById(linkId);
   if (!link) notFound();
 
@@ -48,8 +52,8 @@ export default async function BookingLinkEditPage({
       supabase
         .from("menus")
         .select("menu_manage_id, name, price, duration, category_id")
-        .eq("brand_id", BRAND_ID)
-        .or(`shop_id.is.null,shop_id.eq.${SHOP_ID}`)
+        .eq("brand_id", brandId)
+        .or(`shop_id.is.null,shop_id.eq.${shopId}`)
         .is("deleted_at", null)
         .order("sort_number")
     ),
@@ -57,7 +61,7 @@ export default async function BookingLinkEditPage({
       supabase
         .from("visit_sources")
         .select("id, name")
-        .eq("shop_id", SHOP_ID)
+        .eq("shop_id", shopId)
         .eq("is_active", true)
         .is("deleted_at", null)
         .order("sort_number")
@@ -66,8 +70,8 @@ export default async function BookingLinkEditPage({
       supabase
         .from("menu_categories")
         .select("id, name")
-        .eq("brand_id", BRAND_ID)
-        .or(`shop_id.is.null,shop_id.eq.${SHOP_ID}`)
+        .eq("brand_id", brandId)
+        .or(`shop_id.is.null,shop_id.eq.${shopId}`)
         .is("deleted_at", null)
         .order("sort_number")
     ),
@@ -90,7 +94,7 @@ export default async function BookingLinkEditPage({
       <PageHeader title="強制リンク編集" description={link.title} />
       <div className="p-6">
         <BookingLinkForm
-          brandId={BRAND_ID}
+          brandId={brandId}
           menus={menus}
           visitSources={sourceData}
           initialData={link}

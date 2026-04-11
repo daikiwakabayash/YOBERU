@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 import { StaffList } from "@/feature/staff/components/StaffList";
 import { getStaffs } from "@/feature/staff/services/getStaffs";
 import { Plus } from "lucide-react";
+import { getActiveShopId } from "@/helper/lib/shop-context";
 
-// TODO: shopId should come from session/context. Using 1 as placeholder.
-const SHOP_ID = 1;
+export const dynamic = "force-dynamic";
 
 export default async function StaffListPage() {
+  const shopId = await getActiveShopId();
   let staffs: Awaited<ReturnType<typeof getStaffs>> = [];
   try {
-    staffs = await getStaffs(SHOP_ID);
+    staffs = await getStaffs(shopId);
   } catch {
     // If fetching fails (e.g., no shop selected), show empty list
   }

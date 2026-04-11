@@ -4,6 +4,9 @@ import { getStore } from "@/feature/store/services/getStores";
 import { DeleteStoreButton } from "@/feature/store/components/DeleteStoreButton";
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { createClient } from "@/helper/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
 
 interface StoreDetailPageProps {
   params: Promise<{ storeId: string }>;
@@ -20,6 +23,20 @@ export default async function StoreDetailPage({ params }: StoreDetailPageProps) 
     store = await getStore(id);
   } catch {
     notFound();
+  }
+
+  // Load areas for the edit form selector
+  const supabase = await createClient();
+  let areas: Array<{ id: number; name: string }> = [];
+  try {
+    const { data } = await supabase
+      .from("areas")
+      .select("id, name")
+      .eq("brand_id", store.brand_id)
+      .order("sort_number");
+    areas = data ?? [];
+  } catch {
+    areas = [];
   }
 
   const initialData = {
@@ -103,8 +120,8 @@ export default async function StoreDetailPage({ params }: StoreDetailPageProps) 
           <StoreForm
             initialData={initialData}
             brandId={store.brand_id}
-            areaId={store.area_id}
             userId={store.user_id}
+            areas={areas}
           />
         </div>
       </div>

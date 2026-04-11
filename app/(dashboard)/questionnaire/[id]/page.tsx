@@ -2,9 +2,10 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { QuestionnaireForm } from "@/feature/questionnaire/components/QuestionnaireForm";
 import { getQuestionnaireById } from "@/feature/questionnaire/services/getQuestionnaires";
-
-const BRAND_ID = 1;
-const SHOP_ID = 1;
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,9 @@ export default async function QuestionnaireEditPage({
   const numId = Number(id);
   if (isNaN(numId)) notFound();
 
+  const brandId = await getActiveBrandId();
+  const shopId = await getActiveShopId();
+
   const questionnaire = await getQuestionnaireById(numId);
   if (!questionnaire) notFound();
 
@@ -30,8 +34,8 @@ export default async function QuestionnaireEditPage({
       />
       <div className="p-6">
         <QuestionnaireForm
-          brandId={BRAND_ID}
-          shopId={SHOP_ID}
+          brandId={brandId}
+          shopId={shopId}
           initialData={questionnaire}
         />
       </div>

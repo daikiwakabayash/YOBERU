@@ -8,16 +8,20 @@ import { getWorkPatterns } from "@/feature/shift/services/getWorkPatterns";
 import { getWeekDates } from "@/helper/utils/weekday";
 import { ArrowLeft } from "lucide-react";
 import type { ShiftEntry } from "@/feature/shift/components/ShiftScheduleGrid";
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
-// TODO: brandId/shopId should come from session/context. Using 1 as placeholder.
-const BRAND_ID = 1;
-const SHOP_ID = 1;
+export const dynamic = "force-dynamic";
 
 interface Props {
   searchParams: Promise<{ week?: string }>;
 }
 
 export default async function ShiftScheduleEditPage({ searchParams }: Props) {
+  const shopId = await getActiveShopId();
+  const brandId = await getActiveBrandId();
   const params = await searchParams;
 
   // Determine the week start (Monday)
@@ -43,10 +47,10 @@ export default async function ShiftScheduleEditPage({ searchParams }: Props) {
   const staffSet = new Map<number, { id: number; name: string }>();
 
   try {
-    workPatterns = await getWorkPatterns(SHOP_ID);
+    workPatterns = await getWorkPatterns(shopId);
 
     const allDayShifts = await Promise.all(
-      dateStrings.map((date) => getEffectiveShifts(SHOP_ID, date))
+      dateStrings.map((date) => getEffectiveShifts(shopId, date))
     );
 
     for (let i = 0; i < dateStrings.length; i++) {
@@ -98,8 +102,8 @@ export default async function ShiftScheduleEditPage({ searchParams }: Props) {
           dates={dateStrings}
           workPatterns={workPatterns}
           existingShifts={shiftsMap}
-          brandId={BRAND_ID}
-          shopId={SHOP_ID}
+          brandId={brandId}
+          shopId={shopId}
         />
       </div>
     </div>

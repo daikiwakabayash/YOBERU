@@ -3,13 +3,17 @@ import { PaymentMethodList } from "@/feature/payment-method/components/PaymentMe
 import { getPaymentMethods } from "@/feature/payment-method/services/getPaymentMethods";
 import { SetupRequiredNotice } from "@/feature/booking-link/components/SetupRequiredNotice";
 import { createClient } from "@/helper/lib/supabase/server";
-
-const SHOP_ID = 1;
-const BRAND_ID = 1;
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function PaymentMethodPage() {
+  const shopId = await getActiveShopId();
+  const brandId = await getActiveBrandId();
+
   // Check if table exists by doing a probe query
   const supabase = await createClient();
   let setupRequired = false;
@@ -47,7 +51,7 @@ export default async function PaymentMethodPage() {
     );
   }
 
-  const methods = await getPaymentMethods(SHOP_ID);
+  const methods = await getPaymentMethods(shopId);
 
   return (
     <div>
@@ -56,7 +60,7 @@ export default async function PaymentMethodPage() {
         description="予約時の支払方法ボタンに表示される選択肢を管理します"
       />
       <div className="p-6">
-        <PaymentMethodList methods={methods} shopId={SHOP_ID} brandId={BRAND_ID} />
+        <PaymentMethodList methods={methods} shopId={shopId} brandId={brandId} />
       </div>
     </div>
   );

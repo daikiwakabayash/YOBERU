@@ -2,13 +2,13 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { QuestionnaireList } from "@/feature/questionnaire/components/QuestionnaireList";
 import { getQuestionnaires } from "@/feature/questionnaire/services/getQuestionnaires";
 import { SetupRequiredNotice } from "@/feature/booking-link/components/SetupRequiredNotice";
-
-const BRAND_ID = 1;
+import { getActiveBrandId } from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function QuestionnairePage() {
-  const { data, setupRequired } = await getQuestionnaires(BRAND_ID);
+  const brandId = await getActiveBrandId();
+  const { data, setupRequired } = await getQuestionnaires(brandId);
 
   return (
     <div>

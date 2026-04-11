@@ -3,6 +3,12 @@ import { ReservationRegisterForm } from "@/feature/reservation/components/Reserv
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
+
+export const dynamic = "force-dynamic";
 
 export default async function ReservationRegisterPage({
   searchParams,
@@ -10,8 +16,8 @@ export default async function ReservationRegisterPage({
   searchParams: Promise<{ staffId?: string; date?: string; time?: string }>;
 }) {
   const params = await searchParams;
-  const BRAND_ID = 1;
-  const SHOP_ID = 1;
+  const brandId = await getActiveBrandId();
+  const shopId = await getActiveShopId();
 
   return (
     <div>
@@ -28,8 +34,8 @@ export default async function ReservationRegisterPage({
       />
       <div className="max-w-2xl p-6">
         <ReservationRegisterForm
-          brandId={BRAND_ID}
-          shopId={SHOP_ID}
+          brandId={brandId}
+          shopId={shopId}
           frameMin={15}
           menus={[]}
           initialStaffId={params.staffId ? Number(params.staffId) : undefined}

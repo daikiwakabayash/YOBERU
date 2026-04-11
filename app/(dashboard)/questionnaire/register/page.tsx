@@ -1,15 +1,20 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { QuestionnaireForm } from "@/feature/questionnaire/components/QuestionnaireForm";
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
-const BRAND_ID = 1;
-const SHOP_ID = 1;
+export const dynamic = "force-dynamic";
 
-export default function QuestionnaireRegisterPage() {
+export default async function QuestionnaireRegisterPage() {
+  const brandId = await getActiveBrandId();
+  const shopId = await getActiveShopId();
   return (
     <div>
       <PageHeader title="問診票作成" description="新しい問診票を作成" />
       <div className="p-6">
-        <QuestionnaireForm brandId={BRAND_ID} shopId={SHOP_ID} />
+        <QuestionnaireForm brandId={brandId} shopId={shopId} />
       </div>
     </div>
   );

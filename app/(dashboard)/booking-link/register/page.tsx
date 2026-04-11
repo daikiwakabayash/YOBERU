@@ -1,9 +1,10 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { BookingLinkForm } from "@/feature/booking-link/components/BookingLinkForm";
 import { createClient } from "@/helper/lib/supabase/server";
-
-const SHOP_ID = 1;
-const BRAND_ID = 1;
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,8 @@ async function safeQuery<T>(
 }
 
 export default async function BookingLinkRegisterPage() {
+  const shopId = await getActiveShopId();
+  const brandId = await getActiveBrandId();
   const supabase = await createClient();
 
   const [menuData, sourceData, categoryData] = await Promise.all([
@@ -33,8 +36,8 @@ export default async function BookingLinkRegisterPage() {
       supabase
         .from("menus")
         .select("menu_manage_id, name, price, duration, category_id")
-        .eq("brand_id", BRAND_ID)
-        .or(`shop_id.is.null,shop_id.eq.${SHOP_ID}`)
+        .eq("brand_id", brandId)
+        .or(`shop_id.is.null,shop_id.eq.${shopId}`)
         .is("deleted_at", null)
         .order("sort_number")
     ),
@@ -42,7 +45,7 @@ export default async function BookingLinkRegisterPage() {
       supabase
         .from("visit_sources")
         .select("id, name")
-        .eq("shop_id", SHOP_ID)
+        .eq("shop_id", shopId)
         .eq("is_active", true)
         .is("deleted_at", null)
         .order("sort_number")
@@ -51,8 +54,8 @@ export default async function BookingLinkRegisterPage() {
       supabase
         .from("menu_categories")
         .select("id, name")
-        .eq("brand_id", BRAND_ID)
-        .or(`shop_id.is.null,shop_id.eq.${SHOP_ID}`)
+        .eq("brand_id", brandId)
+        .or(`shop_id.is.null,shop_id.eq.${shopId}`)
         .is("deleted_at", null)
         .order("sort_number")
     ),
@@ -74,7 +77,7 @@ export default async function BookingLinkRegisterPage() {
     <div>
       <PageHeader title="強制リンク作成" description="新規予約リンクを発行" />
       <div className="p-6">
-        <BookingLinkForm brandId={BRAND_ID} menus={menus} visitSources={sourceData} />
+        <BookingLinkForm brandId={brandId} menus={menus} visitSources={sourceData} />
       </div>
     </div>
   );
