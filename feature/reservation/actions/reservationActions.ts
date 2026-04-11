@@ -5,6 +5,63 @@ import { appointmentSchema } from "../schema/reservation.schema";
 import { revalidatePath } from "next/cache";
 
 /**
+ * Ensure a 1-per-shop "system placeholder" customer row exists so that
+ * ミーティング / その他 (slot-block) appointments can satisfy the legacy
+ * `appointments.customer_id NOT NULL` constraint on deployments where
+ * migration 00011 has not been applied yet.
+ *
+ * The placeholder is invisible to staff: it has a reserved `code` of
+ * `SYS-BLOCK-<shopId>` and a recognisable Japanese name. Slot-block
+ * aggregation code filters on `type != 0` so this row never appears
+ * in sales / marketing / utilization figures.
+ *
+ * Returns the customer id, or throws on failure — callers should
+ * surface the error back to the UI.
+ */
+async function getOrCreateSystemBlockCustomer(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  brandId: number,
+  shopId: number
+): Promise<number> {
+  const sysCode = `SYS-BLOCK-${shopId}`;
+
+  // 1. Existing?
+  const { data: existing } = await supabase
+    .from("customers")
+    .select("id")
+    .eq("shop_id", shopId)
+    .eq("code", sysCode)
+    .maybeSingle();
+  if (existing?.id) return existing.id as number;
+
+  // 2. Create it. Leave optional fields empty but fill the NOT NULL
+  //    / DEFAULT columns from the initial schema. We use `.select("id")`
+  //    on the insert so we get the new id back in one round-trip.
+  const { data: created, error } = await supabase
+    .from("customers")
+    .insert({
+      brand_id: brandId,
+      shop_id: shopId,
+      code: sysCode,
+      type: 0,
+      last_name: "（ブロック）",
+      first_name: "",
+      phone_number_1: "00000000000",
+      zip_code: "0000000",
+      gender: 0,
+    })
+    .select("id")
+    .single();
+
+  if (error || !created) {
+    throw new Error(
+      `Failed to create system block customer: ${error?.message ?? "unknown"}`
+    );
+  }
+  return created.id as number;
+}
+
+/**
  * Check if a new or updated appointment would overlap an existing one
  * for the same staff. Returns the overlapping appointment (with customer
  * name) if any, or null if the slot is free.
@@ -142,18 +199,43 @@ export async function createAppointment(formData: FormData) {
   const raw = Object.fromEntries(formData.entries());
 
   // type 0 = 通常予約, type 1 = ミーティング, type 2 = その他.
-  // Meeting / other bookings are slot-block entries without a customer
-  // — we coerce customer_id to null (not zero) so the validator accepts
-  // them via the .nullable() clause.
+  // Meeting / other bookings are slot-block entries. They don't belong
+  // to a real customer, but the legacy `customer_id NOT NULL` constraint
+  // on appointments (pre-migration 00011) would still reject a null —
+  // so we transparently attach a per-shop "system placeholder" customer
+  // before inserting. Aggregation services filter on type != 0 so the
+  // placeholder never shows up in sales / marketing / utilization.
   const apptType = Number(raw.type || 0);
   const isSlotBlock = apptType === 1 || apptType === 2;
 
+  const brandId = Number(raw.brand_id);
+  const shopId = Number(raw.shop_id);
+
+  let effectiveCustomerId: number | null = raw.customer_id
+    ? Number(raw.customer_id)
+    : null;
+  if (isSlotBlock) {
+    try {
+      effectiveCustomerId = await getOrCreateSystemBlockCustomer(
+        supabase,
+        brandId,
+        shopId
+      );
+    } catch (e) {
+      return {
+        error:
+          e instanceof Error
+            ? e.message
+            : "システム顧客の作成に失敗しました",
+      };
+    }
+  }
+
   const parsed = appointmentSchema.safeParse({
     ...raw,
-    brand_id: Number(raw.brand_id),
-    shop_id: Number(raw.shop_id),
-    customer_id:
-      isSlotBlock || !raw.customer_id ? null : Number(raw.customer_id),
+    brand_id: brandId,
+    shop_id: shopId,
+    customer_id: effectiveCustomerId,
     staff_id: Number(raw.staff_id),
     type: apptType,
     is_couple: raw.is_couple === "true",

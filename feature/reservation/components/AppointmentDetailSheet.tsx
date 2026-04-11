@@ -797,18 +797,23 @@ export function AppointmentDetailSheet({
 
   // Expanded = right patient-info panel is shown. We animate the sheet
   // width between two sizes:
-  //   - No customer attached  → narrow (~420px) so the calendar behind
-  //                              remains visible
-  //   - Customer attached     → full viewport width, so the patient DB
-  //                              panel can occupy the remaining 2/3
+  //   - No customer attached  → narrow (~420px) docked on the left so
+  //                              the calendar behind remains visible
+  //   - Customer attached     → full viewport width, left 420px is the
+  //                              form, right flex-1 is the patient DB
   // `transition-[max-width]` smooths the switch; Radix Sheet preserves
   // scroll position through the width change.
+  //
+  // NOTE: side="left" — per product direction the new-reservation
+  // panel slides in from the left so it sits over the sidebar. When
+  // expanded, the sheet stretches across the full viewport so the
+  // right side can serve as a full-screen patient dashboard.
   const expanded = !!rightPanelCustomer;
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent
-        side="right"
+        side="left"
         className={`overflow-hidden p-0 transition-[max-width] duration-300 ease-out ${
           expanded
             ? "w-screen sm:max-w-none"
