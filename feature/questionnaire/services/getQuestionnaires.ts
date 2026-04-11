@@ -2,6 +2,7 @@
 
 import { createClient } from "@/helper/lib/supabase/server";
 import type { Questionnaire, QuestionnaireResponse } from "../types";
+import { sanitizeSlug } from "../utils/slug";
 
 function isMissingTableError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -12,27 +13,6 @@ function isMissingTableError(error: unknown): boolean {
     (error as { code?: string }).code === "42P01" ||
     (error as { code?: string }).code === "PGRST205"
   );
-}
-
-/**
- * Normalize a slug to URL-safe form:
- *  - trim whitespace
- *  - lowercase
- *  - replace spaces / underscores with hyphens
- *  - remove characters that aren't a-z, 0-9, ., _, -
- *
- * Used both on save (in the create/update actions) and on lookup
- * (as a fallback) so an accidentally-spaced slug like "test ebis"
- * still resolves to the stored "test-ebis" row.
- */
-export async function sanitizeSlug(input: string): Promise<string> {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9.\-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 export async function getQuestionnaires(
@@ -122,7 +102,7 @@ export async function getQuestionnaireBySlug(
   }
 
   // 3. Sanitized match (convert requested slug to the canonical form)
-  const sanitized = await sanitizeSlug(slug);
+  const sanitized = sanitizeSlug(slug);
   if (sanitized && sanitized !== slug && sanitized !== trimmed) {
     const hit = await tryFetch(sanitized);
     if (hit) return hit;
@@ -138,7 +118,7 @@ export async function getQuestionnaireBySlug(
       .is("deleted_at", null);
     const canonical = sanitized || slug.toLowerCase().replace(/\s+/g, "-");
     for (const row of (data ?? []) as Questionnaire[]) {
-      const rowCanonical = await sanitizeSlug(row.slug ?? "");
+      const rowCanonical = sanitizeSlug(row.slug ?? "");
       if (rowCanonical && rowCanonical === canonical) {
         if (row.is_public === false) continue;
         return row;

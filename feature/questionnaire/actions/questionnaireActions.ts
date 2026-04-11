@@ -3,7 +3,7 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { Question } from "../types";
-import { sanitizeSlug } from "../services/getQuestionnaires";
+import { sanitizeSlug } from "../utils/slug";
 
 interface CreateQuestionnaireInput {
   brand_id: number;
@@ -18,7 +18,7 @@ interface CreateQuestionnaireInput {
 export async function createQuestionnaire(input: CreateQuestionnaireInput) {
   const supabase = await createClient();
   // Normalize the slug so future URLs are guaranteed to work.
-  const normalizedSlug = await sanitizeSlug(input.slug);
+  const normalizedSlug = sanitizeSlug(input.slug);
   if (!normalizedSlug) {
     return {
       error: "スラッグが空、または使用できない文字のみで構成されています。a-z, 0-9, ., -, _ を使ってください。",
@@ -56,7 +56,7 @@ export async function updateQuestionnaire(
   try {
     const update: Record<string, unknown> = {};
     if (input.slug !== undefined) {
-      const normalizedSlug = await sanitizeSlug(input.slug);
+      const normalizedSlug = sanitizeSlug(input.slug);
       if (!normalizedSlug) {
         return {
           error:
