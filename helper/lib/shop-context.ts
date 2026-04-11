@@ -21,8 +21,10 @@ import { createClient } from "./supabase/server";
  * scoped to the whole site (path: "/") and last 1 year.
  */
 
-export const ACTIVE_SHOP_COOKIE = "yoberu_active_shop_id";
-export const ACTIVE_BRAND_COOKIE = "yoberu_active_brand_id";
+// File-local constants. "use server" files may only export async functions,
+// so these must not be exported. They're only referenced inside this module.
+const ACTIVE_SHOP_COOKIE = "yoberu_active_shop_id";
+const ACTIVE_BRAND_COOKIE = "yoberu_active_brand_id";
 
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
 
