@@ -88,7 +88,8 @@ export async function getCalendarData(
     );
   }
 
-  // 4. Build staff list with shift info
+  // 4. Build staff list with shift info.
+  //    First the staff who actually have a shift today.
   const staffs = effectiveShifts.map((s) => ({
     id: s.staffId,
     name: s.staffName,
@@ -97,6 +98,37 @@ export async function getCalendarData(
     shiftEnd: s.endTime,
     shiftColor: s.abbreviationColor,
   }));
+
+  //    Then any staff who DON'T have a shift today but DO have an
+  //    appointment on this date — otherwise their appointments would be
+  //    silently dropped (the rendering layer only draws the shift staff
+  //    columns), causing "予約が消えた!" bugs and conflict errors when
+  //    you try to book the same slot.
+  const shiftStaffIds = new Set(staffs.map((s) => s.id));
+  const orphanStaffIds = Array.from(
+    new Set(
+      (appointments ?? [])
+        .map((a) => a.staff_id as number)
+        .filter((id) => id != null && !shiftStaffIds.has(id))
+    )
+  );
+  if (orphanStaffIds.length > 0) {
+    const { data: extraStaffs } = await supabase
+      .from("staffs")
+      .select("id, name")
+      .in("id", orphanStaffIds)
+      .is("deleted_at", null);
+    for (const s of extraStaffs ?? []) {
+      staffs.push({
+        id: s.id as number,
+        name: s.name as string,
+        isWorking: false,
+        shiftStart: null,
+        shiftEnd: null,
+        shiftColor: null,
+      });
+    }
+  }
 
   // 5. Build appointment list
   const calendarAppointments: CalendarAppointment[] = (

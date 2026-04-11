@@ -40,8 +40,21 @@ export function ReservationCalendar({
   } | null>(null);
   const [nowMinutes, setNowMinutes] = useState<number | null>(null);
 
-  // Grid calculations (needed by drag handlers, so declare early)
-  const workingStaffs = staffs.filter((s) => s.isWorking);
+  // Grid calculations (needed by drag handlers, so declare early).
+  //
+  // Display rule: any staff who has either a shift today OR an existing
+  // appointment today must show up as a column. Otherwise their
+  // appointments would be silently dropped, and the user would see a
+  // blank calendar plus a "予約が既に入っています" error when trying to
+  // re-book the same slot.
+  const staffHasAppt = useMemo(() => {
+    const ids = new Set<number>();
+    for (const a of appointments) ids.add(a.staffId);
+    return ids;
+  }, [appointments]);
+  const workingStaffs = staffs.filter(
+    (s) => s.isWorking || staffHasAppt.has(s.id)
+  );
   const slotHeightPx = (SLOT_HEIGHT * 30) / (frameMin || 30);
   const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
   const totalSlots = timeSlots.length;
@@ -206,27 +219,47 @@ export function ReservationCalendar({
           >
             時間
           </div>
-          {workingStaffs.map((staff) => (
-            <div
-              key={staff.id}
-              className="flex shrink-0 flex-col items-center justify-center border-r py-3"
-              style={{ width: STAFF_COL_WIDTH }}
-            >
-              {/* Staff avatar circle */}
+          {workingStaffs.map((staff) => {
+            const isOffShift = !staff.isWorking;
+            return (
               <div
-                className="mb-1 flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white"
-                style={{ backgroundColor: staff.shiftColor || "#6366f1" }}
+                key={staff.id}
+                className={`flex shrink-0 flex-col items-center justify-center border-r py-3 ${
+                  isOffShift ? "bg-gray-50/70" : ""
+                }`}
+                style={{ width: STAFF_COL_WIDTH }}
               >
-                {staff.name.slice(0, 1)}
-              </div>
-              <div className="text-sm font-bold text-gray-900">{staff.name}</div>
-              {staff.shiftStart && staff.shiftEnd && (
-                <div className="text-[11px] text-gray-400">
-                  {staff.shiftStart.slice(0, 5)}-{staff.shiftEnd.slice(0, 5)}
+                {/* Staff avatar circle */}
+                <div
+                  className={`mb-1 flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${
+                    isOffShift ? "opacity-60" : ""
+                  }`}
+                  style={{
+                    backgroundColor: staff.shiftColor || "#6366f1",
+                  }}
+                >
+                  {staff.name.slice(0, 1)}
                 </div>
-              )}
-            </div>
-          ))}
+                <div
+                  className={`text-sm font-bold ${
+                    isOffShift ? "text-gray-500" : "text-gray-900"
+                  }`}
+                >
+                  {staff.name}
+                </div>
+                {staff.shiftStart && staff.shiftEnd ? (
+                  <div className="text-[11px] text-gray-400">
+                    {staff.shiftStart.slice(0, 5)}-
+                    {staff.shiftEnd.slice(0, 5)}
+                  </div>
+                ) : (
+                  <div className="text-[10px] font-bold text-amber-600">
+                    シフト外
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Grid body */}
@@ -270,6 +303,21 @@ export function ReservationCalendar({
               ? timeToMinutes(staff.shiftEnd.slice(0, 5))
               : null;
 
+            // Pre-compute "occupied" minutes for this staff so we can
+            // disable the new-booking click on slots that already have
+            // an active appointment. Cancelled (status 3/4/99) are NOT
+            // considered occupied — that slot can be re-used.
+            const occupiedRanges: Array<[number, number]> = [];
+            for (const a of staffAppts) {
+              if (a.status === 3 || a.status === 4 || a.status === 99) continue;
+              occupiedRanges.push([
+                timeToMinutes(a.startAt.slice(11, 16)),
+                timeToMinutes(a.endAt.slice(11, 16)),
+              ]);
+            }
+            const isMinuteOccupied = (m: number) =>
+              occupiedRanges.some(([s, e]) => m >= s && m < e);
+
             return (
               <div
                 key={staff.id}
@@ -289,16 +337,24 @@ export function ReservationCalendar({
                     shiftEndMin !== null &&
                     slotMin >= shiftStartMin &&
                     slotMin < shiftEndMin;
+                  const isOccupied = isMinuteOccupied(slotMin);
+                  const isClickable = isInShift && !isOccupied;
 
                   return (
                     <div
                       key={slot}
                       className={`absolute w-full border-b ${
                         isHour ? "border-gray-200" : "border-gray-100/60"
-                      } ${!isInShift ? "bg-gray-50/60" : "cursor-pointer hover:bg-blue-50/30"}`}
+                      } ${
+                        !isInShift
+                          ? "bg-gray-50/60"
+                          : isOccupied
+                            ? "bg-gray-100/40"
+                            : "cursor-pointer hover:bg-blue-50/30"
+                      }`}
                       style={{ top: idx * slotHeightPx, height: slotHeightPx }}
                       onClick={
-                        isInShift
+                        isClickable
                           ? () =>
                               setNewBooking({
                                 staffId: staff.id,
