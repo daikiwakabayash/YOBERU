@@ -37,9 +37,9 @@ export async function getWeeklyCalendarData(
   // deployments don't have `is_member_join` and the query would silently
   // return null otherwise.
   const FULL_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count, created_at)";
   const SAFE_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count, created_at)";
 
   function buildQuery(select: string) {
     let q = supabase
@@ -168,24 +168,45 @@ export async function getWeeklyCalendarData(
     // Column may not exist yet
   }
 
-  // 6. Build appointment list
+  // 6. Build appointment list. The 新規 badge follows the same rule as
+  //    getCalendarData: customer registered today only (otherwise existing).
   const calendarAppointments: CalendarAppointment[] = (
     appointments ?? []
   ).map((a) => {
-    const customer = a.customers as unknown as {
-      last_name: string | null;
-      first_name: string | null;
-      phone_number_1: string | null;
-      visit_count: number | null;
-    } | null;
+    const rawCustomer = a.customers;
+    const customer = (Array.isArray(rawCustomer)
+      ? rawCustomer[0] ?? null
+      : rawCustomer) as
+      | {
+          last_name: string | null;
+          first_name: string | null;
+          phone_number_1: string | null;
+          visit_count: number | null;
+          created_at: string | null;
+        }
+      | null;
     const sourceInfo = a.visit_source_id
       ? sourceMap.get(a.visit_source_id as number)
       : null;
     const menu = menuMap.get(a.menu_manage_id) ?? null;
-    // Use the per-appointment snapshot (1 = first visit) — see comment in
-    // getCalendarData.ts and 00002 schema.
     const apptVisitCount =
       (a.visit_count as number | null) ?? customer?.visit_count ?? 0;
+
+    // 新規 only when customer.created_at is on the appointment's day
+    // (Asia/Tokyo). Otherwise the customer existed before today and is
+    // 既存. Falls back to visit_count snapshot if the column is missing.
+    const apptDay = (a.start_at ?? "").slice(0, 10); // YYYY-MM-DD
+    const apptDayStartMs = apptDay
+      ? new Date(`${apptDay}T00:00:00+09:00`).getTime()
+      : NaN;
+    let isNewCustomer: boolean;
+    if (customer?.created_at && Number.isFinite(apptDayStartMs)) {
+      const createdMs = new Date(customer.created_at).getTime();
+      isNewCustomer =
+        Number.isFinite(createdMs) && createdMs >= apptDayStartMs;
+    } else {
+      isNewCustomer = apptVisitCount === 1;
+    }
 
     return {
       id: a.id,
@@ -203,7 +224,7 @@ export async function getWeeklyCalendarData(
       type: a.type,
       duration: menu?.duration ?? 0,
       memo: a.memo ?? null,
-      isNewCustomer: apptVisitCount === 1,
+      isNewCustomer,
       visitCount: apptVisitCount,
       source: sourceInfo?.name ?? null,
       sourceColor: sourceInfo?.color ?? null,

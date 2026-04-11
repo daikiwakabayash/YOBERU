@@ -29,9 +29,9 @@ export async function getCalendarData(
   // SELECT below uses only columns from migration 00001 + 00002 which
   // every deployment has.
   const FULL_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(last_name, first_name, phone_number_1, visit_count, created_at)";
   const SAFE_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(last_name, first_name, phone_number_1, visit_count, created_at)";
 
   function fetchAppointments(select: string) {
     return supabase
@@ -103,16 +103,25 @@ export async function getCalendarData(
           first_name: string | null;
           phone_number_1: string | null;
           visit_count: number | null;
+          created_at: string | null;
         }
       | Array<{
           last_name: string | null;
           first_name: string | null;
           phone_number_1: string | null;
           visit_count: number | null;
+          created_at: string | null;
         }>
       | null;
   };
   const appointments = (apptRes.data ?? []) as unknown as RawAppointment[];
+
+  // The "新規" badge means "this customer was first registered today".
+  // 患者DB から引っ張ってきた既存顧客 (= customers.created_at が今日より
+  // 前) は、たとえこの予約がシステム上の最初の予約だったとしても新規
+  // 扱いにしないのが運用ルール (本日のシフトに紐づくスタッフが手動で
+  // 患者検索 → 既存ヒット → 予約パネルから入れた場合がこのケース)。
+  const dateStartMs = new Date(`${date}T00:00:00+09:00`).getTime();
 
   // Fetch visit sources separately with colors (avoids implicit FK join fragility)
   let sourceMap = new Map<
@@ -218,22 +227,40 @@ export async function getCalendarData(
   const calendarAppointments: CalendarAppointment[] = (
     appointments ?? []
   ).map((a) => {
-    const customer = a.customers as unknown as {
-      last_name: string | null;
-      first_name: string | null;
-      phone_number_1: string | null;
-      visit_count: number | null;
-    } | null;
+    // Supabase typegen sometimes returns the FK join as a single object,
+    // sometimes as a 1-element array — normalize both shapes.
+    const rawCustomer = a.customers;
+    const customer = (Array.isArray(rawCustomer)
+      ? rawCustomer[0] ?? null
+      : rawCustomer) as
+      | {
+          last_name: string | null;
+          first_name: string | null;
+          phone_number_1: string | null;
+          visit_count: number | null;
+          created_at: string | null;
+        }
+      | null;
     const sourceInfo = a.visit_source_id
       ? sourceMap.get(a.visit_source_id as number)
       : null;
     const menu = menuMap.get(a.menu_manage_id) ?? null;
-    // Per-appointment snapshot is the source of truth: appt.visit_count = 1
-    // means "this is the customer's first actual visit" (see schema comment
-    // in 00002_visit_sources_and_billing.sql). Falls back to the customer's
-    // cumulative count for legacy rows.
     const apptVisitCount =
       (a.visit_count as number | null) ?? customer?.visit_count ?? 0;
+
+    // 新規 (新規) badge: TRUE only when the customer was registered today.
+    // If they were already in the patient DB before today (= pulled from
+    // 顧客検索 in the booking panel) they're "既存" no matter what
+    // visit_count says. Falls back to the visit_count snapshot for the
+    // (rare) case where customer.created_at is missing.
+    let isNewCustomer: boolean;
+    if (customer?.created_at) {
+      const createdMs = new Date(customer.created_at).getTime();
+      isNewCustomer =
+        Number.isFinite(createdMs) && createdMs >= dateStartMs;
+    } else {
+      isNewCustomer = apptVisitCount === 1;
+    }
 
     return {
       id: a.id,
@@ -251,7 +278,7 @@ export async function getCalendarData(
       type: a.type,
       duration: menu?.duration ?? 0,
       memo: a.memo ?? null,
-      isNewCustomer: apptVisitCount === 1,
+      isNewCustomer,
       visitCount: apptVisitCount,
       source: sourceInfo?.name ?? null,
       sourceColor: sourceInfo?.color ?? null,
