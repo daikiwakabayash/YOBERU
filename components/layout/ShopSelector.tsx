@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Select,
@@ -25,6 +25,14 @@ interface ShopSelectorProps {
 export function ShopSelector({ shops, activeShopId }: ShopSelectorProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+
+  // Base UI's <Select.Value> falls back to the raw value string unless the
+  // Root is given an `items` map, so without this the trigger was showing
+  // "2" instead of "渋谷店".
+  const itemsMap = useMemo(
+    () => Object.fromEntries(shops.map((s) => [String(s.id), s.name])),
+    [shops]
+  );
 
   // Hide entirely when there's nothing to switch between
   if (shops.length <= 1) {
@@ -56,6 +64,7 @@ export function ShopSelector({ shops, activeShopId }: ShopSelectorProps) {
       <Store className="h-4 w-4 text-gray-400" />
       <Select
         value={String(activeShopId)}
+        items={itemsMap}
         onValueChange={handleChange}
         disabled={pending}
       >

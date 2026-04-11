@@ -2,11 +2,24 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { WorkPatternList } from "@/feature/shift/components/WorkPatternList";
 import { WorkPatternForm } from "@/feature/shift/components/WorkPatternForm";
 import { Card, CardContent } from "@/components/ui/card";
+import { getWorkPatterns } from "@/feature/shift/services/getWorkPatterns";
+import {
+  getActiveBrandId,
+  getActiveShopId,
+} from "@/helper/lib/shop-context";
 
-export default function ShiftPatternListPage() {
-  // TODO: Get brandId/shopId from session context
-  const brandId = 1;
-  const shopId = 1;
+export const dynamic = "force-dynamic";
+
+export default async function ShiftPatternListPage() {
+  const brandId = await getActiveBrandId();
+  const shopId = await getActiveShopId();
+
+  let patterns: Awaited<ReturnType<typeof getWorkPatterns>> = [];
+  try {
+    patterns = await getWorkPatterns(shopId);
+  } catch {
+    // Swallow fetch errors so the form still renders
+  }
 
   return (
     <div>
@@ -18,7 +31,7 @@ export default function ShiftPatternListPage() {
         <div className="lg:col-span-2">
           <Card>
             <CardContent className="pt-6">
-              <WorkPatternList patterns={[]} />
+              <WorkPatternList patterns={patterns} />
             </CardContent>
           </Card>
         </div>
