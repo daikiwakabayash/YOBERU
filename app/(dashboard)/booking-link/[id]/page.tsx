@@ -41,7 +41,7 @@ export default async function BookingLinkEditPage({
 
   const supabase = await createClient();
 
-  const [menuData, sourceData, categoryData] = await Promise.all([
+  const [menuData, sourceData, categoryData, shopsData] = await Promise.all([
     safeQuery<{
       menu_manage_id: string;
       name: string;
@@ -75,6 +75,15 @@ export default async function BookingLinkEditPage({
         .is("deleted_at", null)
         .order("sort_number")
     ),
+    safeQuery<{ id: number; name: string }>(
+      supabase
+        .from("shops")
+        .select("id, name")
+        .eq("brand_id", brandId)
+        .is("deleted_at", null)
+        .order("sort_number", { ascending: true, nullsFirst: false })
+        .order("id", { ascending: true })
+    ),
   ]);
 
   const categoryMap = new Map(categoryData.map((c) => [c.id, c.name]));
@@ -95,6 +104,7 @@ export default async function BookingLinkEditPage({
       <div className="p-6">
         <BookingLinkForm
           brandId={brandId}
+          shops={shopsData}
           menus={menus}
           visitSources={sourceData}
           initialData={link}

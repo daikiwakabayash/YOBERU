@@ -2,19 +2,27 @@
 
 import { Check } from "lucide-react";
 import type { PublicLink } from "./types";
+import { useT } from "../../i18n/useT";
+import type { Lang } from "../../i18n/dictionary";
 
 interface Step4Props {
   link: PublicLink;
   /** If set, the confirmed date/time text like "2026.01.21 13:30" */
   confirmedDateTime: string | null;
+  lang?: Lang;
 }
 
-export function Step4Complete({ link, confirmedDateTime }: Step4Props) {
+export function Step4Complete({
+  link,
+  confirmedDateTime,
+  lang = "ja",
+}: Step4Props) {
+  const { t } = useT(lang);
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-4 py-3">
-        <h2 className="text-center text-base font-medium">ご予約フォーム</h2>
+        <h2 className="text-center text-base font-medium">{t("formTitle")}</h2>
       </div>
 
       {/* Content */}
@@ -25,20 +33,16 @@ export function Step4Complete({ link, confirmedDateTime }: Step4Props) {
         </div>
 
         <h3 className="mb-3 text-xl font-bold text-gray-900">
-          ご予約しました
+          {t("step4Heading")}
         </h3>
-        <p className="mb-8 text-center text-xs leading-relaxed text-gray-600">
-          ご予約内容は、登録済みのメールアドレスにも
-          <br />
-          送信させていただきました。
+        <p className="mb-8 whitespace-pre-line text-center text-xs leading-relaxed text-gray-600">
+          {t("step4Body")}
           {confirmedDateTime && (
             <>
-              <br />
-              <br />
+              {"\n\n"}
               <span className="font-medium text-gray-800">
                 {confirmedDateTime}
               </span>
-              のご予約を承りました。
             </>
           )}
         </p>
@@ -54,13 +58,9 @@ export function Step4Complete({ link, confirmedDateTime }: Step4Props) {
             <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[10px]">
               L
             </span>
-            {link.line_button_text || "LINEで予約内容を受取る"}
+            {link.line_button_text || t("contactLine")}
           </a>
         )}
-
-        <p className="mt-8 text-[11px] text-gray-400">
-          ※ ご予約内容にご不明な点がある場合はお店までお問い合わせください。
-        </p>
       </div>
     </div>
   );

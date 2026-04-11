@@ -18,6 +18,19 @@ function isMissingTableError(error: unknown): boolean {
   );
 }
 
+/**
+ * Make sure callers always see `shop_ids` as an array even when the
+ * underlying row is from a pre-migration database where the column
+ * doesn't exist.
+ */
+function normalizeLink(row: Record<string, unknown>): BookingLink {
+  const r = { ...row } as Record<string, unknown>;
+  if (!Array.isArray(r.shop_ids)) {
+    r.shop_ids = [] as number[];
+  }
+  return r as unknown as BookingLink;
+}
+
 export async function getBookingLinks(
   brandId: number
 ): Promise<{ data: BookingLink[]; totalCount: number; setupRequired: boolean }> {
@@ -36,7 +49,7 @@ export async function getBookingLinks(
       return { data: [], totalCount: 0, setupRequired: false };
     }
     return {
-      data: (data ?? []) as BookingLink[],
+      data: (data ?? []).map((r) => normalizeLink(r as Record<string, unknown>)),
       totalCount: count ?? 0,
       setupRequired: false,
     };
@@ -60,7 +73,7 @@ export async function getBookingLinkBySlug(
       .is("deleted_at", null)
       .single();
     if (error || !data) return null;
-    return data as BookingLink;
+    return normalizeLink(data as Record<string, unknown>);
   } catch {
     return null;
   }
@@ -78,7 +91,7 @@ export async function getBookingLinkById(
       .is("deleted_at", null)
       .single();
     if (error || !data) return null;
-    return data as BookingLink;
+    return normalizeLink(data as Record<string, unknown>);
   } catch {
     return null;
   }

@@ -8,6 +8,8 @@ import type {
   PublicShop,
   PublicStaff,
 } from "./types";
+import { useT } from "../../i18n/useT";
+import type { Lang } from "../../i18n/dictionary";
 
 interface Step3Props {
   state: BookingState;
@@ -19,6 +21,7 @@ interface Step3Props {
   onEdit: (target: "step1" | "step2") => void;
   onSubmit: () => void;
   submitting: boolean;
+  lang?: Lang;
 }
 
 export function Step3Confirm({
@@ -31,7 +34,9 @@ export function Step3Confirm({
   onEdit,
   onSubmit,
   submitting,
+  lang = "ja",
 }: Step3Props) {
+  const { t } = useT(lang);
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
@@ -42,10 +47,10 @@ export function Step3Confirm({
             onClick={onBack}
             className="text-sm text-gray-500 hover:text-gray-700"
           >
-            ‹ 戻る
+            ‹ {t("back")}
           </button>
           <h2 className="flex-1 text-center text-base font-medium">
-            ご予約フォーム
+            {t("formTitle")}
           </h2>
           <div className="w-10" />
         </div>
@@ -53,59 +58,64 @@ export function Step3Confirm({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 pb-28 pt-4">
-        <StepHeader stepNumber={3} total={3} title="ご注文確認" />
+        <StepHeader stepNumber={3} total={3} title={t("step3Title")} />
 
         <div className="space-y-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
           {shop && (
             <SummaryRow
-              label="店舗"
+              label={t("confirmShop")}
               value={shop.name}
               subValue={shop.address ?? undefined}
+              editLabel={t("edit")}
               onEdit={() => onEdit("step1")}
             />
           )}
           {link.staff_mode !== 2 && (
             <SummaryRow
-              label="スタッフ"
+              label={t("confirmStaff")}
               value={
-                state.staffId === 0
-                  ? "おまかせ"
-                  : staff?.name ?? "-"
+                state.staffId === 0 ? t("anyStaff") : staff?.name ?? "-"
               }
+              editLabel={t("edit")}
               onEdit={() => onEdit("step1")}
             />
           )}
           {menu && (
             <SummaryRow
-              label="メニュー"
+              label={t("confirmMenu")}
               value={link.alias_menu_name ?? menu.name}
-              subValue={`${menu.duration}分${
+              subValue={`${menu.duration}${t("minutes")}${
                 menu.price > 0 ? ` / ¥${menu.price.toLocaleString()}` : ""
               }`}
+              editLabel={t("edit")}
               onEdit={() => onEdit("step1")}
             />
           )}
           {state.date && state.time && (
             <SummaryRow
-              label="日時"
+              label={t("confirmDateTime")}
               value={`${state.date.replace(/-/g, ".")} ${state.time}`}
+              editLabel={t("edit")}
               onEdit={() => onEdit("step1")}
             />
           )}
           <SummaryRow
-            label="お名前"
+            label={t("confirmCustomer")}
             value={`${state.lastName} ${state.firstName}`}
             subValue={`${state.lastNameKana} ${state.firstNameKana}`}
+            editLabel={t("edit")}
             onEdit={() => onEdit("step2")}
           />
           <SummaryRow
-            label="電話番号"
+            label={t("fieldPhone")}
             value={state.phone}
+            editLabel={t("edit")}
             onEdit={() => onEdit("step2")}
           />
           <SummaryRow
-            label="メールアドレス"
+            label={t("fieldEmail")}
             value={state.email}
+            editLabel={t("edit")}
             onEdit={() => onEdit("step2")}
             last
           />
@@ -120,7 +130,7 @@ export function Step3Confirm({
           onClick={onSubmit}
           className="w-full rounded-full bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-gray-300"
         >
-          {submitting ? "送信中..." : "ご予約を確定する"}
+          {submitting ? t("submitting") : t("submitBooking")}
         </button>
         <button
           type="button"
@@ -128,7 +138,7 @@ export function Step3Confirm({
           onClick={onBack}
           className="w-full rounded-full border border-gray-200 bg-white py-3 text-sm font-medium text-gray-600 hover:bg-gray-50"
         >
-          キャンセル
+          {t("back")}
         </button>
       </div>
     </div>
@@ -140,12 +150,14 @@ function SummaryRow({
   value,
   subValue,
   onEdit,
+  editLabel,
   last,
 }: {
   label: string;
   value: string;
   subValue?: string;
   onEdit: () => void;
+  editLabel: string;
   last?: boolean;
 }) {
   return (
@@ -166,7 +178,7 @@ function SummaryRow({
         onClick={onEdit}
         className="shrink-0 rounded border border-gray-300 bg-white px-3 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
       >
-        変更
+        {editLabel}
       </button>
     </div>
   );
