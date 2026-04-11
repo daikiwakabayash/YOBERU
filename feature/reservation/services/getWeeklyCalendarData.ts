@@ -3,6 +3,7 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
 import { getWeekDates } from "@/helper/utils/weekday";
+import { getRangeStaffUtilization } from "@/feature/sales/services/getStaffUtilization";
 import type { CalendarAppointment } from "../types";
 
 export interface WeeklyCalendarData {
@@ -11,6 +12,12 @@ export interface WeeklyCalendarData {
   frameMin: number;
   weekDates: string[]; // ["2026-04-06", "2026-04-07", ..., "2026-04-12"]
   staffName: string | null;
+  /** Selected staff's 週間 稼働率 (0..1). null when no staff selected. */
+  staffUtilizationRate: number | null;
+  /** Total shift minutes for the week (denominator). */
+  staffOpenMin: number;
+  /** Total busy minutes for the week (numerator). */
+  staffBusyMin: number;
 }
 
 /**
@@ -277,11 +284,40 @@ export async function getWeeklyCalendarData(
     frameMin
   );
 
+  // Selected staff's weekly utilization so the header can show a
+  // "稼働率 47%" badge just like the day view does per staff column.
+  // Only computed when a staff is selected (week view is always staff-
+  // filtered) — otherwise the range aggregation has no target.
+  let staffUtilizationRate: number | null = null;
+  let staffOpenMin = 0;
+  let staffBusyMin = 0;
+  if (staffId) {
+    try {
+      const util = await getRangeStaffUtilization(
+        shopId,
+        weekStart,
+        weekDates[6],
+        staffId
+      );
+      const row = util.get(staffId);
+      if (row) {
+        staffOpenMin = row.openMin;
+        staffBusyMin = row.busyMin;
+        staffUtilizationRate = row.openMin > 0 ? row.rate : null;
+      }
+    } catch {
+      /* swallow — utilization is a nice-to-have */
+    }
+  }
+
   return {
     appointments: calendarAppointments,
     timeSlots,
     frameMin,
     weekDates,
     staffName,
+    staffUtilizationRate,
+    staffOpenMin,
+    staffBusyMin,
   };
 }

@@ -44,7 +44,16 @@ export function WeeklyReservationCalendar({
   staffId,
   enableMeetingBooking = true,
 }: WeeklyReservationCalendarProps) {
-  const { appointments, timeSlots, frameMin, weekDates } = data;
+  const {
+    appointments,
+    timeSlots,
+    frameMin,
+    weekDates,
+    staffName,
+    staffUtilizationRate,
+    staffOpenMin,
+    staffBusyMin,
+  } = data;
   const [selectedAppt, setSelectedAppt] = useState<CalendarAppointment | null>(null);
   const [newBooking, setNewBooking] = useState<{
     staffId: number;
@@ -203,9 +212,45 @@ export function WeeklyReservationCalendar({
   const gridCols = weekDates.length; // 7
   const sheetOpen = !!selectedAppt || !!newBooking;
 
+  // Color the utilization badge by load: red ≥85%, amber ≥60%,
+  // green <60% — same palette as the day view staff column header.
+  const ratePct =
+    staffUtilizationRate != null
+      ? Math.round(staffUtilizationRate * 100)
+      : null;
+  const rateClass =
+    ratePct == null
+      ? "bg-gray-100 text-gray-400"
+      : ratePct >= 85
+        ? "bg-red-100 text-red-700"
+        : ratePct >= 60
+          ? "bg-amber-100 text-amber-700"
+          : "bg-emerald-100 text-emerald-700";
+
   return (
     <>
       <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+        {/* Staff banner — shows the currently filtered staff + their
+            weekly utilization rate. Only rendered when a staff is
+            selected (week view is always staff-filtered). */}
+        {staffName && (
+          <div className="flex items-center gap-3 border-b bg-gray-50/80 px-4 py-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 text-sm font-bold text-white">
+              {staffName.slice(0, 1)}
+            </div>
+            <div className="text-sm font-bold text-gray-900">{staffName}</div>
+            <span
+              className={`rounded px-2 py-0.5 text-xs font-bold ${rateClass}`}
+              title={`週間稼働率 — 開放 ${staffOpenMin}分 / 稼働 ${staffBusyMin}分`}
+            >
+              稼働率 {ratePct != null ? `${ratePct}%` : "—"}
+            </span>
+            <span className="text-[10px] text-gray-400">
+              開放 {staffOpenMin}分 / 稼働 {staffBusyMin}分
+            </span>
+          </div>
+        )}
+
         {/* Sticky header - day columns */}
         <div
           className="sticky top-0 z-20 flex border-b bg-white/95 backdrop-blur-sm"
@@ -261,16 +306,21 @@ export function WeeklyReservationCalendar({
           })}
         </div>
 
-        {/* Grid body */}
+        {/* Grid body — border-t-2 draws the top line of the first
+            slot so the earliest hour (e.g. 9:00) has a visible line,
+            matching the day view exactly. */}
         <div
           ref={gridRef}
-          className="relative flex"
+          className="relative flex border-t-2 border-gray-400"
           style={{
             minWidth: TIME_COL_WIDTH + gridCols * DAY_COL_MIN_WIDTH,
             height: totalHeight,
           }}
         >
-          {/* Time column */}
+          {/* Time column — labels sit JUST BELOW each hour line, same
+              rule as the day view (top = idx * slotHeightPx + 4). The
+              previous -8 offset made labels float above their hour,
+              leaving 11:00 lined up with the 10:30 area. */}
           <div
             className="sticky left-0 z-10 shrink-0 border-r bg-white"
             style={{ width: TIME_COL_WIDTH }}
@@ -281,8 +331,8 @@ export function WeeklyReservationCalendar({
               return (
                 <div
                   key={slot}
-                  className="absolute right-0 flex items-start justify-end pr-3"
-                  style={{ top: idx * slotHeightPx - 8 }}
+                  className="absolute right-0 flex items-start justify-end pr-2"
+                  style={{ top: idx * slotHeightPx + 4 }}
                 >
                   <span className="text-[11px] font-semibold text-gray-500">
                     {slot}
@@ -304,14 +354,22 @@ export function WeeklyReservationCalendar({
                 className={`relative shrink-0 border-r ${isToday ? "bg-blue-50/30" : ""}`}
                 style={{ width: DAY_COL_MIN_WIDTH, flex: 1 }}
               >
-                {/* Grid lines + clickable cells */}
+                {/* Grid lines + clickable cells — same Google-Calendar
+                    style as the day view: the horizontal line drawn at
+                    the BOTTOM of this slot belongs to the next slot's
+                    start, and if that start sits on a whole hour we
+                    draw a thick dark separator. */}
                 {timeSlots.map((slot, idx) => {
-                  const isHour = slot.endsWith(":00");
+                  const slotMin = timeToMinutes(slot);
+                  const bottomMin = slotMin + frameMin;
+                  const isBottomHour = bottomMin % 60 === 0;
                   return (
                     <div
                       key={slot}
-                      className={`absolute w-full border-b ${
-                        isHour ? "border-gray-200" : "border-gray-100/60"
+                      className={`absolute w-full ${
+                        isBottomHour
+                          ? "border-b-2 border-gray-300"
+                          : "border-b border-gray-100"
                       } cursor-pointer hover:bg-blue-50/30`}
                       style={{ top: idx * slotHeightPx, height: slotHeightPx }}
                       onClick={() => {
