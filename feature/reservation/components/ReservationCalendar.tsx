@@ -61,6 +61,12 @@ export function ReservationCalendar({
     (appt: CalendarAppointment, e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // Cancelled appointments are read-only on the calendar — no drag,
+      // just open the detail sheet so staff can see the reason / history.
+      if (appt.status === 3 || appt.status === 4 || appt.status === 99) {
+        setSelectedAppt(appt);
+        return;
+      }
       const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
       if (!rect) return;
       hasMovedRef.current = false;
@@ -303,8 +309,31 @@ export function ReservationCalendar({
                   );
                 })}
 
-                {/* Appointment blocks */}
-                {staffAppts.map((appt) => {
+                {/* Appointment blocks
+                    Layout strategy:
+                      - Cancelled (status 3 / 4 / 99) render as a narrow
+                        strip pinned to the right edge so the slot still
+                        shows "this person had a booking here" without
+                        eating the whole row.
+                      - Active appointments that overlap a cancelled one
+                        get their right edge pulled in to leave room for
+                        the strip (like Google Calendar side-by-side).
+                      - Active overlap with active is unchanged for now —
+                        existing double-booking still overlaps. */}
+                {(() => {
+                  const isCancelledStatus = (s: number) =>
+                    s === 3 || s === 4 || s === 99;
+                  const cancelledRanges = staffAppts
+                    .filter((a) => isCancelledStatus(a.status))
+                    .map((a) => ({
+                      startMin: timeToMinutes(a.startAt.slice(11, 16)),
+                      endMin: timeToMinutes(a.endAt.slice(11, 16)),
+                    }));
+                  const overlapsCancelled = (apptStartMin: number, apptEndMin: number) =>
+                    cancelledRanges.some(
+                      (c) => c.startMin < apptEndMin && c.endMin > apptStartMin
+                    );
+                  return staffAppts.map((appt) => {
                   const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
                   const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
                   // Use minute-based positioning for pixel-perfect alignment
@@ -313,19 +342,16 @@ export function ReservationCalendar({
                   const pixelsPerMinute = slotHeightPx / frameMin;
                   const top = minutesFromStart * pixelsPerMinute + 2;
                   const height = durationMinutes * pixelsPerMinute - 4;
-                  const startTime = appt.startAt.slice(11, 16);
-                  const endTime = appt.endAt.slice(11, 16);
 
                   // Colors based on customer type + status.
                   // visit_count = 1 means "this is the customer's first
                   // actual visit" per the schema comment in 00002.
-                  // (`isNewCustomer` is also pre-computed upstream as
-                  // `appt.visit_count === 1` after backfill.)
                   const isNew = appt.isNewCustomer || appt.visitCount === 1;
                   const isPast = appt.status === 2;
                   const isInProgress = appt.status === 1;
                   const isCancelled = appt.status === 3 || appt.status === 99;
                   const isSameDayCancelled = appt.status === 4;
+                  const isAnyCancelled = isCancelled || isSameDayCancelled;
 
                   let borderColor = "border-blue-300";
                   let bgColor = "bg-white";
@@ -368,11 +394,55 @@ export function ReservationCalendar({
                       : null;
 
                   const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
+
+                  // ---------------- Cancelled: narrow right strip ----------------
+                  if (isAnyCancelled) {
+                    return (
+                      <div
+                        key={appt.id}
+                        data-appt={appt.id}
+                        className={`absolute rounded-md border-2 ${borderColor} ${bgColor} px-1.5 py-1 transition-shadow hover:shadow-md cursor-pointer`}
+                        style={{
+                          top,
+                          height,
+                          right: 6,
+                          width: "32%",
+                          zIndex: 6,
+                        }}
+                        onMouseDown={(e) => handleDragStart(appt, e)}
+                        title={`${appt.customerName} (${isSameDayCancelled ? "当日キャンセル" : "キャンセル"})`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span
+                            className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold ${statusBadgeColor}`}
+                          >
+                            {isSameDayCancelled ? "当日" : "キャンセル"}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 truncate text-[11px] font-bold text-gray-700 line-through">
+                          {appt.customerName}
+                        </div>
+                        <div className="truncate text-[10px] text-gray-500 line-through">
+                          {appt.menuName}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ---------------- Active appointment ----------------
+                  // If this active row overlaps a cancelled strip on the
+                  // right, narrow its right edge so they don't visually
+                  // collide.
+                  const narrowForCancelled = overlapsCancelled(
+                    apptStartMin,
+                    apptEndMin
+                  );
+
                   return (
                     <div
                       key={appt.id}
                       data-appt={appt.id}
-                      className={`absolute left-1.5 right-1.5 rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg ${
+                      className={`absolute rounded-lg border-2 ${borderColor} ${bgColor} px-3 py-2 transition-shadow hover:shadow-lg ${
                         isBeingDragged
                           ? "cursor-grabbing opacity-60 z-50"
                           : "cursor-grab"
@@ -380,6 +450,8 @@ export function ReservationCalendar({
                       style={{
                         top: isBeingDragged ? dragTop : top,
                         height,
+                        left: 6,
+                        right: narrowForCancelled ? "36%" : 6,
                         zIndex: isBeingDragged ? 50 : 5,
                       }}
                       onMouseDown={(e) => handleDragStart(appt, e)}
@@ -433,7 +505,8 @@ export function ReservationCalendar({
                       )}
                     </div>
                   );
-                })}
+                  });
+                })()}
               </div>
             );
           })}
