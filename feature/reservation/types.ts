@@ -41,6 +41,17 @@ export interface AppointmentDetail extends Appointment {
   } | null;
 }
 
+/**
+ * Slot block type metadata joined in from the slot_block_types master.
+ * Present only when the appointment is a slot block (type != 0).
+ */
+export interface SlotBlockTypeInfo {
+  code: string;
+  label: string;
+  color: string | null;
+  labelTextColor: string | null;
+}
+
 export interface CalendarAppointment {
   id: number;
   staffId: number;
@@ -48,6 +59,15 @@ export interface CalendarAppointment {
   /** カルテ番号 (customers.code) — 名前横に括弧で表示 */
   customerCode: string | null;
   customerPhone: string | null;
+  /**
+   * Slot block marker. `null` for normal customer appointments. When
+   * non-null the calendar card is rendered as a block (label + memo /
+   * other_label) and clicking it opens the slot-block editor instead
+   * of the customer detail sheet.
+   */
+  slotBlock: SlotBlockTypeInfo | null;
+  /** その他 用の自由入力タイトル (slot block type = 'other' のとき) */
+  otherLabel: string | null;
   menuName: string;
   startAt: string;
   endAt: string;

@@ -150,6 +150,7 @@ export default async function ReservationPage({
         staffUtilizationRate: null,
         staffOpenMin: 0,
         staffBusyMin: 0,
+        dailyUtilization: [],
       };
     }
 

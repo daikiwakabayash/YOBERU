@@ -53,7 +53,14 @@ export function WeeklyReservationCalendar({
     staffUtilizationRate,
     staffOpenMin,
     staffBusyMin,
+    dailyUtilization,
   } = data;
+  // Map date → daily util row for O(1) lookup in the header render.
+  const dailyUtilByDate = useMemo(() => {
+    const m = new Map<string, (typeof dailyUtilization)[number]>();
+    for (const d of dailyUtilization) m.set(d.date, d);
+    return m;
+  }, [dailyUtilization]);
   const [selectedAppt, setSelectedAppt] = useState<CalendarAppointment | null>(null);
   const [newBooking, setNewBooking] = useState<{
     staffId: number;
@@ -301,6 +308,32 @@ export function WeeklyReservationCalendar({
                 >
                   {month}/{day}
                 </div>
+                {/* Per-day utilization badge — same palette as the
+                    weekly banner (85%↑=red, 60%↑=amber, <60%=green,
+                    no shift → grey "—"). Only rendered when a staff
+                    is selected so the week header has util data. */}
+                {(() => {
+                  const du = dailyUtilByDate.get(dateStr);
+                  if (!du) return null;
+                  const pct =
+                    du.rate != null ? Math.round(du.rate * 100) : null;
+                  const cls =
+                    pct == null
+                      ? "bg-gray-100 text-gray-400"
+                      : pct >= 85
+                        ? "bg-red-100 text-red-700"
+                        : pct >= 60
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-emerald-100 text-emerald-700";
+                  return (
+                    <span
+                      className={`mt-1 rounded px-1.5 py-0.5 text-[10px] font-bold ${cls}`}
+                      title={`${dateStr} 稼働率 — 開放 ${du.openMin}分 / 稼働 ${du.busyMin}分`}
+                    >
+                      {pct != null ? `${pct}%` : "—"}
+                    </span>
+                  );
+                })()}
               </div>
             );
           })}
@@ -397,6 +430,51 @@ export function WeeklyReservationCalendar({
                   const height = durationMinutes * pixelsPerMinute - 4;
 
                   const isDragging = isDraggingReal && dragAppt?.id === appt.id;
+
+                  // Slot block (meeting / other / break / custom) renders
+                  // with the master palette color instead of the customer
+                  // card. Handled as an early return below.
+                  const isSlotBlock = !!appt.slotBlock;
+                  if (isSlotBlock && appt.slotBlock) {
+                    const sb = appt.slotBlock;
+                    const blockColor = sb.color ?? "#9333ea";
+                    const subText =
+                      sb.code === "other"
+                        ? appt.otherLabel || appt.customerRecord || ""
+                        : appt.memo || appt.customerRecord || "";
+                    return (
+                      <div
+                        key={appt.id}
+                        data-appt={appt.id}
+                        className="absolute left-1.5 right-1.5 cursor-pointer select-none overflow-hidden rounded-md border-l-4 bg-white px-2 py-1.5 shadow-sm transition-shadow hover:shadow-md"
+                        style={{
+                          top: isDragging ? dragTop : top,
+                          height,
+                          zIndex: isDragging ? 50 : 5,
+                          borderLeftColor: blockColor,
+                          backgroundColor: `${blockColor}12`,
+                        }}
+                        onMouseDown={(e) => handleDragStart(appt, e)}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span
+                            className="rounded px-1 py-0 text-[9px] font-bold"
+                            style={{
+                              backgroundColor: blockColor,
+                              color: sb.labelTextColor ?? "#ffffff",
+                            }}
+                          >
+                            {sb.label}
+                          </span>
+                        </div>
+                        {subText && (
+                          <div className="mt-0.5 truncate text-[10px] text-gray-700">
+                            {subText}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
 
                   // Colors based on customer type + status
                   const isNew = appt.isNewCustomer || appt.visitCount <= 1;

@@ -459,10 +459,17 @@ export function ReservationCalendar({
                   const top = minutesFromStart * pixelsPerMinute + 2;
                   const height = durationMinutes * pixelsPerMinute - 4;
 
+                  // Slot block (ミーティング / その他 / 休憩 / user-defined).
+                  // Rendered with the master palette color and the block's
+                  // label/memo instead of the system-placeholder customer.
+                  const isSlotBlock = !!appt.slotBlock;
+
                   // Colors based on customer type + status.
                   // visit_count = 1 means "this is the customer's first
                   // actual visit" per the schema comment in 00002.
-                  const isNew = appt.isNewCustomer || appt.visitCount === 1;
+                  const isNew =
+                    !isSlotBlock &&
+                    (appt.isNewCustomer || appt.visitCount === 1);
                   const isPast = appt.status === 2;
                   const isInProgress = appt.status === 1;
                   const isCancelled = appt.status === 3 || appt.status === 99;
@@ -567,6 +574,63 @@ export function ReservationCalendar({
                           {appt.menuName}
                         </div>
                       </button>
+                    );
+                  }
+
+                  // ---------------- Slot block (meeting / other / break) ----------------
+                  // Fills the full column width like an active card but
+                  // uses the master palette color for its left border +
+                  // tinted background, and shows "ミーティング" / "その他"
+                  // / "休憩" as the primary label with the memo or
+                  // other_label as the secondary text. Clicking still
+                  // routes to the AppointmentDetailSheet — the sheet
+                  // itself detects slotBlock and switches to the editor.
+                  if (isSlotBlock && appt.slotBlock) {
+                    const sb = appt.slotBlock;
+                    const blockColor = sb.color ?? "#9333ea";
+                    const blockLabel = sb.label;
+                    // For "その他" the memorable text lives in other_label
+                    // (free-form title). For "ミーティング" / "休憩" we
+                    // fall back to memo / customer_record which is the
+                    // note the user typed in the meeting form.
+                    const subText =
+                      sb.code === "other"
+                        ? appt.otherLabel || appt.customerRecord || ""
+                        : appt.memo || appt.customerRecord || "";
+                    return (
+                      <div
+                        key={appt.id}
+                        data-appt={appt.id}
+                        className="absolute select-none cursor-pointer overflow-hidden rounded-md border-l-4 bg-white px-2 py-1 shadow-sm transition-shadow hover:shadow-md"
+                        style={{
+                          top: isBeingDragged ? dragTop : top,
+                          height,
+                          left: 6,
+                          right: 6,
+                          zIndex: isBeingDragged ? 50 : 5,
+                          borderLeftColor: blockColor,
+                          backgroundColor: `${blockColor}12`,
+                          touchAction: "pan-y",
+                        }}
+                        onMouseDown={(e) => handleDragStart(appt, e)}
+                      >
+                        <div className="flex items-center gap-1 leading-tight">
+                          <span
+                            className="rounded px-1.5 py-0 text-[10px] font-bold"
+                            style={{
+                              backgroundColor: blockColor,
+                              color: sb.labelTextColor ?? "#ffffff",
+                            }}
+                          >
+                            {blockLabel}
+                          </span>
+                        </div>
+                        {subText && (
+                          <div className="mt-0.5 truncate text-[11px] text-gray-700">
+                            {subText}
+                          </div>
+                        )}
+                      </div>
                     );
                   }
 

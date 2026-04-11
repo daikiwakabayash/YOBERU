@@ -22,6 +22,7 @@ import {
   Wallet,
   Sparkles,
   Crown,
+  CalendarX2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -50,6 +51,7 @@ const navigation = [
       { name: "設備", href: "/facility", icon: Grid3X3 },
       { name: "支払方法", href: "/payment-method", icon: CreditCard },
       { name: "来店経路", href: "/visit-source", icon: Megaphone },
+      { name: "予約ブロック種別", href: "/slot-block-type", icon: CalendarX2 },
       { name: "問診票", href: "/questionnaire", icon: ClipboardList },
       { name: "広告費", href: "/ad-spend", icon: Wallet },
     ],

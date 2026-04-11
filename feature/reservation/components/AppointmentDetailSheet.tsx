@@ -113,15 +113,40 @@ export function AppointmentDetailSheet({
 }: AppointmentDetailSheetProps) {
   const isNew = !appointment;
 
-  // ---- Booking mode (new booking only) ------------------------------
+  // ---- Existing slot-block detection --------------------------------
+  // If we're opening an existing appointment and the calendar service
+  // flagged it as a slot block (meeting / other / break / custom), we
+  // skip the customer detail flow entirely and render the slot-block
+  // editor instead — even though the row already exists.
+  const existingSlotBlockCode = appointment?.slotBlock?.code ?? null;
+  const isExistingSlotBlock = !!existingSlotBlockCode;
+
+  // ---- Booking mode --------------------------------------------------
   // "regular"  = 通常予約 (default; existing flow)
   // "meeting"  = スタッフ MTG 等、枠だけ抑える
   // "other"    = その他、タイトルと時間を自由入力して枠を抑える
-  const [bookingMode, setBookingMode] = useState<
-    "regular" | "meeting" | "other"
-  >("regular");
-  const [slotBlockDuration, setSlotBlockDuration] = useState<number>(30);
-  const [otherLabel, setOtherLabel] = useState("");
+  // "break"    = 休憩
+  //
+  // Defaults to whatever the existing appointment is (so clicking a
+  // meeting on the calendar re-opens the meeting editor), otherwise
+  // "regular" for brand-new bookings.
+  type BookingMode = "regular" | "meeting" | "other" | "break";
+  const [bookingMode, setBookingMode] = useState<BookingMode>(() => {
+    if (existingSlotBlockCode === "meeting") return "meeting";
+    if (existingSlotBlockCode === "other") return "other";
+    if (existingSlotBlockCode === "break") return "break";
+    return "regular";
+  });
+  const [slotBlockDuration, setSlotBlockDuration] = useState<number>(() => {
+    if (appointment) {
+      const startMin = timeToMinutes(appointment.startAt.slice(11, 16));
+      const endMin = timeToMinutes(appointment.endAt.slice(11, 16));
+      const dur = endMin - startMin;
+      return dur > 0 ? dur : 30;
+    }
+    return 30;
+  });
+  const [otherLabel, setOtherLabel] = useState(appointment?.otherLabel ?? "");
   const isSlotBlockMode = bookingMode !== "regular";
 
   // Fallback to built-in list if master data not provided
@@ -170,10 +195,16 @@ export function AppointmentDetailSheet({
     return [];
   });
 
-  // ---- Carte ----
-  const [customerRecord, setCustomerRecord] = useState(
-    appointment?.customerRecord ?? ""
-  );
+  // ---- Carte / slot block memo ----
+  // For regular appointments this is the カルテ text (customer_record
+  // column). For slot blocks (meeting / other / break) we store the
+  // note in the memo column instead — so initialize from whichever
+  // field has content, favoring memo for slot blocks.
+  const [customerRecord, setCustomerRecord] = useState(() => {
+    if (!appointment) return "";
+    if (appointment.slotBlock) return appointment.memo ?? "";
+    return appointment.customerRecord ?? "";
+  });
 
   // ---- Membership (marketing 入会率計算の分子) ----
   const [isMemberJoin, setIsMemberJoin] = useState(
@@ -189,6 +220,20 @@ export function AppointmentDetailSheet({
   const [reviewSaving, setReviewSaving] = useState<
     null | "google" | "hotpepper"
   >(null);
+
+  // ---- Full customer dossier for the right-side patient DB panel ----
+  // Matches the /customer/:id page shape (basic info + recent history +
+  // derived totals). Loaded on-demand whenever the active customer
+  // changes so the staff can see who they're on the phone with at a
+  // glance.
+  type CustomerFullDetail = Awaited<
+    ReturnType<
+      typeof import("@/feature/customer/services/getCustomers").getCustomerFullDetail
+    >
+  >;
+  const [customerDetail, setCustomerDetail] =
+    useState<CustomerFullDetail | null>(null);
+  const [customerDetailLoading, setCustomerDetailLoading] = useState(false);
 
   // ---- Billing ----
   const [additionalCharge, setAdditionalCharge] = useState(
@@ -270,6 +315,32 @@ export function AppointmentDetailSheet({
   // picked from the search.
   const activeCustomerId =
     appointment?.customerId ?? selectedCustomer?.id ?? null;
+
+  // Load the full customer dossier (basic info + recent history +
+  // totals) whenever the attached customer changes. Powers the right
+  // hand patient DB panel.
+  useEffect(() => {
+    if (!activeCustomerId) {
+      setCustomerDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setCustomerDetailLoading(true);
+    import("@/feature/customer/services/getCustomers")
+      .then((m) => m.getCustomerFullDetail(activeCustomerId))
+      .then((res) => {
+        if (!cancelled) setCustomerDetail(res);
+      })
+      .catch(() => {
+        if (!cancelled) setCustomerDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCustomerDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCustomerId]);
 
   // Load G口コミ / H口コミ receipt status for the active customer.
   // Runs once per customer-id change; the state is stored on the
@@ -546,13 +617,57 @@ export function AppointmentDetailSheet({
   // `type != 0` to exclude them.
   // -----------------------------------------------------------------------
   async function handleSaveSlotBlock() {
-    if (!newBooking) return;
     if (bookingMode === "other" && !otherLabel.trim()) {
       toast.error("内容を入力してください");
       return;
     }
+    // Map the current bookingMode to a (type, code) pair. type !== 0
+    // flags the row as a slot block so aggregation services exclude
+    // it; code drives the label + color via slot_block_types.
+    const slotBlockTypeNum =
+      bookingMode === "meeting" ? 1 : bookingMode === "other" ? 2 : 3;
+    const slotBlockCode = bookingMode;
+
     setSaving(true);
     try {
+      if (appointment && isExistingSlotBlock) {
+        // ----- UPDATE existing slot block -----
+        // Reuse the appointment's date, shift the end time if the user
+        // changed the duration chip.
+        const date = appointment.startAt.slice(0, 10);
+        const startTime = appointment.startAt.slice(11, 16);
+        const endTime = minutesToTime(
+          timeToMinutes(startTime) + slotBlockDuration
+        );
+        const form = new FormData();
+        form.set("start_at", `${date}T${startTime}:00`);
+        form.set("end_at", `${date}T${endTime}:00`);
+        form.set("memo", customerRecord);
+        if (bookingMode === "other") {
+          form.set("other_label", otherLabel.trim());
+        } else {
+          form.set("other_label", "");
+        }
+        form.set("type", String(slotBlockTypeNum));
+        form.set("slot_block_type_code", slotBlockCode);
+
+        const result = await updateAppointment(appointment.id, form);
+        if ("error" in result && result.error) {
+          toast.error(
+            typeof result.error === "string"
+              ? result.error
+              : "更新に失敗しました"
+          );
+          setSaving(false);
+          return;
+        }
+        toast.success("予定を更新しました");
+        onClose();
+        return;
+      }
+
+      // ----- CREATE new slot block -----
+      if (!newBooking) return;
       const startAt = `${newBooking.date}T${newBooking.time}:00`;
       const endTime = minutesToTime(
         timeToMinutes(newBooking.time) + slotBlockDuration
@@ -563,9 +678,11 @@ export function AppointmentDetailSheet({
       form.set("brand_id", String(brandId));
       form.set("shop_id", String(shopId));
       form.set("staff_id", String(newBooking.staffId));
-      // customer_id intentionally omitted — the schema treats missing
-      // customer as null when type is 1 or 2.
-      form.set("type", bookingMode === "meeting" ? "1" : "2");
+      // customer_id intentionally omitted — the server action attaches
+      // a per-shop system placeholder customer so the legacy NOT NULL
+      // constraint on appointments.customer_id is satisfied.
+      form.set("type", String(slotBlockTypeNum));
+      form.set("slot_block_type_code", slotBlockCode);
       form.set("start_at", startAt);
       form.set("end_at", endAt);
       form.set("status", "0");
@@ -589,8 +706,37 @@ export function AppointmentDetailSheet({
       toast.success(
         bookingMode === "meeting"
           ? "ミーティングを登録しました"
-          : "予定を登録しました"
+          : bookingMode === "break"
+            ? "休憩を登録しました"
+            : "予定を登録しました"
       );
+      onClose();
+    } catch {
+      toast.error("エラーが発生しました");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteSlotBlock() {
+    if (!appointment) return;
+    if (!confirm("この予定を削除しますか？")) return;
+    setSaving(true);
+    try {
+      const { deleteAppointment } = await import(
+        "../actions/reservationActions"
+      );
+      const result = await deleteAppointment(appointment.id);
+      if ("error" in result && result.error) {
+        toast.error(
+          typeof result.error === "string"
+            ? result.error
+            : "削除に失敗しました"
+        );
+        setSaving(false);
+        return;
+      }
+      toast.success("予定を削除しました");
       onClose();
     } catch {
       toast.error("エラーが発生しました");
@@ -775,50 +921,55 @@ export function AppointmentDetailSheet({
     const t = code.replace(/^0+/, "");
     return t.length > 0 ? t : "0";
   }
-  const rightPanelCustomer = appointment
-    ? {
-        id: appointment.customerId,
-        name: appointment.customerName,
-        code: stripZeros(appointment.customerCode),
-        phone: appointment.customerPhone,
-        visitCount: appointment.visitCount,
-      }
-    : selectedCustomer
+  // Slot-block appointments never get the patient dossier (there is
+  // no real customer behind them — just a system placeholder row).
+  const rightPanelCustomer =
+    appointment && !isExistingSlotBlock
       ? {
-          id: selectedCustomer.id,
-          name: `${selectedCustomer.last_name ?? ""} ${
-            selectedCustomer.first_name ?? ""
-          }`.trim() || "-",
-          code: stripZeros(selectedCustomer.code),
-          phone: selectedCustomer.phone_number_1 ?? null,
-          visitCount: null as number | null,
+          id: appointment.customerId,
+          name: appointment.customerName,
+          code: stripZeros(appointment.customerCode),
+          phone: appointment.customerPhone,
+          visitCount: appointment.visitCount,
         }
-      : null;
+      : !appointment && selectedCustomer
+        ? {
+            id: selectedCustomer.id,
+            name: `${selectedCustomer.last_name ?? ""} ${
+              selectedCustomer.first_name ?? ""
+            }`.trim() || "-",
+            code: stripZeros(selectedCustomer.code),
+            phone: selectedCustomer.phone_number_1 ?? null,
+            visitCount: null as number | null,
+          }
+        : null;
 
   // Expanded = right patient-info panel is shown. We animate the sheet
   // width between two sizes:
-  //   - No customer attached  → narrow (~420px) docked on the left so
+  //   - No customer attached  → narrow (480px) docked on the left so
   //                              the calendar behind remains visible
-  //   - Customer attached     → full viewport width, left 420px is the
-  //                              form, right flex-1 is the patient DB
-  // `transition-[max-width]` smooths the switch; Radix Sheet preserves
-  // scroll position through the width change.
+  //   - Customer attached     → full viewport width, so the patient DB
+  //                              panel can occupy the right side
+  //
+  // IMPORTANT: the default Sheet class includes `data-[side=left]:sm:max-w-sm`
+  // which has higher CSS specificity than our utility class `sm:max-w-none`
+  // (attribute selector wins). That was silently pinning the sheet at
+  // 384px and causing the "UIが切れる" bug. Forcing `maxWidth` via
+  // inline style wins against the data-attribute selector.
   //
   // NOTE: side="left" — per product direction the new-reservation
-  // panel slides in from the left so it sits over the sidebar. When
-  // expanded, the sheet stretches across the full viewport so the
-  // right side can serve as a full-screen patient dashboard.
+  // panel slides in from the left so it sits over the sidebar.
   const expanded = !!rightPanelCustomer;
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent
         side="left"
-        className={`overflow-hidden p-0 transition-[max-width] duration-300 ease-out ${
-          expanded
-            ? "w-screen sm:max-w-none"
-            : "w-full sm:max-w-[420px]"
-        }`}
+        className="overflow-hidden p-0 transition-[max-width] duration-300 ease-out"
+        style={{
+          maxWidth: expanded ? "100vw" : "480px",
+          width: expanded ? "100vw" : "100%",
+        }}
       >
         {/* ------- Header ------- */}
         <SheetHeader className="sticky top-0 z-10 border-b bg-white px-6 py-4">
@@ -826,6 +977,23 @@ export function AppointmentDetailSheet({
             <SheetTitle className="text-base font-bold">
               {isNew ? (
                 "新規予約"
+              ) : isExistingSlotBlock && appointment?.slotBlock ? (
+                <span className="flex items-center gap-2 text-sm">
+                  <span
+                    className="rounded px-2 py-0.5 text-xs font-bold"
+                    style={{
+                      backgroundColor:
+                        appointment.slotBlock.color ?? "#9333ea",
+                      color:
+                        appointment.slotBlock.labelTextColor ?? "#ffffff",
+                    }}
+                  >
+                    {appointment.slotBlock.label}
+                  </span>
+                  <span className="font-medium text-gray-500">
+                    {startTime}〜
+                  </span>
+                </span>
               ) : (
                 <span className="flex items-center gap-2 text-sm">
                   <Link
@@ -867,7 +1035,7 @@ export function AppointmentDetailSheet({
           </div>
         </SheetHeader>
 
-        {/* Two-column body. Left = form (fixed 420px when expanded so
+        {/* Two-column body. Left = form (fixed 480px when expanded so
             the right patient panel can take the rest), full-width
             otherwise. Right = patient DB, only rendered in expanded
             mode (see below). */}
@@ -875,7 +1043,7 @@ export function AppointmentDetailSheet({
         <div
           className={`space-y-6 overflow-y-auto px-6 py-5 ${
             expanded
-              ? "w-[420px] shrink-0 border-r"
+              ? "w-[480px] shrink-0 border-r"
               : "flex-1"
           }`}
         >
@@ -895,27 +1063,32 @@ export function AppointmentDetailSheet({
             </div>
           )}
 
-          {/* ===== Mode switcher (new booking + master-config on) =====
-              Lets staff create a slot-block (ミーティング / その他) in
-              addition to a normal treatment appointment. Hidden entirely
-              when the shop setting is off. */}
-          {isNew && enableMeetingBooking && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setBookingMode("regular")}
-                className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
-                  bookingMode === "regular"
-                    ? "border-orange-400 bg-orange-50 text-orange-700"
-                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                新規予約を作成
-              </button>
+          {/* ===== Mode switcher =====
+              New bookings: pick between 通常予約 / ミーティング / 休憩 /
+              その他. Existing slot-block appointments: disable the
+              regular tab and let staff flip between slot-block modes
+              only (so accidentally switching to "regular" can't wipe
+              the meeting they're editing).
+              Hidden entirely when the shop master toggle is off. */}
+          {(isNew || isExistingSlotBlock) && enableMeetingBooking && (
+            <div className="flex flex-wrap gap-2">
+              {!isExistingSlotBlock && (
+                <button
+                  type="button"
+                  onClick={() => setBookingMode("regular")}
+                  className={`min-w-[100px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                    bookingMode === "regular"
+                      ? "border-orange-400 bg-orange-50 text-orange-700"
+                      : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+                  }`}
+                >
+                  新規予約を作成
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setBookingMode("meeting")}
-                className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                className={`min-w-[90px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
                   bookingMode === "meeting"
                     ? "border-purple-400 bg-purple-50 text-purple-700"
                     : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
@@ -925,8 +1098,19 @@ export function AppointmentDetailSheet({
               </button>
               <button
                 type="button"
+                onClick={() => setBookingMode("break")}
+                className={`min-w-[80px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                  bookingMode === "break"
+                    ? "border-amber-400 bg-amber-50 text-amber-700"
+                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+                }`}
+              >
+                休憩
+              </button>
+              <button
+                type="button"
                 onClick={() => setBookingMode("other")}
-                className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                className={`min-w-[80px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
                   bookingMode === "other"
                     ? "border-sky-400 bg-sky-50 text-sky-700"
                     : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
@@ -937,11 +1121,17 @@ export function AppointmentDetailSheet({
             </div>
           )}
 
-          {/* ===== Slot-block form (meeting / other) ===== */}
-          {isNew && isSlotBlockMode && (
+          {/* ===== Slot-block form (meeting / other / break) =====
+              Shown for new bookings in slot-block mode AND for
+              existing slot-block appointments (edit mode). */}
+          {(isNew || isExistingSlotBlock) && isSlotBlockMode && (
             <section className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
               <div className="text-[11px] font-bold text-gray-500">
-                {bookingMode === "meeting" ? "ミーティング内容" : "内容"}
+                {bookingMode === "meeting"
+                  ? "ミーティング内容"
+                  : bookingMode === "break"
+                    ? "休憩メモ"
+                    : "内容"}
               </div>
               {bookingMode === "other" && (
                 <Input
@@ -990,15 +1180,30 @@ export function AppointmentDetailSheet({
               >
                 {saving
                   ? "保存中..."
-                  : bookingMode === "meeting"
-                    ? "ミーティングを登録"
-                    : "予定を登録"}
+                  : isExistingSlotBlock
+                    ? "予定を更新"
+                    : bookingMode === "meeting"
+                      ? "ミーティングを登録"
+                      : bookingMode === "break"
+                        ? "休憩を登録"
+                        : "予定を登録"}
               </Button>
+              {isExistingSlotBlock && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full border-2 border-red-400 text-red-600 hover:bg-red-50"
+                  onClick={handleDeleteSlotBlock}
+                  disabled={saving}
+                >
+                  この予定を削除
+                </Button>
+              )}
             </section>
           )}
 
           {/* ===== Regular booking form (hidden in slot-block mode) ===== */}
-          {!(isNew && isSlotBlockMode) && (
+          {!isSlotBlockMode && !isExistingSlotBlock && (
           <>
           {/* ===== Section: Customer (new booking only) ===== */}
           {isNew && !selectedCustomer && !isCreatingCustomer && (
@@ -1496,122 +1701,341 @@ export function AppointmentDetailSheet({
           )}
         </div>
         {/* ===== Right column: 患者DB (expanded only) =====
-            Rendered only when a customer is attached to the flow so
-            the sheet can collapse back to ~420px for the initial "顧客
-            検索" state. With full viewport width when expanded we can
-            lay out the patient panel as a real dashboard instead of a
-            cramped sidebar. */}
+            Mirrors /customer/:id so "久しぶりに来院された患者さんへの
+            電話対応" can happen with all the context already visible. */}
         {expanded && rightPanelCustomer && (
           <div className="flex-1 overflow-y-auto bg-gray-50 px-8 py-6">
-            <div className="mx-auto max-w-4xl space-y-6">
-              {/* --- Header row --- */}
-              <div className="flex items-start justify-between gap-6 rounded-xl border bg-white px-6 py-5 shadow-sm">
-                <div>
-                  <div className="text-[11px] font-bold uppercase text-gray-400">
-                    患者データベース
-                  </div>
-                  <div className="mt-1 flex items-center gap-3">
-                    <Link
-                      href={`/customer/${rightPanelCustomer.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-2xl font-black text-gray-900 hover:text-blue-600 hover:underline"
-                    >
-                      {rightPanelCustomer.name}
-                    </Link>
-                    {rightPanelCustomer.code && (
-                      <span className="rounded-md bg-gray-900 px-2 py-0.5 text-sm font-black text-white">
-                        No.{rightPanelCustomer.code}
-                      </span>
-                    )}
-                    <ExternalLink className="h-4 w-4 text-gray-400" />
-                  </div>
-                  {rightPanelCustomer.phone && (
-                    <div className="mt-1 text-sm text-gray-500">
-                      {rightPanelCustomer.phone}
-                    </div>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg border bg-gray-50 px-4 py-2">
-                    <div className="text-[10px] text-gray-500">来店回数</div>
-                    <div className="text-xl font-black text-gray-900">
-                      {(rightPanelCustomer.visitCount ?? 0) > 0
-                        ? `${rightPanelCustomer.visitCount}回`
-                        : "-"}
-                    </div>
-                  </div>
-                  <div className="rounded-lg border bg-gray-50 px-4 py-2">
-                    <div className="text-[10px] text-gray-500">顧客ID</div>
-                    <div className="text-xl font-black text-gray-900">
-                      #{rightPanelCustomer.id}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* --- 前回カルテ --- */}
-              <div className="rounded-xl border bg-white px-6 py-5 shadow-sm">
-                <div className="mb-2 text-[11px] font-bold uppercase text-gray-400">
-                  前回カルテ
-                </div>
-                {lastVisitLoading ? (
-                  <div className="text-sm text-gray-400">読み込み中...</div>
-                ) : lastVisit ? (
-                  <div className="space-y-2">
-                    <div className="text-xs text-gray-500">
-                      {lastVisit.start_at?.slice(0, 10)}{" "}
-                      {lastVisit.start_at?.slice(11, 16)}
-                      {lastVisit.staffs?.name && (
-                        <> · 担当 {lastVisit.staffs.name}</>
-                      )}
-                    </div>
-                    {lastVisit.customer_record ? (
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
-                        {lastVisit.customer_record}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-gray-400">
-                        前回はカルテ未記入
-                      </p>
-                    )}
-                  </div>
-                ) : appointment ? (
-                  <div className="text-sm text-gray-400">
-                    このお客様は履歴がありません
-                  </div>
-                ) : (
-                  <div className="text-sm text-gray-400">
-                    過去の来店履歴がありません
-                  </div>
-                )}
-              </div>
-
-              {/* --- 現在のカルテ (live mirror of the form field) --- */}
-              <div className="rounded-xl border bg-white px-6 py-5 shadow-sm">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="text-[11px] font-bold uppercase text-gray-400">
-                    今回のカルテ (入力中)
-                  </div>
-                  <div className="text-[10px] text-gray-400">
-                    左側のカルテ欄と連動
-                  </div>
-                </div>
-                {customerRecord ? (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
-                    {customerRecord}
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-400">
-                    左側のカルテ欄に記入すると、ここに同時表示されます
-                  </p>
-                )}
-              </div>
-            </div>
+            <CustomerDossierPanel
+              rightPanelCustomer={rightPanelCustomer}
+              detail={customerDetail}
+              loading={customerDetailLoading}
+              stripZeros={stripZeros}
+            />
           </div>
         )}
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CustomerDossierPanel
+// ---------------------------------------------------------------------------
+// Rendered inside the right half of the detail sheet when a customer
+// is attached. Mirrors the /customer/:id page as faithfully as the
+// sheet width allows: 4 KPI cards (来店回数 / 累計売上 / ステータス /
+// 最終来院) + 基本情報 card + 来院履歴 list (latest 50, newest first).
+//
+// Kept in the same file to avoid a trivial component split — the panel
+// is never reused outside this sheet.
+// ---------------------------------------------------------------------------
+
+type DossierCustomer = {
+  id: number;
+  name: string;
+  code: string | null;
+  phone: string | null;
+};
+
+type DossierDetail = {
+  customer: {
+    id: number;
+    code: string;
+    last_name: string | null;
+    first_name: string | null;
+    last_name_kana: string | null;
+    first_name_kana: string | null;
+    phone_number_1: string | null;
+    phone_number_2: string | null;
+    email: string | null;
+    zip_code: string | null;
+    address: string | null;
+    gender: number;
+    birth_date: string | null;
+    type: number;
+    occupation: string | null;
+    line_id: string | null;
+    description: string | null;
+    created_at: string;
+  };
+  visitCount: number;
+  totalSales: number;
+  lastVisitDate: string | null;
+  appointments: Array<{
+    id: number;
+    startAt: string;
+    endAt: string;
+    status: number;
+    sales: number;
+    customerRecord: string | null;
+    memo: string | null;
+    menuName: string;
+    staffName: string | null;
+  }>;
+};
+
+const GENDER_LABELS: Record<number, string> = {
+  0: "男性",
+  1: "女性",
+  2: "その他",
+};
+const TYPE_LABELS: Record<number, { label: string; cls: string }> = {
+  0: { label: "一般", cls: "bg-gray-100 text-gray-700" },
+  1: { label: "会員", cls: "bg-blue-100 text-blue-700" },
+  2: { label: "退会", cls: "bg-red-100 text-red-700" },
+};
+
+function CustomerDossierPanel({
+  rightPanelCustomer,
+  detail,
+  loading,
+  stripZeros,
+}: {
+  rightPanelCustomer: DossierCustomer;
+  detail: DossierDetail | null;
+  loading: boolean;
+  stripZeros: (code: string | null | undefined) => string | null;
+}) {
+  // Until the dossier arrives, fall back to the sparse data we already
+  // have from the calendar / search (so the header doesn't flicker).
+  const customer = detail?.customer ?? null;
+  const fullName =
+    customer
+      ? [customer.last_name, customer.first_name].filter(Boolean).join(" ") ||
+        rightPanelCustomer.name
+      : rightPanelCustomer.name;
+  const kanaName = customer
+    ? [customer.last_name_kana, customer.first_name_kana]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  const visitCount = detail?.visitCount ?? 0;
+  const totalSales = detail?.totalSales ?? 0;
+  const lastVisitDate = detail?.lastVisitDate ?? "-";
+  const typeInfo =
+    TYPE_LABELS[customer?.type ?? 0] ?? TYPE_LABELS[0];
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-5">
+      {/* ===== Header row — name + カルテ No + 4 KPI cards ===== */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-bold uppercase text-gray-400">
+            患者データベース
+          </div>
+          <div className="mt-1 flex items-center gap-3">
+            <Link
+              href={`/customer/${rightPanelCustomer.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-2xl font-black text-gray-900 hover:text-blue-600 hover:underline"
+            >
+              {fullName}
+            </Link>
+            {stripZeros(rightPanelCustomer.code) && (
+              <span className="rounded-md bg-gray-900 px-2 py-0.5 text-sm font-black text-white">
+                No.{stripZeros(rightPanelCustomer.code)}
+              </span>
+            )}
+            <Badge
+              variant="outline"
+              className={`text-xs ${typeInfo.cls}`}
+            >
+              {typeInfo.label}
+            </Badge>
+            <ExternalLink className="h-4 w-4 text-gray-400" />
+          </div>
+          {kanaName && (
+            <div className="mt-0.5 text-xs text-gray-500">{kanaName}</div>
+          )}
+        </div>
+      </div>
+
+      {/* ===== 4 KPI cards — 来店回数 / 累計売上 / ステータス / 最終来院 ===== */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="rounded-xl border bg-white px-5 py-4 shadow-sm">
+          <div className="text-xs text-gray-500">来院回数</div>
+          <div className="mt-1 text-2xl font-black text-gray-900">
+            {loading ? "…" : `${visitCount}回`}
+          </div>
+        </div>
+        <div className="rounded-xl border bg-white px-5 py-4 shadow-sm">
+          <div className="text-xs text-gray-500">累計売上</div>
+          <div className="mt-1 text-2xl font-black text-gray-900">
+            {loading ? "…" : `¥${totalSales.toLocaleString()}`}
+          </div>
+        </div>
+        <div className="rounded-xl border bg-white px-5 py-4 shadow-sm">
+          <div className="text-xs text-gray-500">ステータス</div>
+          <div className="mt-1">
+            <Badge className={typeInfo.cls}>{typeInfo.label}</Badge>
+          </div>
+        </div>
+        <div className="rounded-xl border bg-white px-5 py-4 shadow-sm">
+          <div className="text-xs text-gray-500">最終来院</div>
+          <div className="mt-1 text-lg font-bold text-gray-900">
+            {loading ? "…" : lastVisitDate}
+          </div>
+        </div>
+      </div>
+
+      {/* ===== Main grid — 基本情報 (1/3) + 来院履歴 (2/3) ===== */}
+      <div className="grid gap-5 lg:grid-cols-3">
+        {/* Basic info */}
+        <div className="rounded-xl border bg-white p-5 shadow-sm">
+          <div className="mb-3 text-sm font-bold text-gray-900">基本情報</div>
+          {loading ? (
+            <div className="text-sm text-gray-400">読み込み中...</div>
+          ) : !customer ? (
+            <div className="text-sm text-gray-400">
+              顧客情報の取得に失敗しました
+            </div>
+          ) : (
+            <div className="space-y-3 text-sm">
+              {customer.phone_number_1 && (
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 text-gray-400">電話</span>
+                  <span className="text-gray-800">
+                    {customer.phone_number_1}
+                  </span>
+                </div>
+              )}
+              {customer.email && (
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 text-gray-400">Email</span>
+                  <span className="break-all text-gray-800">
+                    {customer.email}
+                  </span>
+                </div>
+              )}
+              {customer.address && (
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 text-gray-400">住所</span>
+                  <span className="text-gray-800">
+                    {customer.zip_code && (
+                      <span className="text-gray-500">
+                        〒{customer.zip_code}{" "}
+                      </span>
+                    )}
+                    {customer.address}
+                  </span>
+                </div>
+              )}
+              <Separator />
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-gray-400">性別: </span>
+                  <span className="text-gray-800">
+                    {GENDER_LABELS[customer.gender ?? 0] ?? "-"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">生年月日: </span>
+                  <span className="text-gray-800">
+                    {customer.birth_date || "-"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">職業: </span>
+                  <span className="text-gray-800">
+                    {customer.occupation || "-"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">LINE: </span>
+                  <span className="text-gray-800">
+                    {customer.line_id || "-"}
+                  </span>
+                </div>
+              </div>
+              {customer.description && (
+                <>
+                  <Separator />
+                  <div>
+                    <div className="text-[11px] font-bold text-gray-400">
+                      メモ
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
+                      {customer.description}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Visit history */}
+        <div className="rounded-xl border bg-white p-5 shadow-sm lg:col-span-2">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-bold text-gray-900">
+              来院履歴・カルテ
+            </div>
+            {detail && (
+              <div className="text-[11px] text-gray-400">
+                直近 {detail.appointments.length} 件
+              </div>
+            )}
+          </div>
+          {loading ? (
+            <div className="text-sm text-gray-400">読み込み中...</div>
+          ) : !detail || detail.appointments.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-400">
+              来院履歴がありません
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {detail.appointments.map((a) => {
+                const date = a.startAt.slice(0, 10);
+                const time = a.startAt.slice(11, 16);
+                const endTime = a.endAt.slice(11, 16);
+                const isCancelled =
+                  a.status === 3 || a.status === 4 || a.status === 99;
+                return (
+                  <div
+                    key={a.id}
+                    className={`rounded-lg border p-3 ${
+                      isCancelled ? "opacity-60" : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-bold text-gray-900">{date}</span>
+                      <span className="text-xs text-gray-500">
+                        {time}-{endTime}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {a.menuName}
+                      </Badge>
+                      {isCancelled && (
+                        <Badge className="bg-red-100 text-[10px] text-red-600">
+                          {a.status === 4 ? "当日キャンセル" : "キャンセル"}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
+                      {a.staffName && <span>担当 {a.staffName}</span>}
+                      {a.sales > 0 && (
+                        <span>¥{a.sales.toLocaleString()}</span>
+                      )}
+                    </div>
+                    {a.customerRecord && (
+                      <div className="mt-2 rounded bg-gray-50 p-2 text-xs">
+                        <div className="mb-0.5 text-[10px] font-bold text-gray-400">
+                          カルテ
+                        </div>
+                        <p className="whitespace-pre-wrap text-gray-700">
+                          {a.customerRecord}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

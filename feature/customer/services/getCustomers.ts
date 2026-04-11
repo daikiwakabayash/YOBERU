@@ -56,6 +56,124 @@ export async function getCustomer(id: number): Promise<Customer> {
   return data as Customer;
 }
 
+/**
+ * Full customer dossier used by the AppointmentDetailSheet's right-hand
+ * patient panel. Returns the customer row plus their recent appointment
+ * history (latest 50) with menu names + staff names resolved, plus
+ * derived totals (visit count, lifetime sales).
+ *
+ * We load this on-demand when the user picks a customer in the booking
+ * flow so the panel can show "久しぶりに来院された患者さんへの電話
+ * 対応" context at a glance — same data model as the /customer/:id
+ * page, just rendered inline.
+ */
+export interface CustomerFullDetail {
+  customer: Customer;
+  visitCount: number;
+  totalSales: number;
+  lastVisitDate: string | null;
+  appointments: Array<{
+    id: number;
+    startAt: string;
+    endAt: string;
+    status: number;
+    sales: number;
+    customerRecord: string | null;
+    memo: string | null;
+    menuName: string;
+    staffName: string | null;
+  }>;
+}
+
+export async function getCustomerFullDetail(
+  customerId: number
+): Promise<CustomerFullDetail | null> {
+  const supabase = await createClient();
+
+  // 1. Base customer row
+  const { data: custRow, error: custErr } = await supabase
+    .from("customers")
+    .select("*")
+    .eq("id", customerId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (custErr || !custRow) return null;
+
+  // 2. Last 50 appointments for this customer, newest first.
+  //    `staffs(name)` is an FK join — Supabase returns it inline. We
+  //    then resolve menu names via a single follow-up query to avoid
+  //    the no-FK fragility documented in CLAUDE.md.
+  const { data: apptRaw } = await supabase
+    .from("appointments")
+    .select(
+      "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)"
+    )
+    .eq("customer_id", customerId)
+    .is("deleted_at", null)
+    .order("start_at", { ascending: false })
+    .limit(50);
+
+  const raw = (apptRaw ?? []) as Array<{
+    id: number;
+    start_at: string;
+    end_at: string;
+    status: number;
+    sales: number | null;
+    memo: string | null;
+    customer_record: string | null;
+    menu_manage_id: string;
+    staffs:
+      | { name: string | null }
+      | Array<{ name: string | null }>
+      | null;
+  }>;
+
+  // Menu name lookup in one shot
+  const menuIds = Array.from(new Set(raw.map((a) => a.menu_manage_id)));
+  let menuNameMap = new Map<string, string>();
+  if (menuIds.length > 0) {
+    const { data: menus } = await supabase
+      .from("menus")
+      .select("menu_manage_id, name")
+      .in("menu_manage_id", menuIds);
+    menuNameMap = new Map(
+      (menus ?? []).map(
+        (m) => [m.menu_manage_id as string, m.name as string] as const
+      )
+    );
+  }
+
+  const appointments = raw.map((a) => {
+    const staff = Array.isArray(a.staffs) ? a.staffs[0] ?? null : a.staffs;
+    return {
+      id: a.id,
+      startAt: a.start_at,
+      endAt: a.end_at,
+      status: a.status,
+      sales: a.sales ?? 0,
+      customerRecord: a.customer_record,
+      memo: a.memo,
+      menuName: menuNameMap.get(a.menu_manage_id) ?? a.menu_manage_id,
+      staffName: staff?.name ?? null,
+    };
+  });
+
+  // Derived metrics: 完了 (status=2) 予約だけをカウント
+  const completed = appointments.filter((a) => a.status === 2);
+  const visitCount = completed.length;
+  const totalSales = completed.reduce((sum, a) => sum + (a.sales || 0), 0);
+  const lastVisitDate =
+    completed.length > 0 ? completed[0].startAt.slice(0, 10) : null;
+
+  return {
+    customer: custRow as Customer,
+    visitCount,
+    totalSales,
+    lastVisitDate,
+    appointments,
+  };
+}
+
 export async function searchCustomers(
   shopId: number,
   query: string,

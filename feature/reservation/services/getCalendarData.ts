@@ -28,8 +28,10 @@ export async function getCalendarData(
   // root cause of the "予約が反映されなくなった" report. The fallback
   // SELECT below uses only columns from migration 00001 + 00002 which
   // every deployment has.
+  // other_label + slot_block_type_code come from migration 00010 / 00012.
+  // The SAFE fallback omits them so pre-migration deployments still load.
   const FULL_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, other_label, slot_block_type_code, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
   const SAFE_SELECT =
     "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
 
@@ -62,7 +64,12 @@ export async function getCalendarData(
   let apptRes = apptResRaw;
   if (apptRes.error) {
     const msg = String(apptRes.error.message ?? "");
-    if (msg.includes("is_member_join") || msg.includes("does not exist")) {
+    if (
+      msg.includes("is_member_join") ||
+      msg.includes("other_label") ||
+      msg.includes("slot_block_type_code") ||
+      msg.includes("does not exist")
+    ) {
       console.error(
         "[getCalendarData] full appointment SELECT failed, retrying SAFE select",
         apptRes.error
@@ -71,6 +78,105 @@ export async function getCalendarData(
     } else {
       console.error("[getCalendarData] appointment query failed", apptRes.error);
     }
+  }
+
+  // Fetch the slot_block_types master for this brand. We look up by
+  // brand via the shop row. Falls back to an empty map if the table
+  // doesn't exist yet (migration 00012 not applied) — the calendar
+  // will then render slot blocks using their hardcoded defaults.
+  const slotBlockMasterMap = new Map<
+    string,
+    { label: string; color: string | null; labelTextColor: string | null }
+  >();
+  try {
+    const { data: brandRow } = await supabase
+      .from("shops")
+      .select("brand_id")
+      .eq("id", shopId)
+      .maybeSingle();
+    const brandId = (brandRow?.brand_id as number | null) ?? 1;
+    const { data: sbTypes } = await supabase
+      .from("slot_block_types")
+      .select("code, label, color, label_text_color")
+      .eq("brand_id", brandId)
+      .is("deleted_at", null);
+    for (const t of (sbTypes ?? []) as Array<{
+      code: string;
+      label: string;
+      color: string | null;
+      label_text_color: string | null;
+    }>) {
+      slotBlockMasterMap.set(t.code, {
+        label: t.label,
+        color: t.color,
+        labelTextColor: t.label_text_color,
+      });
+    }
+  } catch {
+    /* migration 00012 not applied — slot blocks use fallback rendering */
+  }
+
+  // Fallback hardcoded palette (used when the master row isn't found,
+  // e.g. legacy rows or migration not applied yet).
+  const SLOT_BLOCK_FALLBACK: Record<
+    string,
+    { label: string; color: string; labelTextColor: string }
+  > = {
+    meeting: {
+      label: "ミーティング",
+      color: "#9333ea",
+      labelTextColor: "#ffffff",
+    },
+    other: {
+      label: "その他",
+      color: "#0ea5e9",
+      labelTextColor: "#ffffff",
+    },
+    break: {
+      label: "休憩",
+      color: "#f59e0b",
+      labelTextColor: "#ffffff",
+    },
+  };
+
+  function resolveSlotBlock(
+    typeNum: number,
+    code: string | null
+  ): {
+    code: string;
+    label: string;
+    color: string | null;
+    labelTextColor: string | null;
+  } | null {
+    if (typeNum === 0) return null;
+    // Legacy data fallback: if slot_block_type_code wasn't backfilled,
+    // derive from the legacy numeric type (1=meeting, 2=other).
+    const resolvedCode =
+      code ?? (typeNum === 1 ? "meeting" : typeNum === 2 ? "other" : "meeting");
+    const master = slotBlockMasterMap.get(resolvedCode);
+    if (master) {
+      return {
+        code: resolvedCode,
+        label: master.label,
+        color: master.color,
+        labelTextColor: master.labelTextColor,
+      };
+    }
+    const fb = SLOT_BLOCK_FALLBACK[resolvedCode];
+    if (fb) {
+      return {
+        code: resolvedCode,
+        label: fb.label,
+        color: fb.color,
+        labelTextColor: fb.labelTextColor,
+      };
+    }
+    return {
+      code: resolvedCode,
+      label: resolvedCode,
+      color: "#6b7280",
+      labelTextColor: "#ffffff",
+    };
   }
 
   const frameMin = shopRes.data?.frame_min ?? 15;
@@ -97,6 +203,8 @@ export async function getCalendarData(
     payment_method: string | null;
     cancelled_at: string | null;
     is_member_join?: boolean | null;
+    other_label?: string | null;
+    slot_block_type_code?: string | null;
     customers:
       | {
           code: string | null;
@@ -265,6 +373,14 @@ export async function getCalendarData(
       isNewCustomer = apptVisitCount === 1;
     }
 
+    // Resolve slot block metadata once so the UI can render the row
+    // as "ミーティング / 休憩 / その他" instead of the system-placeholder
+    // customer name.
+    const slotBlock = resolveSlotBlock(
+      a.type,
+      a.slot_block_type_code ?? null
+    );
+
     return {
       id: a.id,
       staffId: a.staff_id,
@@ -293,6 +409,15 @@ export async function getCalendarData(
       paymentMethod: a.payment_method ?? null,
       customerRecord: a.customer_record ?? null,
       isMemberJoin: !!a.is_member_join,
+      slotBlock: slotBlock
+        ? {
+            code: slotBlock.code,
+            label: slotBlock.label,
+            color: slotBlock.color,
+            labelTextColor: slotBlock.labelTextColor,
+          }
+        : null,
+      otherLabel: a.other_label ?? null,
     };
   });
 
