@@ -511,7 +511,7 @@ export function WeeklyReservationCalendar({
                     <div
                       key={appt.id}
                       data-appt={appt.id}
-                      className={`absolute left-1.5 right-1.5 rounded-lg border-2 ${borderColor} ${bgColor} px-2 py-1.5 transition-shadow hover:shadow-lg ${
+                      className={`absolute left-1.5 right-1.5 select-none overflow-hidden rounded-md border ${borderColor} ${bgColor} px-1.5 py-0.5 transition-shadow hover:shadow-md ${
                         isDragging
                           ? "cursor-grabbing opacity-60 z-50"
                           : "cursor-grab"
@@ -520,23 +520,13 @@ export function WeeklyReservationCalendar({
                         top: isDragging ? dragTop : top,
                         height,
                         zIndex: isDragging ? 50 : 5,
+                        touchAction: "pan-y",
                       }}
                       onMouseDown={(e) => handleDragStart(appt, e)}
                     >
-                      {/* Status badge */}
-                      {statusBadge && (
-                        <div className="absolute right-1 top-1">
-                          <span
-                            className={`rounded px-1 py-0.5 text-[9px] font-bold ${statusBadgeColor}`}
-                          >
-                            {statusBadge}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Customer name + カルテNo */}
-                      <div className="flex items-center gap-1">
-                        <span className="text-[12px] font-black text-gray-900 leading-tight truncate">
+                      {/* Single-line header: name + code + badge + status */}
+                      <div className="flex items-center gap-1 truncate leading-snug">
+                        <span className="truncate text-[11px] font-black text-gray-900">
                           {appt.customerName}
                         </span>
                         {formatCustomerCode(appt.customerCode) && (
@@ -555,10 +545,17 @@ export function WeeklyReservationCalendar({
                             {appt.source ? `${appt.source}新規` : "新規"}
                           </span>
                         )}
+                        {statusBadge && (
+                          <span
+                            className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
+                          >
+                            {statusBadge}
+                          </span>
+                        )}
                       </div>
 
                       {/* Menu + duration */}
-                      <div className="mt-0.5 text-[11px] text-gray-600 truncate">
+                      <div className="truncate text-[10px] text-gray-600">
                         {appt.menuName}
                         {appt.duration > 0 && `（${appt.duration}分）`}
                       </div>
