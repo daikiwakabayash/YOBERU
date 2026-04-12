@@ -101,12 +101,14 @@ export function Step1StoreDateTime({
   // can mark occupied slots as "×". Runs every time staff or shop
   // changes (not on every week navigation — the data covers 60 days
   // ahead so most navigations are covered by the cached result).
+  // When "any staff" mode (staffId === 0), fetches all staff bookings
+  // and computes fully-booked slots (where ALL working staff are busy).
   type BookedRange = { date: string; startMin: number; endMin: number };
   const [bookedSlots, setBookedSlots] = useState<BookedRange[]>([]);
   useEffect(() => {
     const effectiveShopId = state.shopId ?? (shops.length === 1 ? shops[0]?.id : null);
     const effectiveStaffId = state.staffId;
-    if (!effectiveShopId || !effectiveStaffId || effectiveStaffId === 0) {
+    if (!effectiveShopId) {
       setBookedSlots([]);
       return;
     }
@@ -116,16 +118,40 @@ export function Step1StoreDateTime({
     const endD = new Date(today);
     endD.setDate(endD.getDate() + 60);
     const endDate = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, "0")}-${String(endD.getDate()).padStart(2, "0")}`;
-    import("@/feature/booking-link/services/getStaffBookedSlots")
-      .then((m) => m.getStaffBookedSlots(effectiveShopId, effectiveStaffId, startDate, endDate))
-      .then((slots) => {
-        if (!cancelled) setBookedSlots(slots);
-      })
-      .catch(() => {
-        if (!cancelled) setBookedSlots([]);
-      });
+
+    if (effectiveStaffId && effectiveStaffId !== 0) {
+      // Specific staff selected: fetch that staff's booked slots
+      import("@/feature/booking-link/services/getStaffBookedSlots")
+        .then((m) => m.getStaffBookedSlots(effectiveShopId, effectiveStaffId, startDate, endDate))
+        .then((slots) => {
+          if (!cancelled) setBookedSlots(slots);
+        })
+        .catch(() => {
+          if (!cancelled) setBookedSlots([]);
+        });
+    } else {
+      // "Any staff" mode: fetch all-staff bookings and compute fully-booked slots
+      const avail = shopAvailability;
+      if (!avail) {
+        setBookedSlots([]);
+        return;
+      }
+      // Build staffIdsByDate from availability data
+      const staffIdsByDate: Record<string, number[]> = {};
+      for (const [dateStr, day] of Object.entries(avail)) {
+        if (day?.staffIds) staffIdsByDate[dateStr] = day.staffIds;
+      }
+      import("@/feature/booking-link/services/getStaffBookedSlots")
+        .then((m) => m.getShopFullyBookedSlots(effectiveShopId, startDate, endDate, staffIdsByDate))
+        .then((slots) => {
+          if (!cancelled) setBookedSlots(slots);
+        })
+        .catch(() => {
+          if (!cancelled) setBookedSlots([]);
+        });
+    }
     return () => { cancelled = true; };
-  }, [state.shopId, state.staffId, shops]);
+  }, [state.shopId, state.staffId, shops, shopAvailability]);
 
   const shopsInArea = state.areaId
     ? shops.filter((s) => s.area_id === state.areaId)
