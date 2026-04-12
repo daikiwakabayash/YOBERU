@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { MapPin, Tag, User, Calendar, Info } from "lucide-react";
 import { AvailabilityCalendar } from "./AvailabilityCalendar";
 import { ShopMapSheet } from "./ShopMapSheet";
@@ -96,6 +96,36 @@ export function Step1StoreDateTime({
   const selectedMenu =
     menus.find((m) => m.menu_manage_id === state.menuManageId) ?? null;
   const selectedStaff = staffs.find((s) => s.id === state.staffId) ?? null;
+
+  // Fetch booked time slots for the selected staff so the calendar
+  // can mark occupied slots as "×". Runs every time staff or shop
+  // changes (not on every week navigation — the data covers 60 days
+  // ahead so most navigations are covered by the cached result).
+  type BookedRange = { date: string; startMin: number; endMin: number };
+  const [bookedSlots, setBookedSlots] = useState<BookedRange[]>([]);
+  useEffect(() => {
+    const effectiveShopId = state.shopId ?? (shops.length === 1 ? shops[0]?.id : null);
+    const effectiveStaffId = state.staffId;
+    if (!effectiveShopId || !effectiveStaffId || effectiveStaffId === 0) {
+      setBookedSlots([]);
+      return;
+    }
+    let cancelled = false;
+    const today = new Date();
+    const startDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const endD = new Date(today);
+    endD.setDate(endD.getDate() + 60);
+    const endDate = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, "0")}-${String(endD.getDate()).padStart(2, "0")}`;
+    import("@/feature/booking-link/services/getStaffBookedSlots")
+      .then((m) => m.getStaffBookedSlots(effectiveShopId, effectiveStaffId, startDate, endDate))
+      .then((slots) => {
+        if (!cancelled) setBookedSlots(slots);
+      })
+      .catch(() => {
+        if (!cancelled) setBookedSlots([]);
+      });
+    return () => { cancelled = true; };
+  }, [state.shopId, state.staffId, shops]);
 
   const shopsInArea = state.areaId
     ? shops.filter((s) => s.area_id === state.areaId)
@@ -390,6 +420,8 @@ export function Step1StoreDateTime({
               selectedTime={state.time}
               onSelect={(date, time) => setState({ date, time })}
               availability={shopAvailability}
+              bookedSlots={bookedSlots}
+              menuDuration={selectedMenu?.duration ?? 60}
             />
           </div>
         )}
