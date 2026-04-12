@@ -6,6 +6,7 @@ import { ShiftEditForm } from "@/feature/shift/components/ShiftEditForm";
 import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
 import { getWorkPatterns } from "@/feature/shift/services/getWorkPatterns";
 import { getWeekDates } from "@/helper/utils/weekday";
+import { toLocalDateString } from "@/helper/utils/time";
 import { ArrowLeft } from "lucide-react";
 import type { ShiftEntry } from "@/feature/shift/components/ShiftScheduleGrid";
 import {
@@ -38,7 +39,7 @@ export default async function ShiftScheduleEditPage({ searchParams }: Props) {
   weekStart.setHours(0, 0, 0, 0);
 
   const weekDates = getWeekDates(weekStart);
-  const dateStrings = weekDates.map((d) => d.toISOString().split("T")[0]);
+  const dateStrings = weekDates.map((d) => toLocalDateString(d));
   const weekStartStr = dateStrings[0];
 
   // Fetch work patterns and effective shifts

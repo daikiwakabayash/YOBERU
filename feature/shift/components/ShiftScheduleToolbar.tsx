@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { toLocalDateString } from "@/helper/utils/time";
 
 interface ShiftScheduleToolbarProps {
   currentWeekStart: string;
@@ -31,13 +32,13 @@ function getMonday(dateStr: string): string {
   const day = d.getDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + mondayOffset);
-  return d.toISOString().split("T")[0];
+  return toLocalDateString(d);
 }
 
 function addWeeks(dateStr: string, weeks: number): string {
   const d = new Date(dateStr + "T00:00:00");
   d.setDate(d.getDate() + weeks * 7);
-  return d.toISOString().split("T")[0];
+  return toLocalDateString(d);
 }
 
 export function ShiftScheduleToolbar({
@@ -48,7 +49,7 @@ export function ShiftScheduleToolbar({
 
   const prevWeek = addWeeks(currentWeekStart, -1);
   const nextWeek = addWeeks(currentWeekStart, 1);
-  const todayMonday = getMonday(new Date().toISOString().split("T")[0]);
+  const todayMonday = getMonday(toLocalDateString(new Date()));
 
   function navigateTo(week: string) {
     router.push(`${basePath}?week=${week}`);
