@@ -22,6 +22,7 @@ export interface PublicShop {
   zip_code: string | null;
   address: string | null;
   nearest_station_access: string | null;
+  logo_url: string | null;
 }
 
 export interface PublicStaff {

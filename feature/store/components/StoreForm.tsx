@@ -82,11 +82,45 @@ export function StoreForm({
       is_public: true,
       sort_number: 0,
       enable_meeting_booking: true,
+      logo_url: "",
       line_channel_id: "",
       line_channel_secret: "",
       line_channel_access_token: "",
     },
   });
+
+  // Logo upload state
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string>(
+    initialData?.logo_url ?? ""
+  );
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !initialData?.id) return;
+    setLogoUploading(true);
+    try {
+      const { uploadShopLogo } = await import("../actions/storeActions");
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("shop_id", String(initialData.id));
+      const result = await uploadShopLogo(fd);
+      if ("error" in result && result.error) {
+        const { toast } = await import("sonner");
+        toast.error(typeof result.error === "string" ? result.error : "アップロードに失敗しました");
+      } else if ("logoUrl" in result && result.logoUrl) {
+        setLogoPreview(result.logoUrl);
+        form.setValue("logo_url", result.logoUrl);
+        const { toast } = await import("sonner");
+        toast.success("ロゴをアップロードしました");
+      }
+    } catch {
+      const { toast } = await import("sonner");
+      toast.error("アップロードに失敗しました");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
 
   function onSubmit(values: StoreFormValues) {
     setServerError(null);
@@ -384,6 +418,37 @@ export function StoreForm({
               </p>
             </div>
           </div>
+
+          {/* 店舗ロゴ */}
+          {isEdit && (
+            <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/30 p-4 md:col-span-2">
+              <div className="text-sm font-bold text-blue-800">
+                店舗ロゴ
+              </div>
+              <p className="text-xs text-muted-foreground">
+                公開予約フォームのヘッダーに表示されます。PNG / JPEG / WebP / SVG、2MB以内。
+              </p>
+              <div className="flex items-center gap-4">
+                {logoPreview && (
+                  <img
+                    src={logoPreview}
+                    alt="店舗ロゴ"
+                    className="h-16 w-auto rounded border object-contain"
+                  />
+                )}
+                <label className="cursor-pointer rounded-md border bg-white px-4 py-2 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50">
+                  {logoUploading ? "アップロード中..." : logoPreview ? "ロゴを変更" : "ロゴをアップロード"}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={handleLogoUpload}
+                    disabled={logoUploading}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
 
           {/* LINE Messaging API 連携 */}
           <div className="space-y-3 rounded-lg border border-green-100 bg-green-50/30 p-4 md:col-span-2">

@@ -59,6 +59,7 @@ export default async function StoreDetailPage({ params }: StoreDetailPageProps) 
     is_public: store.is_public,
     sort_number: store.sort_number ?? 0,
     enable_meeting_booking: store.enable_meeting_booking ?? true,
+    logo_url: store.logo_url ?? "",
     line_channel_id: store.line_channel_id ?? "",
     line_channel_secret: store.line_channel_secret ?? "",
     line_channel_access_token: store.line_channel_access_token ?? "",

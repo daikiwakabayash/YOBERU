@@ -30,6 +30,7 @@ export interface PublicShop {
   zip_code: string | null;
   address: string | null;
   nearest_station_access: string | null;
+  logo_url: string | null;
 }
 
 export interface PublicArea {
@@ -85,7 +86,7 @@ export default async function PublicBookingPage({
     shops = await safeQuery<PublicShop>(
       supabase
         .from("shops")
-        .select("id, name, area_id, zip_code, address, nearest_station_access")
+        .select("id, name, area_id, zip_code, address, nearest_station_access, logo_url")
         .in("id", linkShopIds)
         .eq("is_public", true)
         .is("deleted_at", null)
@@ -95,7 +96,7 @@ export default async function PublicBookingPage({
     shops = await safeQuery<PublicShop>(
       supabase
         .from("shops")
-        .select("id, name, area_id, zip_code, address, nearest_station_access")
+        .select("id, name, area_id, zip_code, address, nearest_station_access, logo_url")
         .eq("id", link.shop_id)
         .is("deleted_at", null)
     );
@@ -103,7 +104,7 @@ export default async function PublicBookingPage({
     shops = await safeQuery<PublicShop>(
       supabase
         .from("shops")
-        .select("id, name, area_id, zip_code, address, nearest_station_access")
+        .select("id, name, area_id, zip_code, address, nearest_station_access, logo_url")
         .eq("brand_id", link.brand_id)
         .eq("is_public", true)
         .is("deleted_at", null)

@@ -152,8 +152,23 @@ export function Step1StoreDateTime({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
+      {/* Header + Logo */}
       <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-4 py-3">
+        {/* Shop logo — displayed when a shop is selected (or only 1 shop) */}
+        {(() => {
+          const logoShop =
+            selectedShop ??
+            (shops.length === 1 ? shops[0] : null);
+          return logoShop?.logo_url ? (
+            <div className="mb-2 flex justify-center">
+              <img
+                src={logoShop.logo_url}
+                alt={logoShop.name}
+                className="h-10 w-auto object-contain"
+              />
+            </div>
+          ) : null;
+        })()}
         <div className="flex items-center gap-3">
           <button
             type="button"
