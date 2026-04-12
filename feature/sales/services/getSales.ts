@@ -19,6 +19,10 @@ interface SalesData {
     staffName: string;
     sales: number;
     count: number;
+    /** 施術数 = status 1/2 かつ type=0 のみ (ミーティング/キャンセル除外) */
+    treatmentCount: number;
+    /** 新規数 = 施術のうち visit_count=1 の件数 */
+    newCount: number;
     /** 期間内の総開放時間 (= シフト合計、分単位) */
     openMin: number;
     /** 期間内の稼働時間 (status 1/2 のみ、分単位) */
@@ -48,7 +52,7 @@ export async function getSalesSummary(
 
   let query = supabase
     .from("appointments")
-    .select("id, staff_id, sales, status, type, cancelled_at, staffs(name)")
+    .select("id, staff_id, sales, status, type, visit_count, cancelled_at, staffs(name)")
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
@@ -75,22 +79,60 @@ export async function getSalesSummary(
   const newCustomerAppts = completed.filter((a) => a.type === 0);
   const existingCustomerAppts = completed.filter((a) => a.type !== 0);
 
-  // Staff breakdown
+  // Staff breakdown (completed appointments for sales/count) + treatment
+  // count (status 1/2, type=0 — actual 施術 only) + new customer count.
   const staffMap = new Map<
     number,
-    { staffName: string; sales: number; count: number }
+    {
+      staffName: string;
+      sales: number;
+      count: number;
+      treatmentCount: number;
+      newCount: number;
+    }
   >();
+
+  function getOrCreateStaff(
+    sId: number,
+    name: string
+  ) {
+    let row = staffMap.get(sId);
+    if (!row) {
+      row = { staffName: name, sales: 0, count: 0, treatmentCount: 0, newCount: 0 };
+      staffMap.set(sId, row);
+    }
+    return row;
+  }
+
+  // Pass 1: completed appointments → sales / count
   for (const appt of completed) {
-    const staffId = appt.staff_id;
     const staffData = appt.staffs as unknown as { name: string } | null;
-    const existing = staffMap.get(staffId) || {
-      staffName: staffData?.name ?? "不明",
-      sales: 0,
-      count: 0,
-    };
-    existing.sales += appt.sales || 0;
-    existing.count += 1;
-    staffMap.set(staffId, existing);
+    const row = getOrCreateStaff(
+      appt.staff_id,
+      staffData?.name ?? "不明"
+    );
+    row.sales += appt.sales || 0;
+    row.count += 1;
+  }
+
+  // Pass 2: treatment count + new count. Includes status 1 (施術中) AND
+  // status 2 (完了), but only type=0 (通常予約). Excludes meetings,
+  // breaks, cancels, no-shows.
+  for (const appt of appts) {
+    const isCustomerAppt = (appt.type as number) === 0;
+    const isTreatment =
+      isCustomerAppt && ((appt.status as number) === 1 || (appt.status as number) === 2);
+    if (!isTreatment) continue;
+
+    const staffData = appt.staffs as unknown as { name: string } | null;
+    const row = getOrCreateStaff(
+      appt.staff_id as number,
+      staffData?.name ?? "不明"
+    );
+    row.treatmentCount += 1;
+    if ((appt.visit_count as number | null) === 1) {
+      row.newCount += 1;
+    }
   }
 
   // Range utilization (open / busy / rate) — same date range, optionally
@@ -106,7 +148,13 @@ export async function getSalesSummary(
   // staff who worked but had everything cancelled (rare) still appear.
   for (const [sId, u] of utilizationByStaff.entries()) {
     if (!staffMap.has(sId) && u.openMin > 0) {
-      staffMap.set(sId, { staffName: "(staff #" + sId + ")", sales: 0, count: 0 });
+      staffMap.set(sId, {
+        staffName: "(staff #" + sId + ")",
+        sales: 0,
+        count: 0,
+        treatmentCount: 0,
+        newCount: 0,
+      });
     }
   }
 
@@ -127,10 +175,10 @@ export async function getSalesSummary(
     cancelledCount: cancelled.length,
     noShowCount: noShow.length,
     staffSales: Array.from(staffMap.entries())
-      .map(([staffId, data]) => {
-        const u = utilizationByStaff.get(staffId);
+      .map(([sId, data]) => {
+        const u = utilizationByStaff.get(sId);
         return {
-          staffId,
+          staffId: sId,
           ...data,
           openMin: u?.openMin ?? 0,
           busyMin: u?.busyMin ?? 0,
