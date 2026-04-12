@@ -230,7 +230,25 @@ export function ReservationCalendar({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+      {/* overflow-x: auto + overflow-y: clip.
+          CSS spec: when overflow-x is "auto", overflow-y can't be
+          "visible" — it gets promoted to "auto" too, which creates a
+          SECOND vertical scrollbar alongside <main>'s. That's the
+          "スクロールバーが2本" bug. Using overflow-y: clip delegates
+          all vertical scrolling to the parent <main> while keeping
+          horizontal scroll for wide calendars with many staff columns.
+
+          touch-action: pan-y tells the browser to immediately commit
+          to vertical scroll on the first gesture (no horizontal-scroll
+          ambiguity delay). */}
+      <div
+        className="rounded-2xl border bg-white shadow-sm"
+        style={{
+          overflowX: "auto",
+          overflowY: "clip",
+          touchAction: "pan-y",
+        }}
+      >
         {/* Sticky header */}
         <div
           className="sticky top-0 z-20 flex border-b bg-white/95 backdrop-blur-sm"

@@ -92,20 +92,38 @@ export async function uploadShopLogo(formData: FormData) {
 
   const ext = file.name.split(".").pop() ?? "png";
   const filePath = `${shopId}/logo.${ext}`;
+  const BUCKET = "shop-logos";
 
-  // Ensure bucket exists (idempotent — errors if already exists, which is fine)
-  try {
-    await supabase.storage.createBucket("shop-logos", {
-      public: true,
-      fileSizeLimit: 2 * 1024 * 1024,
-    });
-  } catch {
-    // Bucket already exists — continue
+  // Ensure bucket exists. createBucket returns { error } (doesn't throw).
+  // "already exists" or "Bucket already exists" is fine — anything else
+  // means the anon key doesn't have create-bucket permission and the
+  // user needs to create it via the Supabase Dashboard.
+  const { error: bucketErr } = await supabase.storage.createBucket(BUCKET, {
+    public: true,
+    fileSizeLimit: 2 * 1024 * 1024,
+  });
+  if (bucketErr) {
+    const msg = String(bucketErr.message ?? "");
+    const alreadyExists =
+      msg.includes("already exists") || msg.includes("Duplicate");
+    if (!alreadyExists) {
+      // Bucket doesn't exist and we can't create it. Check if it exists
+      // already (maybe RLS blocks createBucket but allows upload).
+      const { error: getErr } = await supabase.storage.getBucket(BUCKET);
+      if (getErr) {
+        return {
+          error:
+            "Supabase Storage に「shop-logos」バケットが見つかりません。" +
+            "Supabase ダッシュボード → Storage → New bucket で「shop-logos」" +
+            "（Public: ON）を作成してください。",
+        };
+      }
+    }
   }
 
   // Upload (upsert so re-upload replaces the old logo)
   const { error: uploadErr } = await supabase.storage
-    .from("shop-logos")
+    .from(BUCKET)
     .upload(filePath, file, { upsert: true });
   if (uploadErr) {
     return { error: `アップロードに失敗しました: ${uploadErr.message}` };

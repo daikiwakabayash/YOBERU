@@ -34,6 +34,8 @@ interface SalesData {
     staffName: string;
     sales: number;
     count: number;
+    treatmentCount: number;
+    newCount: number;
     openMin: number;
     busyMin: number;
     utilizationRate: number;
@@ -166,13 +168,15 @@ export function SalesDashboardContent({
                 <TableHead className="text-right">予約開放時間</TableHead>
                 <TableHead className="text-right">稼働時間</TableHead>
                 <TableHead className="text-right">稼働率</TableHead>
+                <TableHead className="text-right">施術数</TableHead>
+                <TableHead className="text-right">新規数</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.staffSales.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={9}
                     className="py-8 text-center text-muted-foreground"
                   >
                     データがありません
@@ -212,6 +216,23 @@ export function SalesDashboardContent({
                         >
                           {staff.openMin > 0 ? `${ratePct}%` : "-"}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="secondary">
+                          {staff.treatmentCount}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant="secondary"
+                          className={
+                            staff.newCount > 0
+                              ? "bg-orange-100 text-orange-700"
+                              : ""
+                          }
+                        >
+                          {staff.newCount}
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   );
