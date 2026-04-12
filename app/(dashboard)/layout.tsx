@@ -21,15 +21,9 @@ export default function DashboardLayout({
           style={{
             // iOS momentum scrolling (legacy -webkit- property).
             WebkitOverflowScrolling: "touch",
-            // Force the main scroll container to own vertical pan.
+            // Force the main scroll container to own vertical pan
+            // (touch devices only — does not affect desktop mouse).
             touchAction: "pan-y",
-            // Prevent rubber-band bounce at top/bottom edges which
-            // causes "一度バウンドしてしまって進めない" on iOS /
-            // macOS trackpad. `none` differs from `contain` in that
-            // it does NOT swallow the initial scroll gesture the way
-            // `contain` did (that was the earlier "1回目スクロール
-            // できない" bug).
-            overscrollBehavior: "none",
           }}
         >
           {children}
