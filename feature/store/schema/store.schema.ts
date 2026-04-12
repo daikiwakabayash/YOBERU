@@ -21,6 +21,10 @@ export const storeSchema = z.object({
   is_public: z.boolean().default(true),
   sort_number: z.coerce.number().int().min(0).default(0),
   enable_meeting_booking: z.boolean().default(true),
+  // LINE Messaging API
+  line_channel_id: z.string().max(64).optional().or(z.literal("")),
+  line_channel_secret: z.string().max(128).optional().or(z.literal("")),
+  line_channel_access_token: z.string().optional().or(z.literal("")),
 });
 
 export type StoreFormValues = z.infer<typeof storeSchema>;

@@ -82,6 +82,9 @@ export function StoreForm({
       is_public: true,
       sort_number: 0,
       enable_meeting_booking: true,
+      line_channel_id: "",
+      line_channel_secret: "",
+      line_channel_access_token: "",
     },
   });
 
@@ -379,6 +382,57 @@ export function StoreForm({
               <p className="mt-0.5 text-xs text-muted-foreground">
                 予約入力パネルに「ミーティング」「その他」の入力ボタンを表示します。これらは時間枠だけを抑える用途で、稼働率・売上には含まれません。
               </p>
+            </div>
+          </div>
+
+          {/* LINE Messaging API 連携 */}
+          <div className="space-y-3 rounded-lg border border-green-100 bg-green-50/30 p-4 md:col-span-2">
+            <div className="text-sm font-bold text-green-800">
+              LINE Messaging API 連携
+            </div>
+            <p className="text-xs text-muted-foreground">
+              LINE Developers Console から取得した値を入力してください。設定後、Webhook URL に{" "}
+              <code className="rounded bg-gray-100 px-1 text-[11px]">
+                https://お客様のドメイン/api/line/webhook
+              </code>{" "}
+              を登録すると、友だち追加 → リマインド通知が有効になります。
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              <FormField form={form} name="line_channel_id" label="チャネル ID (Bot の User ID)">
+                {(field) => (
+                  <Input
+                    id="line_channel_id"
+                    placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="line_channel_secret" label="チャネルシークレット">
+                {(field) => (
+                  <Input
+                    id="line_channel_secret"
+                    type="password"
+                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="line_channel_access_token" label="チャネルアクセストークン (長期)">
+                {(field) => (
+                  <Input
+                    id="line_channel_access_token"
+                    type="password"
+                    placeholder="長期トークンをここに貼り付け"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
             </div>
           </div>
 

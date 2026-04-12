@@ -167,6 +167,9 @@ export default async function ReservationPage({
               viewMode="week"
               staffs={allStaffs}
               selectedStaffId={effectiveStaffId}
+              pendingCount={weekData.appointments.filter(
+                (a) => a.type === 0 && a.status === 0
+              ).length}
             />
           }
         />
@@ -194,6 +197,13 @@ export default async function ReservationPage({
     frameMin: 15,
   };
 
+  // Count customer appointments (type=0) still in 待機 status (0).
+  // Slot blocks (type!=0) are excluded — they don't need to be
+  // "completed" before aggregation runs.
+  const pendingCount = data.appointments.filter(
+    (a) => a.type === 0 && a.status === 0
+  ).length;
+
   return (
     <div>
       <Suspense fallback={null}>
@@ -207,6 +217,7 @@ export default async function ReservationPage({
             viewMode="day"
             staffs={allStaffs}
             selectedStaffId={staffId}
+            pendingCount={pendingCount}
           />
         }
       />
