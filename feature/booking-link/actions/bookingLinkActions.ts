@@ -237,6 +237,7 @@ export async function submitPublicBooking(formData: FormData) {
     .is("deleted_at", null)
     .maybeSingle();
 
+  const isNewlyCreatedCustomer = !existing.data;
   if (existing.data) {
     customerId = existing.data.id as number;
   } else {
@@ -394,6 +395,23 @@ export async function submitPublicBooking(formData: FormData) {
     }
   }
 
+  // Stamp visit_count on the appointment, mirroring reservationActions.ts.
+  // For a newly created customer visit_count = 1 (first visit).
+  // For an existing customer visit_count = customer.visit_count + 1.
+  let stampedVisitCount = 1;
+  if (!isNewlyCreatedCustomer) {
+    try {
+      const { data: cust } = await supabase
+        .from("customers")
+        .select("visit_count")
+        .eq("id", customerId)
+        .maybeSingle();
+      stampedVisitCount = ((cust?.visit_count as number | null) ?? 0) + 1;
+    } catch {
+      /* keep default 1 */
+    }
+  }
+
   // 3. Create appointment
   const code = `APT-${shopId}-${Date.now()}`;
   const apptInsert = await supabase.from("appointments").insert({
@@ -411,6 +429,7 @@ export async function submitPublicBooking(formData: FormData) {
     status: 0,
     visit_source_id: link.data.visit_source_id ?? null,
     memo: utmSource ? `流入元: ${utmSource}` : null,
+    visit_count: stampedVisitCount,
   });
 
   if (apptInsert.error) {

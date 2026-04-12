@@ -210,32 +210,80 @@ export async function submitQuestionnaireResponse(formData: FormData) {
     answers
   );
 
-  const targetShopId = (q.shop_id as number | null) ?? 1;
+  const targetShopId = (q.shop_id as number | null) ?? null;
+  const brandId = q.brand_id as number;
 
-  // Attempt to find existing customer by phone if provided
+  // Extract name fields for tiered matching
+  const lastName =
+    (customerUpdate.last_name as string | undefined) ?? null;
+
+  // Attempt to find existing customer using tiered matching:
+  //  Tier 1: phone + name within same shop (most specific)
+  //  Tier 2: phone + name across brand (cross-shop match)
+  //  Tier 3: phone only across brand (name format differences)
   let customerId: number | null = null;
+  let existingDescription: string | null = null;
   const phone =
     customerUpdate.phone_number_1 ?? customerUpdate.phone ?? null;
+
   if (phone) {
-    const { data: existing } = await supabase
-      .from("customers")
-      .select("id, description")
-      .eq("shop_id", targetShopId)
-      .eq("phone_number_1", String(phone))
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (existing?.id) {
-      customerId = existing.id as number;
-      // Update existing customer: merge field-mapped values + append the
-      // questionnaire summary onto the existing description (memo).
+    // Tier 1: phone + name within same shop
+    if (!customerId && targetShopId && lastName) {
+      const { data: tier1 } = await supabase
+        .from("customers")
+        .select("id, description")
+        .eq("shop_id", targetShopId)
+        .eq("phone_number_1", String(phone))
+        .eq("last_name", lastName)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (tier1?.id) {
+        customerId = tier1.id as number;
+        existingDescription = (tier1.description as string | null) ?? null;
+      }
+    }
+
+    // Tier 2: phone + name across brand
+    if (!customerId && lastName) {
+      const { data: tier2 } = await supabase
+        .from("customers")
+        .select("id, description")
+        .eq("brand_id", brandId)
+        .eq("phone_number_1", String(phone))
+        .eq("last_name", lastName)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle();
+      if (tier2?.id) {
+        customerId = tier2.id as number;
+        existingDescription = (tier2.description as string | null) ?? null;
+      }
+    }
+
+    // Tier 3: phone only across brand
+    if (!customerId) {
+      const { data: tier3 } = await supabase
+        .from("customers")
+        .select("id, description")
+        .eq("brand_id", brandId)
+        .eq("phone_number_1", String(phone))
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle();
+      if (tier3?.id) {
+        customerId = tier3.id as number;
+        existingDescription = (tier3.description as string | null) ?? null;
+      }
+    }
+
+    // Update matched customer: merge field-mapped values + append the
+    // questionnaire summary onto the existing description (memo).
+    if (customerId) {
       await supabase
         .from("customers")
         .update({
           ...customerUpdate,
-          description: appendDescription(
-            (existing.description as string | null) ?? null,
-            summaryBlock
-          ),
+          description: appendDescription(existingDescription, summaryBlock),
         })
         .eq("id", customerId);
     }
@@ -246,10 +294,28 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   // are never orphaned. A placeholder name is generated in that edge
   // case so the staff can recognise it and rename later.
   if (!customerId) {
+    // Determine shop_id for new customer: use questionnaire's shop_id,
+    // or fall back to the brand's first shop (by sort_number).
+    let newCustomerShopId = targetShopId;
+    if (!newCustomerShopId) {
+      const { data: brandShop } = await supabase
+        .from("shops")
+        .select("id")
+        .eq("brand_id", brandId)
+        .is("deleted_at", null)
+        .order("sort_number", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      newCustomerShopId = (brandShop?.id as number | null) ?? null;
+    }
+    if (!newCustomerShopId) {
+      console.error("[questionnaire] no shop found for brand", brandId);
+    }
+
     const { data: maxRow } = await supabase
       .from("customers")
       .select("code")
-      .eq("shop_id", targetShopId)
+      .eq("shop_id", newCustomerShopId ?? 0)
       .order("code", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -264,8 +330,8 @@ export async function submitQuestionnaireResponse(formData: FormData) {
       `(問診票回答 ${toLocalDateString(new Date())})`;
 
     const insertData: Record<string, unknown> = {
-      brand_id: q.brand_id,
-      shop_id: targetShopId,
+      brand_id: brandId,
+      shop_id: newCustomerShopId,
       code: nextCode,
       type: 0,
       gender: 0,

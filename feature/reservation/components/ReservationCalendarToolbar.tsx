@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 import { getWeekdayLabel } from "@/helper/utils/weekday";
 import { toLocalDateString } from "@/helper/utils/time";
 import {
@@ -85,6 +87,30 @@ export function ReservationCalendarToolbar({
   }
 
   const [aggregateOpen, setAggregateOpen] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const datePickerRef = useRef<HTMLDivElement>(null);
+
+  // Close date picker on outside click
+  useEffect(() => {
+    if (!datePickerOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        datePickerRef.current &&
+        !datePickerRef.current.contains(e.target as Node)
+      ) {
+        setDatePickerOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [datePickerOpen]);
+
+  function handleDateSelect(date: Date | null) {
+    if (date) {
+      setDatePickerOpen(false);
+      router.push(buildUrl({ date: toLocalDateString(date) }));
+    }
+  }
 
   function confirmAggregate() {
     setAggregateOpen(false);
@@ -165,9 +191,24 @@ export function ReservationCalendarToolbar({
           <Button variant="outline" size="sm" onClick={goToday}>
             今日
           </Button>
-          <span className="min-w-[200px] text-center font-medium">
-            {displayDate}
-          </span>
+          <div className="relative" ref={datePickerRef}>
+            <button
+              type="button"
+              className="min-w-[200px] text-center font-medium cursor-pointer hover:bg-gray-100 rounded px-2 py-1 transition-colors border"
+              onClick={() => setDatePickerOpen(!datePickerOpen)}
+            >
+              {displayDate}
+            </button>
+            {datePickerOpen && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 mt-1">
+                <DatePicker
+                  selected={dateObj}
+                  onChange={handleDateSelect}
+                  inline
+                />
+              </div>
+            )}
+          </div>
           <Button variant="outline" size="sm" onClick={() => navigateDay(1)}>
             翌日
             <ChevronRight className="h-4 w-4" />
@@ -182,9 +223,24 @@ export function ReservationCalendarToolbar({
           <Button variant="outline" size="sm" onClick={goToday}>
             今日
           </Button>
-          <span className="min-w-[200px] text-center font-medium">
-            {displayDate}
-          </span>
+          <div className="relative" ref={datePickerRef}>
+            <button
+              type="button"
+              className="min-w-[200px] text-center font-medium cursor-pointer hover:bg-gray-100 rounded px-2 py-1 transition-colors border"
+              onClick={() => setDatePickerOpen(!datePickerOpen)}
+            >
+              {displayDate}
+            </button>
+            {datePickerOpen && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 mt-1">
+                <DatePicker
+                  selected={dateObj}
+                  onChange={handleDateSelect}
+                  inline
+                />
+              </div>
+            )}
+          </div>
           <Button variant="outline" size="sm" onClick={() => navigateWeek(1)}>
             次週
             <ChevronRight className="h-4 w-4" />
