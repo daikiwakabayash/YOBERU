@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { MapPin, Tag, User, Calendar, Info } from "lucide-react";
 import { AvailabilityCalendar } from "./AvailabilityCalendar";
 import { ShopMapSheet } from "./ShopMapSheet";
@@ -97,6 +97,36 @@ export function Step1StoreDateTime({
     menus.find((m) => m.menu_manage_id === state.menuManageId) ?? null;
   const selectedStaff = staffs.find((s) => s.id === state.staffId) ?? null;
 
+  // Fetch booked time slots for the selected staff so the calendar
+  // can mark occupied slots as "×". Runs every time staff or shop
+  // changes (not on every week navigation — the data covers 60 days
+  // ahead so most navigations are covered by the cached result).
+  type BookedRange = { date: string; startMin: number; endMin: number };
+  const [bookedSlots, setBookedSlots] = useState<BookedRange[]>([]);
+  useEffect(() => {
+    const effectiveShopId = state.shopId ?? (shops.length === 1 ? shops[0]?.id : null);
+    const effectiveStaffId = state.staffId;
+    if (!effectiveShopId || !effectiveStaffId || effectiveStaffId === 0) {
+      setBookedSlots([]);
+      return;
+    }
+    let cancelled = false;
+    const today = new Date();
+    const startDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const endD = new Date(today);
+    endD.setDate(endD.getDate() + 60);
+    const endDate = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, "0")}-${String(endD.getDate()).padStart(2, "0")}`;
+    import("@/feature/booking-link/services/getStaffBookedSlots")
+      .then((m) => m.getStaffBookedSlots(effectiveShopId, effectiveStaffId, startDate, endDate))
+      .then((slots) => {
+        if (!cancelled) setBookedSlots(slots);
+      })
+      .catch(() => {
+        if (!cancelled) setBookedSlots([]);
+      });
+    return () => { cancelled = true; };
+  }, [state.shopId, state.staffId, shops]);
+
   const shopsInArea = state.areaId
     ? shops.filter((s) => s.area_id === state.areaId)
     : shops;
@@ -122,8 +152,23 @@ export function Step1StoreDateTime({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
+      {/* Header + Logo */}
       <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-4 py-3">
+        {/* Shop logo — displayed when a shop is selected (or only 1 shop) */}
+        {(() => {
+          const logoShop =
+            selectedShop ??
+            (shops.length === 1 ? shops[0] : null);
+          return logoShop?.logo_url ? (
+            <div className="mb-2 flex justify-center">
+              <img
+                src={logoShop.logo_url}
+                alt={logoShop.name}
+                className="h-10 w-auto object-contain"
+              />
+            </div>
+          ) : null;
+        })()}
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -390,6 +435,8 @@ export function Step1StoreDateTime({
               selectedTime={state.time}
               onSelect={(date, time) => setState({ date, time })}
               availability={shopAvailability}
+              bookedSlots={bookedSlots}
+              menuDuration={selectedMenu?.duration ?? 60}
             />
           </div>
         )}

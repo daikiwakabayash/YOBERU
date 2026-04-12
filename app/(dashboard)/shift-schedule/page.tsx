@@ -7,9 +7,15 @@ import {
   type ShiftEntry,
 } from "@/feature/shift/components/ShiftScheduleGrid";
 import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
+import { getWorkPatterns } from "@/feature/shift/services/getWorkPatterns";
 import { getWeekDates } from "@/helper/utils/weekday";
+import { toLocalDateString } from "@/helper/utils/time";
+import { createClient } from "@/helper/lib/supabase/server";
 import { Pencil } from "lucide-react";
-import { getActiveShopId } from "@/helper/lib/shop-context";
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +25,7 @@ interface Props {
 
 export default async function ShiftSchedulePage({ searchParams }: Props) {
   const shopId = await getActiveShopId();
+  const brandId = await getActiveBrandId();
   const params = await searchParams;
 
   // Determine the week start (Monday)
@@ -34,36 +41,50 @@ export default async function ShiftSchedulePage({ searchParams }: Props) {
   }
   weekStart.setHours(0, 0, 0, 0);
 
-  const weekDates = getWeekDates(weekStart);
-  const dateStrings = weekDates.map((d) => d.toISOString().split("T")[0]);
-  const weekStartStr = dateStrings[0];
+  // Expand to 4 weeks so the user can scroll through a month without
+  // having to click "次の週" repeatedly. The start point is always
+  // the selected week — we show 4 consecutive weeks from there.
+  const WEEKS_TO_SHOW = 4;
+  const allDates: string[] = [];
+  for (let w = 0; w < WEEKS_TO_SHOW; w++) {
+    const wStart = new Date(weekStart);
+    wStart.setDate(weekStart.getDate() + w * 7);
+    const weekDates = getWeekDates(wStart);
+    for (const d of weekDates) {
+      allDates.push(toLocalDateString(d));
+    }
+  }
 
-  // Fetch effective shifts for each day
+  const weekStartStr = toLocalDateString(weekStart);
+
+  // Fetch effective shifts for each day (parallel, batched)
   const shiftsMap: Record<string, ShiftEntry> = {};
   const staffSet = new Map<number, { id: number; name: string }>();
 
   try {
-    const allDayShifts = await Promise.all(
-      dateStrings.map((date) => getEffectiveShifts(shopId, date))
-    );
-
-    for (let i = 0; i < dateStrings.length; i++) {
-      const date = dateStrings[i];
-      const dayShifts = allDayShifts[i];
-      for (const shift of dayShifts) {
-        staffSet.set(shift.staffId, {
-          id: shift.staffId,
-          name: shift.staffName,
-        });
-        shiftsMap[`${shift.staffId}-${date}`] = {
-          workPatternId: shift.workPatternId,
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-          patternName: shift.patternName,
-          abbreviationName: shift.abbreviationName,
-          abbreviationColor: shift.abbreviationColor,
-          isOverride: shift.isOverride,
-        };
+    const BATCH = 7;
+    for (let i = 0; i < allDates.length; i += BATCH) {
+      const slice = allDates.slice(i, i + BATCH);
+      const results = await Promise.all(
+        slice.map((date) => getEffectiveShifts(shopId, date))
+      );
+      for (let j = 0; j < slice.length; j++) {
+        const date = slice[j];
+        for (const shift of results[j]) {
+          staffSet.set(shift.staffId, {
+            id: shift.staffId,
+            name: shift.staffName,
+          });
+          shiftsMap[`${shift.staffId}-${date}`] = {
+            workPatternId: shift.workPatternId,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+            patternName: shift.patternName,
+            abbreviationName: shift.abbreviationName,
+            abbreviationColor: shift.abbreviationColor,
+            isOverride: shift.isOverride,
+          };
+        }
       }
     }
   } catch {
@@ -72,11 +93,34 @@ export default async function ShiftSchedulePage({ searchParams }: Props) {
 
   const staffs = Array.from(staffSet.values());
 
+  // Fetch work patterns for the inline shift edit popup quick-select
+  let workPatterns: Array<{
+    id: number;
+    name: string;
+    start_time: string;
+    end_time: string;
+    abbreviation_name: string | null;
+    abbreviation_color: string | null;
+  }> = [];
+  try {
+    const patterns = await getWorkPatterns(brandId);
+    workPatterns = patterns.map((p) => ({
+      id: p.id,
+      name: p.name,
+      start_time: p.start_time,
+      end_time: p.end_time,
+      abbreviation_name: p.abbreviation_name ?? null,
+      abbreviation_color: p.abbreviation_color ?? null,
+    }));
+  } catch {
+    // Work patterns not available
+  }
+
   return (
     <div>
       <PageHeader
         title="出勤表"
-        description="スタッフの週間出勤スケジュール"
+        description="スタッフの出勤スケジュール"
         actions={
           <Link href={`/shift-schedule/edit?week=${weekStartStr}`}>
             <Button>
@@ -90,8 +134,11 @@ export default async function ShiftSchedulePage({ searchParams }: Props) {
         <ShiftScheduleToolbar currentWeekStart={weekStartStr} />
         <ShiftScheduleGrid
           staffs={staffs}
-          dates={dateStrings}
+          dates={allDates}
           shifts={shiftsMap}
+          brandId={brandId}
+          shopId={shopId}
+          workPatterns={workPatterns}
         />
       </div>
     </div>

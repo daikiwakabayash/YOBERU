@@ -3,6 +3,7 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
 import { getWeekDates } from "@/helper/utils/weekday";
+import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
 import {
   getDailyStaffUtilization,
   getRangeStaffUtilization,
@@ -340,14 +341,41 @@ export async function getWeeklyCalendarData(
     };
   });
 
-  // 7. Generate time slots — fit the union of every appointment's
-  //    time range so the week view always covers the visible bookings.
-  //    Defaults 9..21 when there's nothing to anchor on.
+  // 7. Generate time slots — fit the union of the staff's SHIFT hours
+  //    across the week AND every appointment's time range. The previous
+  //    version only considered appointments, so a 9-21 shift with 9-11
+  //    appointments would show only 9-11 — that was the "予約表が 9 時
+  //    から 11 時しか空いていない" bug.
+  //
+  //    Fetch the selected staff's shifts for each day in parallel.
+  let weekShifts: Array<{
+    startTime: string | null;
+    endTime: string | null;
+  }> = [];
+  if (staffId) {
+    try {
+      const shiftResults = await Promise.all(
+        weekDates.map((d) => getEffectiveShifts(shopId, d).catch(() => []))
+      );
+      for (const dayShifts of shiftResults) {
+        for (const s of dayShifts) {
+          if (s.staffId === staffId) {
+            weekShifts.push({
+              startTime: s.startTime,
+              endTime: s.endTime,
+            });
+          }
+        }
+      }
+    } catch {
+      // Shift query failed — fall back to appointment-only range
+    }
+  }
+
   let minMin: number | null = null;
   let maxMin: number | null = null;
-  for (const a of appointments ?? []) {
-    const startHHMM = (a.start_at as string | null)?.slice(11, 16) ?? null;
-    const endHHMM = (a.end_at as string | null)?.slice(11, 16) ?? null;
+
+  function consider(startHHMM: string | null, endHHMM: string | null) {
     if (startHHMM) {
       const h = Number(startHHMM.slice(0, 2));
       const m = Number(startHHMM.slice(3, 5));
@@ -365,6 +393,19 @@ export async function getWeeklyCalendarData(
       }
     }
   }
+
+  // Include staff shift times (covers the full working range)
+  for (const s of weekShifts) {
+    consider(s.startTime?.slice(0, 5) ?? null, s.endTime?.slice(0, 5) ?? null);
+  }
+  // Include appointment times (may extend outside shift, e.g. off-shift bookings)
+  for (const a of appointments ?? []) {
+    consider(
+      (a.start_at as string | null)?.slice(11, 16) ?? null,
+      (a.end_at as string | null)?.slice(11, 16) ?? null
+    );
+  }
+
   const startHour =
     minMin == null ? 9 : Math.max(0, Math.floor(minMin / 60));
   const endHour =

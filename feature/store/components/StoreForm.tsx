@@ -82,8 +82,45 @@ export function StoreForm({
       is_public: true,
       sort_number: 0,
       enable_meeting_booking: true,
+      logo_url: "",
+      line_channel_id: "",
+      line_channel_secret: "",
+      line_channel_access_token: "",
     },
   });
+
+  // Logo upload state
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string>(
+    initialData?.logo_url ?? ""
+  );
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !initialData?.id) return;
+    setLogoUploading(true);
+    try {
+      const { uploadShopLogo } = await import("../actions/storeActions");
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("shop_id", String(initialData.id));
+      const result = await uploadShopLogo(fd);
+      if ("error" in result && result.error) {
+        const { toast } = await import("sonner");
+        toast.error(typeof result.error === "string" ? result.error : "アップロードに失敗しました");
+      } else if ("logoUrl" in result && result.logoUrl) {
+        setLogoPreview(result.logoUrl);
+        form.setValue("logo_url", result.logoUrl);
+        const { toast } = await import("sonner");
+        toast.success("ロゴをアップロードしました");
+      }
+    } catch {
+      const { toast } = await import("sonner");
+      toast.error("アップロードに失敗しました");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
 
   function onSubmit(values: StoreFormValues) {
     setServerError(null);
@@ -379,6 +416,88 @@ export function StoreForm({
               <p className="mt-0.5 text-xs text-muted-foreground">
                 予約入力パネルに「ミーティング」「その他」の入力ボタンを表示します。これらは時間枠だけを抑える用途で、稼働率・売上には含まれません。
               </p>
+            </div>
+          </div>
+
+          {/* 店舗ロゴ */}
+          {isEdit && (
+            <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/30 p-4 md:col-span-2">
+              <div className="text-sm font-bold text-blue-800">
+                店舗ロゴ
+              </div>
+              <p className="text-xs text-muted-foreground">
+                公開予約フォームのヘッダーに表示されます。PNG / JPEG / WebP / SVG、2MB以内。
+              </p>
+              <div className="flex items-center gap-4">
+                {logoPreview && (
+                  <img
+                    src={logoPreview}
+                    alt="店舗ロゴ"
+                    className="h-16 w-auto rounded border object-contain"
+                  />
+                )}
+                <label className="cursor-pointer rounded-md border bg-white px-4 py-2 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50">
+                  {logoUploading ? "アップロード中..." : logoPreview ? "ロゴを変更" : "ロゴをアップロード"}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={handleLogoUpload}
+                    disabled={logoUploading}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* LINE Messaging API 連携 */}
+          <div className="space-y-3 rounded-lg border border-green-100 bg-green-50/30 p-4 md:col-span-2">
+            <div className="text-sm font-bold text-green-800">
+              LINE Messaging API 連携
+            </div>
+            <p className="text-xs text-muted-foreground">
+              LINE Developers Console から取得した値を入力してください。設定後、Webhook URL に{" "}
+              <code className="rounded bg-gray-100 px-1 text-[11px]">
+                https://お客様のドメイン/api/line/webhook
+              </code>{" "}
+              を登録すると、友だち追加 → リマインド通知が有効になります。
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              <FormField form={form} name="line_channel_id" label="チャネル ID (Bot の User ID)">
+                {(field) => (
+                  <Input
+                    id="line_channel_id"
+                    placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="line_channel_secret" label="チャネルシークレット">
+                {(field) => (
+                  <Input
+                    id="line_channel_secret"
+                    type="password"
+                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="line_channel_access_token" label="チャネルアクセストークン (長期)">
+                {(field) => (
+                  <Input
+                    id="line_channel_access_token"
+                    type="password"
+                    placeholder="長期トークンをここに貼り付け"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
             </div>
           </div>
 

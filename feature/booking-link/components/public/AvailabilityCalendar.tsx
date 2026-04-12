@@ -24,6 +24,13 @@ export interface DayAvailability {
   endMin: number;   // exclusive
 }
 
+/** Per-staff booked time range (from getStaffBookedSlots). */
+export interface BookedRange {
+  date: string;
+  startMin: number;
+  endMin: number;
+}
+
 interface AvailabilityCalendarProps {
   selectedDate: string | null; // YYYY-MM-DD
   selectedTime: string | null; // HH:MM
@@ -34,6 +41,18 @@ interface AvailabilityCalendarProps {
    * open window as "×".
    */
   availability?: Record<string, DayAvailability | null>;
+  /**
+   * Booked time ranges for the selected staff. When a slot overlaps any
+   * of these ranges, it's marked as "×" (occupied) even if the shop's
+   * open window says it's available.
+   */
+  bookedSlots?: BookedRange[];
+  /**
+   * Duration of the selected menu in minutes. Used to check whether the
+   * appointment (slot start + duration) would overlap an existing booking.
+   * Defaults to 60 if not provided.
+   */
+  menuDuration?: number;
 }
 
 function toLocalDateString(d: Date): string {
@@ -63,6 +82,8 @@ export function AvailabilityCalendar({
   selectedTime,
   onSelect,
   availability,
+  bookedSlots = [],
+  menuDuration = 60,
 }: AvailabilityCalendarProps) {
   const [weekStart, setWeekStart] = useState(() => {
     const today = new Date();
@@ -83,12 +104,24 @@ export function AvailabilityCalendar({
 
   const monthLabel = `${weekStart.getFullYear()}年${weekStart.getMonth() + 1}月`;
 
+  // Index booked slots by date for O(1) lookup in getAvailability.
+  const bookedByDate = useMemo(() => {
+    const map = new Map<string, BookedRange[]>();
+    for (const b of bookedSlots) {
+      const arr = map.get(b.date) ?? [];
+      arr.push(b);
+      map.set(b.date, arr);
+    }
+    return map;
+  }, [bookedSlots]);
+
   /**
    * Availability resolution priority:
    *  1. Past (date < today, or today's already-passed slot) → "-"
    *  2. `availability` was provided AND date is closed → "-"
    *  3. `availability` was provided AND slot is outside open window → "×"
-   *  4. open
+   *  4. Staff has an existing booking that overlaps [slotMin, slotMin + menuDuration) → "×"
+   *  5. open
    *
    * Falls back to "always open" if the parent didn't pass `availability`.
    */
@@ -102,6 +135,18 @@ export function AvailabilityCalendar({
       const day = availability[dateStr];
       if (day == null) return "-"; // closed: no staff scheduled
       if (slotMin < day.startMin || slotMin >= day.endMin) return "x";
+    }
+    // Check if the proposed appointment [slotMin, slotMin + menuDuration)
+    // overlaps any existing booking for the selected staff on this date.
+    const dayBooked = bookedByDate.get(dateStr);
+    if (dayBooked) {
+      const apptEnd = slotMin + menuDuration;
+      for (const b of dayBooked) {
+        // Overlap: A.start < B.end AND B.start < A.end
+        if (slotMin < b.endMin && b.startMin < apptEnd) {
+          return "x";
+        }
+      }
     }
     return "o";
   }

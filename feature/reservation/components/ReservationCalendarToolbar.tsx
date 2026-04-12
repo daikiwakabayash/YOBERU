@@ -27,6 +27,13 @@ interface ReservationCalendarToolbarProps {
   viewMode?: "day" | "week";
   staffs?: Array<{ id: number; name: string }>;
   selectedStaffId?: number | null;
+  /**
+   * Number of customer appointments (type=0) still in 待機 status
+   * (status=0) for the current date. When > 0 the 集計実行 button
+   * is blocked with a warning. Slot blocks (type!=0) are excluded
+   * from this count — they don't need to be "completed".
+   */
+  pendingCount?: number;
 }
 
 export function ReservationCalendarToolbar({
@@ -34,6 +41,7 @@ export function ReservationCalendarToolbar({
   viewMode = "day",
   staffs = [],
   selectedStaffId = null,
+  pendingCount = 0,
 }: ReservationCalendarToolbarProps) {
   const router = useRouter();
   const dateObj = new Date(currentDate + "T00:00:00");
@@ -97,18 +105,53 @@ export function ReservationCalendarToolbar({
       </Button>
       <Dialog open={aggregateOpen} onOpenChange={setAggregateOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>集計を実行しますか？</DialogTitle>
-            <DialogDescription>
-              {displayDate} の売上・予約件数・スタッフ別実績を集計して、売上ダッシュボードに表示します。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAggregateOpen(false)}>
-              キャンセル
-            </Button>
-            <Button onClick={confirmAggregate}>集計する</Button>
-          </DialogFooter>
+          {pendingCount > 0 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-red-600">
+                  集計を実行できません
+                </DialogTitle>
+                <DialogDescription className="space-y-2">
+                  <p>
+                    {displayDate} にはまだ処理が完了していない予約が{" "}
+                    <span className="font-bold text-red-600">
+                      {pendingCount}件
+                    </span>{" "}
+                    あります。
+                  </p>
+                  <p>
+                    すべての予約に対して「会計確定」または「予約の取り消し」
+                    「当日キャンセル」のいずれかの処理を行ってから、
+                    集計を実行してください。
+                  </p>
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button onClick={() => setAggregateOpen(false)}>
+                  予約表に戻る
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>集計を実行しますか？</DialogTitle>
+                <DialogDescription>
+                  {displayDate}{" "}
+                  の売上・予約件数・スタッフ別実績を集計して、売上ダッシュボードに表示します。
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setAggregateOpen(false)}
+                >
+                  キャンセル
+                </Button>
+                <Button onClick={confirmAggregate}>集計する</Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

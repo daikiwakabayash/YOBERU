@@ -458,12 +458,12 @@ export function AppointmentDetailSheet({
 
   async function handleCancel() {
     if (!appointment) return;
-    if (!confirm("この予約をキャンセルしますか？")) return;
+    if (!confirm("この予約を取り消しますか？")) return;
     const result = await cancelAppointment(appointment.id);
     if (result.error) {
       toast.error(result.error);
     } else {
-      toast.success("キャンセルしました");
+      toast.success("予約を取り消しました");
       setStatus(3);
       onClose();
     }
@@ -965,6 +965,7 @@ export function AppointmentDetailSheet({
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent
         side="left"
+        showCloseButton={false}
         className="overflow-hidden p-0 transition-[max-width] duration-300 ease-out"
         style={{
           maxWidth: expanded ? "100vw" : "480px",
@@ -973,8 +974,21 @@ export function AppointmentDetailSheet({
       >
         {/* ------- Header ------- */}
         <SheetHeader className="sticky top-0 z-10 border-b bg-white px-6 py-4">
-          <div className="flex items-center justify-between">
-            <SheetTitle className="text-base font-bold">
+          <div className="flex items-center justify-between gap-2">
+            {/* Close / back button — always visible so the user can
+                return to the calendar from any state. The default
+                Sheet X button is hidden behind the sticky header's
+                z-10, so we render our own inside the header. */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+              title="予約表に戻る"
+            >
+              <X className="h-4 w-4" />
+              <span className="hidden sm:inline">閉じる</span>
+            </button>
+            <SheetTitle className="min-w-0 flex-1 text-base font-bold">
               {isNew ? (
                 "新規予約"
               ) : isExistingSlotBlock && appointment?.slotBlock ? (
@@ -1052,13 +1066,11 @@ export function AppointmentDetailSheet({
             <div className="flex gap-2">
               <Button
                 size="sm"
-                onClick={handleCheckin}
-                className="flex-1 bg-green-600 hover:bg-green-700"
+                variant="outline"
+                className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                onClick={handleCancel}
               >
-                来店（チェックイン）
-              </Button>
-              <Button size="sm" variant="outline" onClick={handleCancel}>
-                キャンセル
+                予約の取り消し
               </Button>
             </div>
           )}

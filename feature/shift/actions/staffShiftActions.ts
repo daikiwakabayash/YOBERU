@@ -66,6 +66,60 @@ export async function deleteStaffShift(id: number) {
   return { success: true };
 }
 
+/**
+ * Quick single-cell upsert for the inline shift edit popup.
+ * Soft-deletes any existing override for the (staff, date) pair and
+ * inserts the new one. If workPatternId is null → clear to day-off.
+ */
+export async function quickUpsertShift(params: {
+  staffId: number;
+  brandId: number;
+  shopId: number;
+  date: string;
+  workPatternId: number | null;
+  startTime: string;
+  endTime: string;
+}): Promise<{ success: true } | { error: string }> {
+  const supabase = await createClient();
+
+  // 1. Soft-delete existing override for this staff + date
+  const { data: existing } = await supabase
+    .from("staff_shifts")
+    .select("id")
+    .eq("staff_id", params.staffId)
+    .eq("shop_id", params.shopId)
+    .eq("start_date", params.date)
+    .is("deleted_at", null);
+
+  if (existing && existing.length > 0) {
+    const ids = existing.map((e: { id: number }) => e.id);
+    const { error: delErr } = await supabase
+      .from("staff_shifts")
+      .update({ deleted_at: new Date().toISOString() })
+      .in("id", ids);
+    if (delErr) return { error: delErr.message };
+  }
+
+  // 2. Insert new entry (skip if day-off = null pattern)
+  if (params.workPatternId !== null) {
+    const { error: insErr } = await supabase.from("staff_shifts").insert({
+      staff_id: params.staffId,
+      brand_id: params.brandId,
+      shop_id: params.shopId,
+      work_pattern_id: params.workPatternId,
+      start_date: params.date,
+      start_time: params.startTime,
+      end_time: params.endTime,
+      is_public: true,
+    });
+    if (insErr) return { error: insErr.message };
+  }
+
+  revalidatePath("/shift-schedule");
+  revalidatePath("/reservation");
+  return { success: true };
+}
+
 interface BulkShiftEntry {
   staff_id: number;
   brand_id: number;

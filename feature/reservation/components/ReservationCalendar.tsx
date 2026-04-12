@@ -234,7 +234,10 @@ export function ReservationCalendar({
         {/* Sticky header */}
         <div
           className="sticky top-0 z-20 flex border-b bg-white/95 backdrop-blur-sm"
-          style={{ minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH }}
+          style={{
+            minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH,
+            willChange: "transform",
+          }}
         >
           <div
             className="flex shrink-0 items-center justify-center border-r text-xs font-medium text-gray-400"
@@ -319,7 +322,7 @@ export function ReservationCalendar({
           {/* Time column */}
           <div
             className="sticky left-0 z-10 shrink-0 border-r bg-white"
-            style={{ width: TIME_COL_WIDTH }}
+            style={{ width: TIME_COL_WIDTH, willChange: "transform" }}
           >
             {timeSlots.map((slot, idx) => {
               const isHour = slot.endsWith(":00");
@@ -647,7 +650,7 @@ export function ReservationCalendar({
                     <div
                       key={appt.id}
                       data-appt={appt.id}
-                      className={`absolute select-none rounded-md border ${borderColor} ${bgColor} px-2 py-1 transition-shadow hover:shadow-md ${
+                      className={`absolute select-none overflow-hidden rounded-md border ${borderColor} ${bgColor} px-1.5 py-0.5 transition-shadow hover:shadow-md ${
                         isBeingDragged
                           ? "cursor-grabbing opacity-60 z-50"
                           : "cursor-grab"
@@ -670,30 +673,21 @@ export function ReservationCalendar({
                       }}
                       onMouseDown={(e) => handleDragStart(appt, e)}
                     >
-                      {/* Status badge top-right */}
-                      {statusBadge && (
-                        <div className="absolute right-1.5 top-1.5">
-                          <span
-                            className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${statusBadgeColor}`}
-                          >
-                            {statusBadge}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Customer name + カルテNo + visit badge */}
-                      <div className="flex items-center gap-1 leading-tight">
-                        <span className="text-[13px] font-black text-gray-900">
+                      {/* Single-line header: name + code + badge + status.
+                          Everything on one row with truncate so 30-min
+                          slots don't overflow their box. */}
+                      <div className="flex items-center gap-1 truncate leading-snug">
+                        <span className="truncate text-[11px] font-black text-gray-900">
                           {appt.customerName}
                         </span>
                         {formatCustomerCode(appt.customerCode) && (
-                          <span className="text-[10px] font-bold text-gray-500">
+                          <span className="shrink-0 text-[9px] font-bold text-gray-500">
                             ({formatCustomerCode(appt.customerCode)})
                           </span>
                         )}
                         {isNew ? (
                           <span
-                            className="rounded px-1.5 py-0 text-[10px] font-bold"
+                            className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
                             style={{
                               backgroundColor: appt.sourceColor ?? "#ef4444",
                               color: appt.sourceTextColor ?? "#ffffff",
@@ -703,25 +697,26 @@ export function ReservationCalendar({
                           </span>
                         ) : (
                           visitLabel && (
-                            <span className="rounded bg-blue-500 px-1.5 py-0 text-[10px] font-bold text-white">
+                            <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[9px] font-bold text-white">
                               {visitLabel}
                             </span>
                           )
                         )}
+                        {statusBadge && (
+                          <span
+                            className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
+                          >
+                            {statusBadge}
+                          </span>
+                        )}
                       </div>
 
-                      {/* Menu + duration */}
-                      <div className="mt-0.5 truncate text-[11px] text-gray-600">
+                      {/* Menu + duration — second line, auto-hidden when
+                          the card is too short (30-min slots). */}
+                      <div className="truncate text-[10px] text-gray-600">
                         {appt.menuName}
                         {appt.duration > 0 && `（${appt.duration}分）`}
                       </div>
-
-                      {/* Source for new customers */}
-                      {isNew && appt.source && (
-                        <div className="truncate text-[10px] text-gray-400">
-                          {appt.source}
-                        </div>
-                      )}
                     </div>
                   );
                   });

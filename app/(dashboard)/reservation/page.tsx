@@ -49,29 +49,10 @@ export default async function ReservationPage({
 
   const supabase = await createClient();
 
-  // Fetch the shop's meeting-booking toggle up front (migration 00010).
-  // Falls back to TRUE if the column doesn't exist yet.
-  let enableMeetingBooking = true;
-  try {
-    const { data: shopRow } = await supabase
-      .from("shops")
-      .select("enable_meeting_booking")
-      .eq("id", shopId)
-      .maybeSingle();
-    if (
-      shopRow &&
-      typeof (shopRow as { enable_meeting_booking?: unknown })
-        .enable_meeting_booking === "boolean"
-    ) {
-      enableMeetingBooking = (shopRow as { enable_meeting_booking: boolean })
-        .enable_meeting_booking;
-    }
-  } catch {
-    /* column missing — keep default */
-  }
-
-  // Parallel fetch: each query is independent & resilient to missing tables
-  const [allStaffs, menus, visitSources, paymentMethods, dayData, weekDataEarly] =
+  // ALL independent queries in ONE Promise.all — no sequential calls.
+  // The enableMeetingBooking shop query was previously serial (blocking
+  // 50-100ms before the main batch); now it's in the same batch.
+  const [allStaffs, menus, visitSources, paymentMethods, dayData, weekDataEarly, shopSettings] =
     await Promise.all([
       safeQuery<{ id: number; name: string }>(
         supabase
@@ -123,7 +104,29 @@ export default async function ReservationPage({
       viewMode === "week" && staffId
         ? getWeeklyCalendarData(shopId, date, staffId).catch(() => null)
         : Promise.resolve(null),
+      // Shop settings (enable_meeting_booking) — merged into the batch
+      // instead of blocking before it. Falls back to defaults if the
+      // column doesn't exist yet (migration 00010 not applied).
+      (async () => {
+        try {
+          const r = await supabase
+            .from("shops")
+            .select("enable_meeting_booking")
+            .eq("id", shopId)
+            .maybeSingle();
+          return r.data;
+        } catch {
+          return null;
+        }
+      })(),
     ]);
+
+  const enableMeetingBooking =
+    typeof (shopSettings as { enable_meeting_booking?: unknown })
+      ?.enable_meeting_booking === "boolean"
+      ? (shopSettings as { enable_meeting_booking: boolean })
+          .enable_meeting_booking
+      : true;
 
   // Auto-select first staff if week view and no staff selected
   const effectiveStaffId =
@@ -167,6 +170,9 @@ export default async function ReservationPage({
               viewMode="week"
               staffs={allStaffs}
               selectedStaffId={effectiveStaffId}
+              pendingCount={weekData.appointments.filter(
+                (a) => a.type === 0 && a.status === 0
+              ).length}
             />
           }
         />
@@ -194,6 +200,13 @@ export default async function ReservationPage({
     frameMin: 15,
   };
 
+  // Count customer appointments (type=0) still in 待機 status (0).
+  // Slot blocks (type!=0) are excluded — they don't need to be
+  // "completed" before aggregation runs.
+  const pendingCount = data.appointments.filter(
+    (a) => a.type === 0 && a.status === 0
+  ).length;
+
   return (
     <div>
       <Suspense fallback={null}>
@@ -207,6 +220,7 @@ export default async function ReservationPage({
             viewMode="day"
             staffs={allStaffs}
             selectedStaffId={staffId}
+            pendingCount={pendingCount}
           />
         }
       />
