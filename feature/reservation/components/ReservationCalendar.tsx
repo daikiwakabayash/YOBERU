@@ -230,7 +230,15 @@ export function ReservationCalendar({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+      {/* touch-action: pan-y tells the browser to immediately decide
+          "this is a vertical scroll" rather than waiting to see if the
+          user drags horizontally. Without it the first swipe on touch
+          devices gets swallowed by the scroll-direction arbitration in
+          the overflow-x-auto container. */}
+      <div
+        className="overflow-x-auto rounded-2xl border bg-white shadow-sm"
+        style={{ touchAction: "pan-y" }}
+      >
         {/* Sticky header */}
         <div
           className="sticky top-0 z-20 flex border-b bg-white/95 backdrop-blur-sm"

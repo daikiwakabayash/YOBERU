@@ -89,7 +89,10 @@ export function WeeklyReservationCalendar({
 
   const handleDragStart = useCallback(
     (appt: CalendarAppointment, e: React.MouseEvent) => {
-      e.preventDefault();
+      // DO NOT call e.preventDefault() here — same fix as the day view.
+      // mousedown is synthesized from touchstart on touch devices, and
+      // preventing default cancels the browser's scroll decision for the
+      // entire touch sequence (= "1回目スクロールできない" bug).
       e.stopPropagation();
       const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
       if (!rect) return;
@@ -236,7 +239,10 @@ export function WeeklyReservationCalendar({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+      <div
+        className="overflow-x-auto rounded-2xl border bg-white shadow-sm"
+        style={{ touchAction: "pan-y" }}
+      >
         {/* Staff banner — shows the currently filtered staff + their
             weekly utilization rate. Only rendered when a staff is
             selected (week view is always staff-filtered). */}
@@ -284,7 +290,7 @@ export function WeeklyReservationCalendar({
                 className={`flex shrink-0 flex-col items-center justify-center border-r py-3 ${
                   isToday ? "bg-blue-50" : ""
                 }`}
-                style={{ width: DAY_COL_MIN_WIDTH, flex: 1 }}
+                style={{ width: DAY_COL_MIN_WIDTH, minWidth: DAY_COL_MIN_WIDTH }}
               >
                 <div
                   className={`text-sm font-medium ${
@@ -385,7 +391,7 @@ export function WeeklyReservationCalendar({
                 key={dateStr}
                 data-date={dateStr}
                 className={`relative shrink-0 border-r ${isToday ? "bg-blue-50/30" : ""}`}
-                style={{ width: DAY_COL_MIN_WIDTH, flex: 1 }}
+                style={{ width: DAY_COL_MIN_WIDTH, minWidth: DAY_COL_MIN_WIDTH }}
               >
                 {/* Grid lines + clickable cells — same Google-Calendar
                     style as the day view: the horizontal line drawn at
