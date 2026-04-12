@@ -243,41 +243,42 @@ export async function submitPublicBooking(formData: FormData) {
         "この電話番号は既に登録されています。別の電話番号をご利用ください。",
     };
   } else {
-    // Generate code
-    const maxRow = await supabase
-      .from("customers")
-      .select("code")
-      .order("code", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    let nextCode = "00000001";
-    if (maxRow.data?.code) {
-      const num = parseInt(String(maxRow.data.code), 10);
-      if (!isNaN(num)) nextCode = String(num + 1).padStart(8, "0");
+    // Generate a unique customer code. Use timestamp-based code to avoid
+    // collisions from RLS-filtered max queries. Retry on conflict.
+    let customerId_: number | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = String(Date.now() + attempt).slice(-8).padStart(8, "0");
+      const inserted = await supabase
+        .from("customers")
+        .insert({
+          brand_id: brandId,
+          shop_id: shopId,
+          code,
+          last_name: lastName,
+          first_name: firstName || null,
+          last_name_kana: lastNameKana,
+          first_name_kana: firstNameKana,
+          phone_number_1: phone,
+          email,
+          type: 0,
+          gender: 0,
+          first_visit_source_id: link.data.visit_source_id ?? null,
+        })
+        .select("id")
+        .single();
+      if (!inserted.error && inserted.data) {
+        customerId_ = inserted.data.id as number;
+        break;
+      }
+      // If NOT a duplicate key error, stop retrying
+      if (!inserted.error?.message?.includes("customers_code_key")) {
+        return { error: "顧客登録に失敗しました: " + inserted.error?.message };
+      }
     }
-
-    const inserted = await supabase
-      .from("customers")
-      .insert({
-        brand_id: brandId,
-        shop_id: shopId,
-        code: nextCode,
-        last_name: lastName,
-        first_name: firstName || null,
-        last_name_kana: lastNameKana,
-        first_name_kana: firstNameKana,
-        phone_number_1: phone,
-        email,
-        type: 0,
-        gender: 0,
-        first_visit_source_id: link.data.visit_source_id ?? null,
-      })
-      .select("id")
-      .single();
-    if (inserted.error || !inserted.data) {
-      return { error: "顧客登録に失敗しました: " + inserted.error?.message };
+    if (customerId_ == null) {
+      return { error: "顧客コードの生成に失敗しました。時間をおいて再度お試しください。" };
     }
-    customerId = inserted.data.id as number;
+    customerId = customerId_;
   }
 
   // 2. Determine staff: use designated staff if provided, otherwise auto-assign
