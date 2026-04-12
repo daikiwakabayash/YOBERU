@@ -70,7 +70,7 @@ export async function updateStore(id: number, formData: FormData) {
  *   - shop_id: string
  *
  * The file is stored in the `shop-logos` bucket at path `{shopId}/logo.{ext}`.
- * Creates the bucket if it doesn't exist (public, with 2MB file size limit).
+ * The bucket must be pre-created in Supabase Dashboard (Public: ON).
  */
 export async function uploadShopLogo(formData: FormData) {
   const supabase = await createClient();
@@ -126,7 +126,18 @@ export async function uploadShopLogo(formData: FormData) {
     .from(BUCKET)
     .upload(filePath, file, { upsert: true });
   if (uploadErr) {
-    return { error: `アップロードに失敗しました: ${uploadErr.message}` };
+    // Provide actionable error when the bucket is missing or inaccessible
+    const msg = uploadErr.message ?? "";
+    if (
+      msg.toLowerCase().includes("not found") ||
+      msg.toLowerCase().includes("bucket")
+    ) {
+      return {
+        error:
+          "shop-logos バケットにアクセスできません。Supabase ダッシュボード → Storage で「shop-logos」バケット (Public: ON) が存在し、INSERT / UPDATE ポリシーが設定されていることを確認してください。",
+      };
+    }
+    return { error: `アップロードに失敗しました: ${msg}` };
   }
 
   // Get public URL

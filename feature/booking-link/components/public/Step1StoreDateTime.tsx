@@ -436,7 +436,7 @@ export function Step1StoreDateTime({
               onSelect={(date, time) => setState({ date, time })}
               availability={shopAvailability}
               bookedSlots={bookedSlots}
-              menuDuration={selectedMenu?.duration ?? 60}
+              menuDuration={selectedMenu?.duration || 30}
             />
           </div>
         )}

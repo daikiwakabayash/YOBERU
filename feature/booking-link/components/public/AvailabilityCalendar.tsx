@@ -138,11 +138,11 @@ export function AvailabilityCalendar({
     }
     // Check if the proposed appointment [slotMin, slotMin + menuDuration)
     // overlaps any existing booking for the selected staff on this date.
-    // Use at least 1 minute so a 0-duration menu (e.g. membership plan)
-    // still detects bookings that start at the same slot.
+    // Use at least 30 minutes (one calendar slot) so a 0-duration menu
+    // (e.g. membership plan) still properly blocks occupied slots.
     const dayBooked = bookedByDate.get(dateStr);
     if (dayBooked) {
-      const apptEnd = slotMin + Math.max(menuDuration, 1);
+      const apptEnd = slotMin + (menuDuration > 0 ? menuDuration : 30);
       for (const b of dayBooked) {
         // Overlap: A.start < B.end AND B.start < A.end
         if (slotMin < b.endMin && b.startMin < apptEnd) {
