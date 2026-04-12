@@ -19,18 +19,17 @@ export default function DashboardLayout({
         <main
           className="flex-1 overflow-y-auto bg-gray-50"
           style={{
-            // iOS momentum scrolling. Without this, once the first
-            // touch gesture decision is (belatedly) resolved the
-            // scroll feels "stuck" until the second swipe — exactly
-            // the "一回目がかなり遅い" symptom.
+            // iOS momentum scrolling (legacy -webkit- property).
             WebkitOverflowScrolling: "touch",
-            // Force the main scroll container to claim vertical pan
-            // itself, independent of whatever touchAction the inner
-            // cards declare. Some Chromium versions decide gesture
-            // intent on the FIRST ancestor whose touch-action is
-            // anything other than auto, so we make that ancestor the
-            // scroller instead of the app card.
+            // Force the main scroll container to own vertical pan.
             touchAction: "pan-y",
+            // Prevent rubber-band bounce at top/bottom edges which
+            // causes "一度バウンドしてしまって進めない" on iOS /
+            // macOS trackpad. `none` differs from `contain` in that
+            // it does NOT swallow the initial scroll gesture the way
+            // `contain` did (that was the earlier "1回目スクロール
+            // できない" bug).
+            overscrollBehavior: "none",
           }}
         >
           {children}

@@ -230,7 +230,10 @@ export function ReservationCalendar({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+      <div
+        className="overflow-x-auto rounded-2xl border bg-white shadow-sm"
+        style={{ touchAction: "pan-x pan-y" }}
+      >
         {/* Sticky header */}
         <div
           className="sticky top-0 z-20 flex border-b bg-white/95 backdrop-blur-sm"
