@@ -247,7 +247,6 @@ export async function submitPublicBooking(formData: FormData) {
     const maxRow = await supabase
       .from("customers")
       .select("code")
-      .eq("shop_id", shopId)
       .order("code", { ascending: false })
       .limit(1)
       .maybeSingle();
