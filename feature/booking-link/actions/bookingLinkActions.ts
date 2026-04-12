@@ -239,6 +239,18 @@ export async function submitPublicBooking(formData: FormData) {
 
   if (existing.data) {
     customerId = existing.data.id as number;
+    // Update with the latest name / email from the booking form so the
+    // calendar always reflects what the customer actually entered.
+    await supabase
+      .from("customers")
+      .update({
+        last_name: lastName,
+        first_name: firstName || null,
+        last_name_kana: lastNameKana,
+        first_name_kana: firstNameKana,
+        ...(email ? { email } : {}),
+      })
+      .eq("id", customerId);
   } else {
     // Generate code
     const maxRow = await supabase
