@@ -7,10 +7,15 @@ import {
   type ShiftEntry,
 } from "@/feature/shift/components/ShiftScheduleGrid";
 import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
+import { getWorkPatterns } from "@/feature/shift/services/getWorkPatterns";
 import { getWeekDates } from "@/helper/utils/weekday";
 import { toLocalDateString } from "@/helper/utils/time";
+import { createClient } from "@/helper/lib/supabase/server";
 import { Pencil } from "lucide-react";
-import { getActiveShopId } from "@/helper/lib/shop-context";
+import {
+  getActiveShopId,
+  getActiveBrandId,
+} from "@/helper/lib/shop-context";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +25,7 @@ interface Props {
 
 export default async function ShiftSchedulePage({ searchParams }: Props) {
   const shopId = await getActiveShopId();
+  const brandId = await getActiveBrandId();
   const params = await searchParams;
 
   // Determine the week start (Monday)
@@ -87,6 +93,29 @@ export default async function ShiftSchedulePage({ searchParams }: Props) {
 
   const staffs = Array.from(staffSet.values());
 
+  // Fetch work patterns for the inline shift edit popup quick-select
+  let workPatterns: Array<{
+    id: number;
+    name: string;
+    start_time: string;
+    end_time: string;
+    abbreviation_name: string | null;
+    abbreviation_color: string | null;
+  }> = [];
+  try {
+    const patterns = await getWorkPatterns(brandId);
+    workPatterns = patterns.map((p) => ({
+      id: p.id,
+      name: p.name,
+      start_time: p.start_time,
+      end_time: p.end_time,
+      abbreviation_name: p.abbreviation_name ?? null,
+      abbreviation_color: p.abbreviation_color ?? null,
+    }));
+  } catch {
+    // Work patterns not available
+  }
+
   return (
     <div>
       <PageHeader
@@ -106,7 +135,10 @@ export default async function ShiftSchedulePage({ searchParams }: Props) {
         <ShiftScheduleGrid
           staffs={staffs}
           dates={allDates}
-        shifts={shiftsMap}
+          shifts={shiftsMap}
+          brandId={brandId}
+          shopId={shopId}
+          workPatterns={workPatterns}
         />
       </div>
     </div>
