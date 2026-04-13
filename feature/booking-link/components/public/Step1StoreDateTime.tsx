@@ -136,13 +136,13 @@ export function Step1StoreDateTime({
         setBookedSlots([]);
         return;
       }
-      // Build staffIdsByDate from availability data
-      const staffIdsByDate: Record<string, number[]> = {};
+      // Build staffShiftsByDate from availability data (per-staff shift ranges)
+      const staffShiftsByDate: Record<string, Array<{ staffId: number; startMin: number; endMin: number }>> = {};
       for (const [dateStr, day] of Object.entries(avail)) {
-        if (day?.staffIds) staffIdsByDate[dateStr] = day.staffIds;
+        if (day?.staffShifts) staffShiftsByDate[dateStr] = day.staffShifts;
       }
       import("@/feature/booking-link/services/getStaffBookedSlots")
-        .then((m) => m.getShopFullyBookedSlots(effectiveShopId, startDate, endDate, staffIdsByDate))
+        .then((m) => m.getShopFullyBookedSlots(effectiveShopId, startDate, endDate, staffShiftsByDate))
         .then((slots) => {
           if (!cancelled) setBookedSlots(slots);
         })

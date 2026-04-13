@@ -69,19 +69,20 @@ export async function getStaffBookedSlots(
 }
 
 /**
- * Returns "fully booked" time ranges for a shop — slots where ALL working
+ * Returns "fully booked" time ranges for a shop — slots where ALL on-shift
  * staff have overlapping appointments. Used by the booking calendar in
  * "any staff" mode (staffId === 0) so that the calendar can mark slots
  * as "×" when no staff is available.
  *
- * @param staffIdsByDate  Map of YYYY-MM-DD → array of working staff IDs
- *                        (from ShopAvailabilityDay.staffIds)
+ * @param staffShiftsByDate  Map of YYYY-MM-DD → per-staff shift ranges.
+ *        Only staff whose shift covers a slot are considered; a staff
+ *        member off-shift at a given time is NOT counted as "available".
  */
 export async function getShopFullyBookedSlots(
   shopId: number,
   startDate: string,
   endDate: string,
-  staffIdsByDate: Record<string, number[]>
+  staffShiftsByDate: Record<string, Array<{ staffId: number; startMin: number; endMin: number }>>
 ): Promise<BookedRange[]> {
   const supabase = await createClient();
 
@@ -128,20 +129,25 @@ export async function getShopFullyBookedSlots(
     });
   }
 
-  // For each date, walk 30-min slots and check if ALL working staff are booked
+  // For each date, walk 30-min slots and check if ALL on-shift staff are booked
   const result: BookedRange[] = [];
-  for (const [dateStr, workingStaffIds] of Object.entries(staffIdsByDate)) {
-    if (workingStaffIds.length === 0) continue;
+  for (const [dateStr, shifts] of Object.entries(staffShiftsByDate)) {
+    if (shifts.length === 0) continue;
     const staffMap = byDateStaff.get(dateStr);
-    if (!staffMap) continue; // no appointments this day = all slots free
 
-    // Walk 30-min slots from 0:00 to 23:30
     for (let slotMin = 0; slotMin < 24 * 60; slotMin += 30) {
       const slotEnd = slotMin + 30;
-      // Check if every working staff has an appointment overlapping this slot
-      const allBusy = workingStaffIds.every((sid) => {
-        const ranges = staffMap.get(sid);
-        if (!ranges) return false; // staff has no appointments → free
+      // Only consider staff whose shift covers this slot
+      const onShiftStaff = shifts.filter(
+        (s) => s.startMin <= slotMin && s.endMin >= slotEnd
+      );
+      if (onShiftStaff.length === 0) continue; // no staff on shift at this time
+
+      // Check if every on-shift staff has an overlapping appointment
+      const allBusy = onShiftStaff.every((s) => {
+        if (!staffMap) return false; // no appointments at all this day
+        const ranges = staffMap.get(s.staffId);
+        if (!ranges) return false; // this staff has no appointments → free
         return ranges.some((r) => r.startMin < slotEnd && slotMin < r.endMin);
       });
       if (allBusy) {

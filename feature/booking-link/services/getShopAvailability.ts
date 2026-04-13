@@ -23,6 +23,7 @@ export interface ShopAvailabilityDay {
   startMin: number; // inclusive, minutes-since-midnight
   endMin: number;   // exclusive
   staffIds: number[];
+  staffShifts: Array<{ staffId: number; startMin: number; endMin: number }>;
 }
 
 export async function getShopAvailability(
@@ -117,6 +118,7 @@ export async function getShopAvailability(
     let dayMinStart: number | null = null;
     let dayMaxEnd: number | null = null;
     const dayStaffIds: number[] = [];
+    const dayStaffShifts: Array<{ staffId: number; startMin: number; endMin: number }> = [];
 
     for (const staff of staffs) {
       const override = overrideMap.get(`${staff.id}|${dateStr}`);
@@ -150,13 +152,14 @@ export async function getShopAvailability(
       if (sMin == null || eMin == null) continue;
 
       dayStaffIds.push(staff.id);
+      dayStaffShifts.push({ staffId: staff.id, startMin: sMin, endMin: eMin });
       dayMinStart = dayMinStart == null ? sMin : Math.min(dayMinStart, sMin);
       dayMaxEnd = dayMaxEnd == null ? eMin : Math.max(dayMaxEnd, eMin);
     }
 
     out[dateStr] =
       dayMinStart != null && dayMaxEnd != null
-        ? { startMin: dayMinStart, endMin: dayMaxEnd, staffIds: dayStaffIds }
+        ? { startMin: dayMinStart, endMin: dayMaxEnd, staffIds: dayStaffIds, staffShifts: dayStaffShifts }
         : null;
   }
   return out;
