@@ -387,6 +387,7 @@ export async function cancelAppointment(id: number) {
     .update({
       cancelled_at: new Date().toISOString(),
       status: 3,
+      deleted_at: new Date().toISOString(),
     })
     .eq("id", id);
 
@@ -419,6 +420,7 @@ export async function sameDayCancelAppointment(id: number, reason: string) {
       status: 4,
       cancelled_at: new Date().toISOString(),
       customer_record: reason || null,
+      deleted_at: new Date().toISOString(),
     })
     .eq("id", id);
 
