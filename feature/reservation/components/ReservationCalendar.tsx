@@ -19,11 +19,16 @@ interface ReservationCalendarProps {
 }
 
 // Horizontal layout constants — staff rows on Y, time on X.
-const STAFF_ROW_HEIGHT = 80;
-const STAFF_LABEL_WIDTH = 140;
-const TIME_HEADER_HEIGHT = 36;
-// Pixels per minute — 30min = 120px, 60min = 240px.
-const PX_PER_MIN = 4;
+// 幅を詰めて横スクロール量を小さくする:
+//   STAFF_ROW_HEIGHT: スタッフ行の高さ (縦方向は main の overflow-y:auto が担当)
+//   STAFF_LABEL_WIDTH: 左のスタッフ名列の幅
+//   TIME_HEADER_HEIGHT: 上部の時間ヘッダーの高さ
+//   PX_PER_MIN: 1分あたりの横幅 (以前は4。2.2にして約45%圧縮)
+//     → 30min = 66px, 60min = 132px, 12h = 1584px
+const STAFF_ROW_HEIGHT = 72;
+const STAFF_LABEL_WIDTH = 120;
+const TIME_HEADER_HEIGHT = 32;
+const PX_PER_MIN = 2.2;
 
 function formatCustomerCode(code: string | null | undefined): string | null {
   if (!code) return null;
@@ -226,9 +231,18 @@ export function ReservationCalendar({
 
   return (
     <>
+      {/* overflow-x: auto + overflow-y: clip.
+          overflow-y を "auto" にすると、 overflow-x:auto と組み合わさって
+          ダッシュボード <main> のスクロールバーと二重になり、日付切替時に
+          外枠の height が 0 に潰れてカレンダーが消えて見える症状が起きる。
+          overflow-y:clip で縦スクロールは親の <main> に完全に委譲する。 */}
       <div
         className="rounded-2xl border bg-white shadow-sm"
-        style={{ overflowX: "auto", overflowY: "auto" }}
+        style={{
+          overflowX: "auto",
+          overflowY: "clip",
+          touchAction: "pan-y",
+        }}
       >
         {/* Time header (sticky top) */}
         <div

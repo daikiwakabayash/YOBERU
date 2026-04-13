@@ -21,10 +21,13 @@ interface WeeklyReservationCalendarProps {
 }
 
 // Horizontal layout constants — day rows on Y, time on X.
-const DAY_ROW_HEIGHT = 80;
-const DAY_LABEL_WIDTH = 120;
-const TIME_HEADER_HEIGHT = 36;
-const PX_PER_MIN = 4;
+// 幅を詰めて横スクロール量を小さくする:
+//   PX_PER_MIN: 1分あたりの横幅 (以前は4。2.2にして約45%圧縮)
+//     → 30min = 66px, 60min = 132px, 12h = 1584px
+const DAY_ROW_HEIGHT = 72;
+const DAY_LABEL_WIDTH = 100;
+const TIME_HEADER_HEIGHT = 32;
+const PX_PER_MIN = 2.2;
 
 function formatCustomerCode(code: string | null | undefined): string | null {
   if (!code) return null;
@@ -244,9 +247,16 @@ export function WeeklyReservationCalendar({
 
   return (
     <>
+      {/* overflow-x: auto + overflow-y: clip で縦スクロールは <main> に委譲。
+          日表示側と同じ理由: overflow-y:auto にすると二重スクロールで
+          日付切替時にカレンダーが潰れる症状が出るため。 */}
       <div
         className="rounded-2xl border bg-white shadow-sm"
-        style={{ overflowX: "auto", overflowY: "auto" }}
+        style={{
+          overflowX: "auto",
+          overflowY: "clip",
+          touchAction: "pan-y",
+        }}
       >
         {/* Staff banner */}
         {staffName && (
