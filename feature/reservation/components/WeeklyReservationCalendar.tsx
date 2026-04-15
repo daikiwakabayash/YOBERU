@@ -535,15 +535,25 @@ export function WeeklyReservationCalendar({
                         }}
                         onMouseDown={(e) => handleDragStart(appt, e)}
                       >
-                        <div className="flex items-center gap-1 truncate leading-snug">
-                          <span className="truncate text-[11px] font-black text-gray-900">
-                            {appt.customerName}
+                        {/* 名前行 (最優先で見える。min-w-0 でカード幅に合わせて省略)。 */}
+                        <div className="flex min-w-0 items-baseline gap-1 leading-tight">
+                          <span
+                            className={`min-w-0 flex-1 truncate text-[12px] font-black ${
+                              appt.customerName
+                                ? "text-gray-900"
+                                : "text-gray-400"
+                            }`}
+                          >
+                            {appt.customerName || "未設定"}
                           </span>
                           {formatCustomerCode(appt.customerCode) && (
                             <span className="shrink-0 text-[9px] font-bold text-gray-500">
                               ({formatCustomerCode(appt.customerCode)})
                             </span>
                           )}
+                        </div>
+                        {/* 2 行目: バッジ + メニュー名。 */}
+                        <div className="flex min-w-0 items-center gap-1 leading-tight">
                           {isNew && (
                             <span
                               className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
@@ -562,10 +572,10 @@ export function WeeklyReservationCalendar({
                               {statusBadge}
                             </span>
                           )}
-                        </div>
-                        <div className="truncate text-[10px] text-gray-600">
-                          {appt.menuName}
-                          {appt.duration > 0 && `（${appt.duration}分）`}
+                          <span className="min-w-0 flex-1 truncate text-[10px] text-gray-600">
+                            {appt.menuName}
+                            {appt.duration > 0 && `（${appt.duration}分）`}
+                          </span>
                         </div>
                       </div>
                     );

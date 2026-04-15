@@ -616,15 +616,32 @@ export function ReservationCalendar({
                           }}
                           onMouseDown={(e) => handleDragStart(appt, e)}
                         >
-                          <div className="flex items-center gap-1 truncate leading-snug">
-                            <span className="truncate text-[11px] font-black text-gray-900">
-                              {appt.customerName}
+                          {/* 1 行目: 顧客名 + カルテ番号 (名前を最優先で表示)。
+                              名前は truncate + min-w-0 でカード幅に合わせて
+                              省略されるが、min-w-0 を付けないと intrinsic
+                              width を保持してしまい、右側の shrink-0 要素に
+                              押し出されて見えなくなる。名前が無い場合のみ
+                              「未設定」を薄色表示して空白にならないようにする。 */}
+                          <div className="flex min-w-0 items-baseline gap-1 leading-tight">
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[12px] font-black ${
+                                appt.customerName
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }`}
+                            >
+                              {appt.customerName || "未設定"}
                             </span>
                             {formatCustomerCode(appt.customerCode) && (
                               <span className="shrink-0 text-[9px] font-bold text-gray-500">
                                 ({formatCustomerCode(appt.customerCode)})
                               </span>
                             )}
+                          </div>
+                          {/* 2 行目: 来店バッジ + ステータス + メニュー名。
+                              名前行を邪魔しないように小さめフォントにまとめ、
+                              メニュー名は truncate で省略する。 */}
+                          <div className="flex min-w-0 items-center gap-1 leading-tight">
                             {isNew ? (
                               <span
                                 className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
@@ -649,10 +666,10 @@ export function ReservationCalendar({
                                 {statusBadge}
                               </span>
                             )}
-                          </div>
-                          <div className="truncate text-[10px] text-gray-600">
-                            {appt.menuName}
-                            {appt.duration > 0 && `（${appt.duration}分）`}
+                            <span className="min-w-0 flex-1 truncate text-[10px] text-gray-600">
+                              {appt.menuName}
+                              {appt.duration > 0 && `（${appt.duration}分）`}
+                            </span>
                           </div>
                         </div>
                       );
