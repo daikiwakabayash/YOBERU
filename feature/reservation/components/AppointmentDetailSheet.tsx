@@ -776,7 +776,10 @@ export function AppointmentDetailSheet({
       return;
     }
 
-    if (!paymentMethod) {
+    // 0円の場合は支払い方法不要 (プラン会員の2回目以降や、チケット消化
+    // 来店など「お金のやり取りが発生しない」ケースを想定)。1円以上ある
+    // 場合のみ必須にする。
+    if (total > 0 && !paymentMethod) {
       toast.error("支払い方法を選択してください");
       return;
     }
