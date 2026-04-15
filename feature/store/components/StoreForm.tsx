@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { createStore, updateStore } from "../actions/storeActions";
-import { useTransition, useState } from "react";
+import { useTransition, useState, useMemo } from "react";
 
 interface StoreFormProps {
   initialData?: StoreFormValues & { id?: number };
@@ -45,6 +45,15 @@ const SCALE_OPTIONS = [
   { value: 3, label: "大規模" },
 ] as const;
 
+// Base UI Select の <SelectValue> はトリガーに表示する文字列を items map
+// から引く。map を渡さないと数値 ID/値がそのまま表示されてしまう。
+const FRAME_MIN_ITEMS: Record<string, string> = Object.fromEntries(
+  FRAME_MIN_OPTIONS.map((o) => [String(o.value), o.label])
+);
+const SCALE_ITEMS: Record<string, string> = Object.fromEntries(
+  SCALE_OPTIONS.map((o) => [String(o.value), o.label])
+);
+
 // Zod v4 z.coerce creates differing input/output types, causing a mismatch
 // with react-hook-form generics. Cast the resolver to align types.
 const storeResolver = zodResolver(storeSchema) as Resolver<StoreFormValues>;
@@ -58,6 +67,12 @@ export function StoreForm({
   const isEdit = !!initialData?.id;
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // 地域 Select の id → 名前 map (Base UI Select の items 要件)。
+  const areaItems = useMemo(
+    () => Object.fromEntries(areas.map((a) => [String(a.id), a.name])),
+    [areas]
+  );
 
   const defaultAreaId = initialData?.area_id ?? areas[0]?.id ?? 0;
 
@@ -173,7 +188,8 @@ export function StoreForm({
             <FormField form={form} name="area_id" label="地域" required>
               {(field) => (
                 <Select
-                  value={Number(field.value ?? 0)}
+                  value={String(field.value ?? "")}
+                  items={areaItems}
                   onValueChange={(val) => field.onChange(Number(val))}
                 >
                   <SelectTrigger className="w-full">
@@ -181,7 +197,7 @@ export function StoreForm({
                   </SelectTrigger>
                   <SelectContent>
                     {areas.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
+                      <SelectItem key={a.id} value={String(a.id)}>
                         {a.name}
                       </SelectItem>
                     ))}
@@ -293,15 +309,16 @@ export function StoreForm({
           <FormField form={form} name="frame_min" label="予約枠(分)" required>
             {(field) => (
               <Select
-                value={field.value as number}
-                onValueChange={(val) => field.onChange(val)}
+                value={String(field.value ?? "")}
+                items={FRAME_MIN_ITEMS}
+                onValueChange={(val) => field.onChange(Number(val))}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="選択してください" />
                 </SelectTrigger>
                 <SelectContent>
                   {FRAME_MIN_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
+                    <SelectItem key={opt.value} value={String(opt.value)}>
                       {opt.label}
                     </SelectItem>
                   ))}
@@ -314,15 +331,16 @@ export function StoreForm({
           <FormField form={form} name="scale" label="規模" required>
             {(field) => (
               <Select
-                value={field.value as number}
-                onValueChange={(val) => field.onChange(val)}
+                value={String(field.value ?? "")}
+                items={SCALE_ITEMS}
+                onValueChange={(val) => field.onChange(Number(val))}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="選択してください" />
                 </SelectTrigger>
                 <SelectContent>
                   {SCALE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
+                    <SelectItem key={opt.value} value={String(opt.value)}>
                       {opt.label}
                     </SelectItem>
                   ))}

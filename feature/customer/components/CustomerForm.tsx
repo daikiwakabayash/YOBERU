@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -36,6 +37,20 @@ interface CustomerFormProps {
   initialData?: CustomerFormValues & { id: number };
 }
 
+// Base UI Select の <SelectValue> は items map が無いと value 文字列を
+// そのまま表示してしまう (例: 種別「0」と出る)。下記の map を渡すと
+// トリガーに日本語ラベルを表示する。
+const TYPE_ITEMS: Record<string, string> = {
+  "0": "一般",
+  "1": "会員",
+  "2": "退会",
+};
+const GENDER_ITEMS: Record<string, string> = {
+  "0": "未設定",
+  "1": "男性",
+  "2": "女性",
+};
+
 export function CustomerForm({
   brandId,
   shopId,
@@ -44,6 +59,12 @@ export function CustomerForm({
 }: CustomerFormProps) {
   const router = useRouter();
   const isEdit = !!initialData;
+
+  // 担当スタッフ Select 用の id → name map。Base UI Select の items 要件。
+  const staffItems = useMemo(
+    () => Object.fromEntries(staffs.map((s) => [String(s.id), s.name])),
+    [staffs]
+  );
 
   const form = useForm<CustomerFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -179,6 +200,7 @@ export function CustomerForm({
                 render={({ field }) => (
                   <Select
                     value={String(field.value ?? 0)}
+                    items={TYPE_ITEMS}
                     onValueChange={(val) => field.onChange(Number(val))}
                   >
                     <SelectTrigger className="w-full sm:w-48">
@@ -295,6 +317,7 @@ export function CustomerForm({
                   render={({ field }) => (
                     <Select
                       value={String(field.value ?? 0)}
+                      items={GENDER_ITEMS}
                       onValueChange={(val) => field.onChange(Number(val))}
                     >
                       <SelectTrigger className="w-full">
@@ -400,6 +423,7 @@ export function CustomerForm({
                 render={({ field }) => (
                   <Select
                     value={field.value ? String(field.value) : undefined}
+                    items={staffItems}
                     onValueChange={(val) => {
                       field.onChange(val ? Number(val) : null);
                     }}
