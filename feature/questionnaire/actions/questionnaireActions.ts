@@ -212,52 +212,103 @@ export async function submitQuestionnaireResponse(formData: FormData) {
 
   const targetShopId = (q.shop_id as number | null) ?? 1;
 
-  // Attempt to find existing customer by phone if provided
+  // ---- 既存顧客とのマッチング ----
+  //
+  // 「名前と電話番号で一致させる」要件に沿って 3 段階で探す:
+  //   1) 電話 + 姓 + 名 が全部一致 (一番強い)
+  //   2) 電話のみ一致 (引っ越し等で名前変えた場合)
+  //   3) 姓 + 名 が一致 (機種変更で電話番号が変わった場合)
+  // どれにもマッチしなければ新規作成。
+  // 過去の挙動は (2) のみだったので、片方しか一致しない場面で重複顧客が
+  // 生まれていた。本フローは name による補完を追加する。
   let customerId: number | null = null;
+  let existingDescription: string | null = null;
+
   const phone =
-    customerUpdate.phone_number_1 ?? customerUpdate.phone ?? null;
-  if (phone) {
-    const { data: existing } = await supabase
+    (customerUpdate.phone_number_1 as string | undefined) ??
+    (customerUpdate.phone as string | undefined) ??
+    null;
+  const lastName = (customerUpdate.last_name as string | undefined) ?? null;
+  const firstName = (customerUpdate.first_name as string | undefined) ?? null;
+
+  // 1) 電話 + 姓 + 名 で完全一致
+  if (phone && lastName && firstName) {
+    const { data: byBoth } = await supabase
+      .from("customers")
+      .select("id, description")
+      .eq("shop_id", targetShopId)
+      .eq("phone_number_1", String(phone))
+      .eq("last_name", String(lastName))
+      .eq("first_name", String(firstName))
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (byBoth?.id) {
+      customerId = byBoth.id as number;
+      existingDescription = (byBoth.description as string | null) ?? null;
+    }
+  }
+
+  // 2) 電話のみ
+  if (!customerId && phone) {
+    const { data: byPhone } = await supabase
       .from("customers")
       .select("id, description")
       .eq("shop_id", targetShopId)
       .eq("phone_number_1", String(phone))
       .is("deleted_at", null)
       .maybeSingle();
-    if (existing?.id) {
-      customerId = existing.id as number;
-      // Update existing customer: merge field-mapped values + append the
-      // questionnaire summary onto the existing description (memo).
-      await supabase
-        .from("customers")
-        .update({
-          ...customerUpdate,
-          description: appendDescription(
-            (existing.description as string | null) ?? null,
-            summaryBlock
-          ),
-        })
-        .eq("id", customerId);
+    if (byPhone?.id) {
+      customerId = byPhone.id as number;
+      existingDescription = (byPhone.description as string | null) ?? null;
     }
   }
 
-  // If not matched, create a new customer. We always create now (even
-  // when neither name nor phone is provided) so questionnaire responses
-  // are never orphaned. A placeholder name is generated in that edge
-  // case so the staff can recognise it and rename later.
+  // 3) 姓 + 名
+  if (!customerId && lastName && firstName) {
+    const { data: byName } = await supabase
+      .from("customers")
+      .select("id, description")
+      .eq("shop_id", targetShopId)
+      .eq("last_name", String(lastName))
+      .eq("first_name", String(firstName))
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (byName?.id) {
+      customerId = byName.id as number;
+      existingDescription = (byName.description as string | null) ?? null;
+    }
+  }
+
+  // マッチした場合: 既存顧客に上書き + description にサマリを追記
+  if (customerId) {
+    await supabase
+      .from("customers")
+      .update({
+        ...customerUpdate,
+        description: appendDescription(existingDescription, summaryBlock),
+      })
+      .eq("id", customerId);
+  }
+
+  // どれにもマッチしなければ新規作成。
+  // 名前も電話も無いケースでもプレースホルダ名で作成して、回答が
+  // どこにも紐付かない孤立状態にならないようにする。
   if (!customerId) {
-    const { data: maxRow } = await supabase
+    // カルテナンバーは「小さい数字から連番」がオペレーション要件。
+    // customers.code は VARCHAR で SQL の order は文字列順 ("9" > "10")
+    // なので max を SQL 側で取ると間違える。全件取って数値比較する。
+    // createCustomer / submitPublicBooking と同じ採番ロジックに揃える。
+    const { data: allCodes } = await supabase
       .from("customers")
       .select("code")
       .eq("shop_id", targetShopId)
-      .order("code", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    let nextCode = "00000001";
-    if (maxRow?.code) {
-      const num = parseInt(String(maxRow.code), 10);
-      if (!isNaN(num)) nextCode = String(num + 1).padStart(8, "0");
+      .is("deleted_at", null);
+    let maxNumeric = 0;
+    for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
+      const n = parseInt((r.code ?? "0").trim(), 10);
+      if (Number.isFinite(n) && n > maxNumeric) maxNumeric = n;
     }
+    const nextCode = String(maxNumeric + 1);
 
     const placeholderLastName =
       (customerUpdate.last_name as string | undefined) ||
@@ -294,6 +345,10 @@ export async function submitQuestionnaireResponse(formData: FormData) {
       answers,
     });
   if (respErr) return { error: respErr.message };
+
+  // 顧客一覧 / 顧客詳細にすぐ反映させるために revalidate。
+  revalidatePath("/customer");
+  if (customerId) revalidatePath(`/customer/${customerId}`);
 
   return { success: true };
 }
