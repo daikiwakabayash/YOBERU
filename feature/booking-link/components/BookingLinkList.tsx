@@ -53,16 +53,12 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
     }
   }
 
-  function copyUrl(slug: string, utm?: "meta" | "hp") {
+  function copyUrl(slug: string) {
     const base =
       typeof window !== "undefined" ? window.location.origin : "";
-    const url = utm
-      ? `${base}/book/${slug}?utm_source=${utm}`
-      : `${base}/book/${slug}`;
+    const url = `${base}/book/${slug}`;
     navigator.clipboard.writeText(url);
-    toast.success(
-      utm ? `${utm.toUpperCase()}用URLをコピーしました` : "URLをコピーしました"
-    );
+    toast.success("URLをコピーしました");
   }
 
   return (
@@ -79,7 +75,7 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
             <TableHead>タイトル</TableHead>
             <TableHead>スラッグ</TableHead>
             <TableHead className="w-24">作成日</TableHead>
-            <TableHead className="w-60 text-center">URL操作</TableHead>
+            <TableHead className="w-32 text-center">URL操作</TableHead>
             <TableHead className="w-40 text-center">操作</TableHead>
           </TableRow>
         </TableHeader>
@@ -105,33 +101,15 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
                   {link.created_at?.slice(0, 10)}
                 </TableCell>
                 <TableCell className="text-center">
-                  <div className="flex flex-col gap-1 sm:flex-row sm:justify-center">
+                  <div className="flex justify-center">
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => copyUrl(link.slug)}
-                      title="通常URL"
+                      title="予約URLをコピー"
                     >
                       <Copy className="mr-1 h-3 w-3" />
-                      通常
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => copyUrl(link.slug, "meta")}
-                      title="Meta広告用"
-                    >
-                      <Copy className="mr-1 h-3 w-3" />
-                      Meta
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => copyUrl(link.slug, "hp")}
-                      title="HP用"
-                    >
-                      <Copy className="mr-1 h-3 w-3" />
-                      HP
+                      コピー
                     </Button>
                   </div>
                 </TableCell>
