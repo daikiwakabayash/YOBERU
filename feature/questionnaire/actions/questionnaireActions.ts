@@ -197,6 +197,11 @@ export async function submitQuestionnaireResponse(formData: FormData) {
         customerUpdate.gender = s.includes("男") ? 1 : s.includes("女") ? 2 : 0;
         break;
       }
+      case "zip_code": {
+        // 郵便番号は VARCHAR(7) なのでハイフンを除去して7桁に揃える
+        customerUpdate.zip_code = String(val).replace(/-/g, "").slice(0, 7);
+        break;
+      }
       default:
         customerUpdate[question.field] = val;
         break;
