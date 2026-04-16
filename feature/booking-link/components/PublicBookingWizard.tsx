@@ -20,6 +20,7 @@ import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { useT } from "../i18n/useT";
 import type { Lang } from "../i18n/dictionary";
 import type { ShopAvailabilityDay } from "../services/getShopAvailability";
+import type { StaffFreeDay } from "../services/getShopStaffFreeSlots";
 
 type WizardStep = 1 | 2 | 3 | 4;
 
@@ -39,6 +40,12 @@ interface PublicBookingWizardProps {
     number,
     Record<string, ShopAvailabilityDay | null>
   >;
+  /**
+   * Map shop_id → (date YYYY-MM-DD → array of per-staff free 30-min slot
+   * sets). Used by the calendar so that slots where every on-duty staff is
+   * already booked are marked as "×" even before the user selects a staff.
+   */
+  staffFreeByShop?: Record<number, Record<string, StaffFreeDay[]>>;
 }
 
 const INITIAL_STATE: BookingState = {
@@ -66,6 +73,7 @@ export function PublicBookingWizard({
   utmSource,
   lang = "ja",
   availabilityByShop,
+  staffFreeByShop,
 }: PublicBookingWizardProps) {
   const { t } = useT(lang);
   const [step, setStep] = useState<WizardStep>(1);
@@ -154,6 +162,7 @@ export function PublicBookingWizard({
             onNext={() => setStep(2)}
             lang={lang}
             availabilityByShop={availabilityByShop}
+            staffFreeByShop={staffFreeByShop}
           />
         )}
         {step === 2 && (

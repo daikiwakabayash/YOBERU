@@ -296,8 +296,12 @@ export function ReservationCalendar({
           style={{ minWidth: STAFF_LABEL_WIDTH + totalWidth }}
         >
           {/* Staff rows */}
-          {workingStaffs.map((staff) => {
+          {workingStaffs.map((staff, staffIndex) => {
             const staffAppts = appointmentsByStaff.get(staff.id) || [];
+            // 1 行目 (最上段スタッフ) はカード上部に余白がなく、ツールチップを
+            // 上方向 (bottom-full) に出すと親の overflow-y: clip でクリップ
+            // されるため、下方向 (top-full) に反転させる。
+            const tooltipBelow = staffIndex === 0;
             const isOffShift = !staff.isWorking;
             const shiftStartMin = staff.shiftStart
               ? timeToMinutes(staff.shiftStart.slice(0, 5))
@@ -654,16 +658,18 @@ export function ReservationCalendar({
                           {/* 内側で overflow-hidden して truncate を効かせる。
                               外側はカードからツールチップが飛び出せるように
                               overflow を切らない。 */}
-                          <div className="overflow-hidden px-1.5 py-0.5">
+                          <div className="overflow-hidden px-1 py-[1px]">
                           {/* 1 行目: 顧客名 + カルテ番号 (名前を最優先で表示)。
                               名前は truncate + min-w-0 でカード幅に合わせて
                               省略されるが、min-w-0 を付けないと intrinsic
                               width を保持してしまい、右側の shrink-0 要素に
                               押し出されて見えなくなる。名前が無い場合のみ
-                              「未設定」を薄色表示して空白にならないようにする。 */}
-                          <div className="flex min-w-0 items-baseline gap-1 leading-tight">
+                              「未設定」を薄色表示して空白にならないようにする。
+                              30 分枠でも名前が視認できるよう leading-none で
+                              行間を詰める。 */}
+                          <div className="flex min-w-0 items-baseline gap-0.5 leading-none">
                             <span
-                              className={`min-w-0 flex-1 truncate text-[12px] font-black ${
+                              className={`min-w-0 flex-1 truncate text-[11px] font-black ${
                                 appt.customerName
                                   ? "text-gray-900"
                                   : "text-gray-400"
@@ -679,11 +685,12 @@ export function ReservationCalendar({
                           </div>
                           {/* 2 行目: 来店バッジ + ステータス + メニュー名。
                               名前行を邪魔しないように小さめフォントにまとめ、
-                              メニュー名は truncate で省略する。 */}
-                          <div className="flex min-w-0 items-center gap-1 leading-tight">
+                              メニュー名は truncate で省略する。30 分枠でも
+                              バッジが読めるよう text-[10px] まで上げる。 */}
+                          <div className="mt-0.5 flex min-w-0 items-center gap-0.5 leading-none">
                             {isNew ? (
                               <span
-                                className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
+                                className="shrink-0 rounded px-1 py-0 text-[10px] font-bold"
                                 style={{
                                   backgroundColor: appt.sourceColor ?? "#ef4444",
                                   color: appt.sourceTextColor ?? "#ffffff",
@@ -693,19 +700,19 @@ export function ReservationCalendar({
                               </span>
                             ) : (
                               visitLabel && (
-                                <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[9px] font-bold text-white">
+                                <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[10px] font-bold text-white">
                                   {visitLabel}
                                 </span>
                               )
                             )}
                             {statusBadge && (
                               <span
-                                className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
+                                className={`shrink-0 rounded px-1 py-0 text-[10px] font-bold ${statusBadgeColor}`}
                               >
                                 {statusBadge}
                               </span>
                             )}
-                            <span className="min-w-0 flex-1 truncate text-[10px] text-gray-600">
+                            <span className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-600">
                               {appt.menuName}
                               {appt.duration > 0 && `（${appt.duration}分）`}
                             </span>
@@ -713,10 +720,13 @@ export function ReservationCalendar({
                           </div>
                           {/* カスタム ツールチップ: ホバー即表示 (OS の title は
                               ~500ms の遅延が固定で変えられないため自前描画)。
-                              カードの上に絶対配置して overflow を外に出す。 */}
+                              1 行目 (staffIndex === 0) は上が clip されるため
+                              下方向 (top-full) に反転させる。 */}
                           {apptTooltip && (
                             <div
-                              className="pointer-events-none absolute bottom-full left-0 z-[60] mb-1 hidden min-w-max max-w-xs whitespace-pre-line rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] leading-snug font-normal text-gray-800 shadow-xl group-hover:block"
+                              className={`pointer-events-none absolute left-0 z-[60] hidden min-w-max max-w-xs whitespace-pre-line rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] leading-snug font-normal text-gray-800 shadow-xl group-hover:block ${
+                                tooltipBelow ? "top-full mt-1" : "bottom-full mb-1"
+                              }`}
                             >
                               {apptTooltip}
                             </div>

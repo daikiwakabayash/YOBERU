@@ -327,8 +327,12 @@ export function WeeklyReservationCalendar({
           style={{ minWidth: DAY_LABEL_WIDTH + totalWidth }}
         >
           {/* Day rows */}
-          {weekDates.map((dateStr) => {
+          {weekDates.map((dateStr, dayIndex) => {
             const dayAppts = appointmentsByDate.get(dateStr) || [];
+            // 1 行目 (最上段の日付) はカード上部に余白がなく、ツールチップを
+            // 上方向に出すと親の overflow-y: clip でクリップされるため、
+            // 下方向に反転させる。
+            const tooltipBelow = dayIndex === 0;
             const d = new Date(dateStr + "T00:00:00");
             const dayLabel = WEEKDAY_LABELS_JP[d.getDay()];
             const month = d.getMonth() + 1;
@@ -563,11 +567,11 @@ export function WeeklyReservationCalendar({
                         }}
                         onMouseDown={(e) => handleDragStart(appt, e)}
                       >
-                        <div className="overflow-hidden px-1.5 py-0.5">
+                        <div className="overflow-hidden px-1 py-[1px]">
                           {/* 名前行 (最優先で見える。min-w-0 でカード幅に合わせて省略)。 */}
-                          <div className="flex min-w-0 items-baseline gap-1 leading-tight">
+                          <div className="flex min-w-0 items-baseline gap-0.5 leading-none">
                             <span
-                              className={`min-w-0 flex-1 truncate text-[12px] font-black ${
+                              className={`min-w-0 flex-1 truncate text-[11px] font-black ${
                                 appt.customerName
                                   ? "text-gray-900"
                                   : "text-gray-400"
@@ -582,10 +586,10 @@ export function WeeklyReservationCalendar({
                             )}
                           </div>
                           {/* 2 行目: バッジ + メニュー名。 */}
-                          <div className="flex min-w-0 items-center gap-1 leading-tight">
+                          <div className="mt-0.5 flex min-w-0 items-center gap-0.5 leading-none">
                             {isNew && (
                               <span
-                                className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
+                                className="shrink-0 rounded px-1 py-0 text-[10px] font-bold"
                                 style={{
                                   backgroundColor: appt.sourceColor ?? "#ef4444",
                                   color: appt.sourceTextColor ?? "#ffffff",
@@ -596,12 +600,12 @@ export function WeeklyReservationCalendar({
                             )}
                             {statusBadge && (
                               <span
-                                className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
+                                className={`shrink-0 rounded px-1 py-0 text-[10px] font-bold ${statusBadgeColor}`}
                               >
                                 {statusBadge}
                               </span>
                             )}
-                            <span className="min-w-0 flex-1 truncate text-[10px] text-gray-600">
+                            <span className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-600">
                               {appt.menuName}
                               {appt.duration > 0 && `（${appt.duration}分）`}
                             </span>
@@ -609,7 +613,9 @@ export function WeeklyReservationCalendar({
                         </div>
                         {apptTooltip && (
                           <div
-                            className="pointer-events-none absolute bottom-full left-0 z-[60] mb-1 hidden min-w-max max-w-xs whitespace-pre-line rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] leading-snug font-normal text-gray-800 shadow-xl group-hover:block"
+                            className={`pointer-events-none absolute left-0 z-[60] hidden min-w-max max-w-xs whitespace-pre-line rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] leading-snug font-normal text-gray-800 shadow-xl group-hover:block ${
+                              tooltipBelow ? "top-full mt-1" : "bottom-full mb-1"
+                            }`}
                           >
                             {apptTooltip}
                           </div>

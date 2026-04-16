@@ -15,6 +15,7 @@ import type {
 import { useT } from "../../i18n/useT";
 import type { Lang } from "../../i18n/dictionary";
 import type { ShopAvailabilityDay } from "../../services/getShopAvailability";
+import type { StaffFreeDay } from "../../services/getShopStaffFreeSlots";
 
 interface Step1Props {
   state: BookingState;
@@ -32,6 +33,7 @@ interface Step1Props {
     number,
     Record<string, ShopAvailabilityDay | null>
   >;
+  staffFreeByShop?: Record<number, Record<string, StaffFreeDay[]>>;
 }
 
 /**
@@ -50,6 +52,7 @@ export function Step1StoreDateTime({
   onNext,
   lang = "ja",
   availabilityByShop,
+  staffFreeByShop,
 }: Step1Props) {
   const { t } = useT(lang);
   const [mapShop, setMapShop] = useState<PublicShop | null>(null);
@@ -61,6 +64,13 @@ export function Step1StoreDateTime({
     if (!availabilityByShop) return undefined;
     if (state.shopId) return availabilityByShop[state.shopId];
     if (shops.length === 1) return availabilityByShop[shops[0].id];
+    return undefined;
+  })();
+  // 同じ解決ロジックで該当 shop の「全スタッフ埋まり判定用」マップも抽出。
+  const shopStaffFree = (() => {
+    if (!staffFreeByShop) return undefined;
+    if (state.shopId) return staffFreeByShop[state.shopId];
+    if (shops.length === 1) return staffFreeByShop[shops[0].id];
     return undefined;
   })();
   const [expandedField, setExpandedField] = useState<
@@ -437,6 +447,10 @@ export function Step1StoreDateTime({
               availability={shopAvailability}
               bookedSlots={bookedSlots}
               menuDuration={selectedMenu?.duration || 30}
+              staffFreeByDate={shopStaffFree}
+              hasSelectedStaff={
+                state.staffId !== null && state.staffId !== 0
+              }
             />
           </div>
         )}
