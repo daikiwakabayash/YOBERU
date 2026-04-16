@@ -250,12 +250,12 @@ export async function submitPublicBooking(formData: FormData) {
     // 旧実装は order("code") + padStart(8, "0") を使っており、ダッシュ
     // ボードから登録された "1","2","3" 等の非ゼロ埋めコードと混在する
     // と、誤った最大値から "00000004" 等を生成して既存コードと衝突し、
-    // UNIQUE 制約違反で「顧客登録に失敗しました」エラーが出ていた。
+    // customers.code は UNIQUE (グローバル、全店舗・削除済み含む) なので、
+    // 採番は全レコードを対象に最大値を求める。shop_id や deleted_at で
+    // 絞ると他店舗/削除済みのコードと衝突して UNIQUE 違反になる。
     const { data: allCodes } = await supabase
       .from("customers")
-      .select("code")
-      .eq("shop_id", shopId)
-      .is("deleted_at", null);
+      .select("code");
     let maxNumeric = 0;
     for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
       const n = parseInt((r.code ?? "0").trim(), 10);

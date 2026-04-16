@@ -294,15 +294,12 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   // 名前も電話も無いケースでもプレースホルダ名で作成して、回答が
   // どこにも紐付かない孤立状態にならないようにする。
   if (!customerId) {
-    // カルテナンバーは「小さい数字から連番」がオペレーション要件。
-    // customers.code は VARCHAR で SQL の order は文字列順 ("9" > "10")
-    // なので max を SQL 側で取ると間違える。全件取って数値比較する。
-    // createCustomer / submitPublicBooking と同じ採番ロジックに揃える。
+    // customers.code は UNIQUE (グローバル、全店舗・削除済み含む) なので、
+    // 採番は全レコードを対象に最大値を求める。shop_id や deleted_at で
+    // 絞ると他店舗/削除済みのコードと衝突して UNIQUE 違反になる。
     const { data: allCodes } = await supabase
       .from("customers")
-      .select("code")
-      .eq("shop_id", targetShopId)
-      .is("deleted_at", null);
+      .select("code");
     let maxNumeric = 0;
     for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
       const n = parseInt((r.code ?? "0").trim(), 10);
