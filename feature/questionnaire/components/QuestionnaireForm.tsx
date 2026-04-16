@@ -143,13 +143,25 @@ export function QuestionnaireForm({
       return;
     }
     setSaving(true);
+    // Textarea 編集中は空行を残していたので、保存直前にここで
+    // trim + 空行除外をまとめて行う (radio / checkbox 限定)。
+    const normalizedQuestions = questions.map((q) =>
+      q.type === "radio" || q.type === "checkbox"
+        ? {
+            ...q,
+            options: (q.options ?? [])
+              .map((s) => s.trim())
+              .filter(Boolean),
+          }
+        : q
+    );
     const payload = {
       brand_id: brandId,
       shop_id: shopId ?? null,
       slug: slug.trim(),
       title: title.trim(),
       description: description || null,
-      questions,
+      questions: normalizedQuestions,
       is_public: isPublic,
     };
     const result = isEdit
@@ -300,10 +312,11 @@ export function QuestionnaireForm({
                     value={(q.options ?? []).join("\n")}
                     onChange={(e) =>
                       updateQuestion(i, {
-                        options: e.target.value
-                          .split("\n")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
+                        // 編集中は trim / filter をかけない。空行を削ると
+                        // Enter で改行した直後の空行が即座に消え、改行できない
+                        // 症状になる。保存時 (handleSubmit) にまとめて
+                        // 空要素を除外する。
+                        options: e.target.value.split("\n"),
                       })
                     }
                     rows={3}
