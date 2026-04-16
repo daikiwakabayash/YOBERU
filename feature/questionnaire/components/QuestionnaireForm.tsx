@@ -34,18 +34,24 @@ const QUESTION_TYPES: Array<{ value: QuestionType; label: string }> = [
   { value: "email", label: "メール" },
 ];
 
+// 顧客テーブルの「構造化カラム」にそのまま書き戻すマッピング。
+// NOTE: "description" (備考) はここには出していない。全質問の回答は
+// 連動の有無に関わらず、回答送信時にフォーマット済み Q&A サマリ
+// として customers.description に自動追記されるため重複/上書きに
+// なって紛らわしいため。症状・来院動機などは連動なしのままで OK。
 const FIELD_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "", label: "— 連動なし —" },
   { value: "full_name", label: "氏名 (姓名分割)" },
   { value: "full_name_kana", label: "氏名カナ (姓名分割)" },
   { value: "phone_number_1", label: "電話番号" },
+  { value: "phone_number_2", label: "電話番号 (予備)" },
   { value: "email", label: "メールアドレス" },
   { value: "gender", label: "性別" },
   { value: "birth_date", label: "生年月日" },
   { value: "zip_code", label: "郵便番号" },
   { value: "address", label: "住所" },
   { value: "occupation", label: "職業" },
-  { value: "description", label: "備考 (来院動機/症状など)" },
+  { value: "line_id", label: "LINE ID" },
 ];
 
 function genId() {
@@ -81,12 +87,10 @@ function defaultSeedQuestions(): Question[] {
     { id: genId(), type: "text", label: "住所", field: "address" },
     { id: genId(), type: "tel", label: "電話番号", required: true, field: "phone_number_1" },
     { id: genId(), type: "email", label: "メールアドレス", field: "email" },
-    {
-      id: genId(),
-      type: "textarea",
-      label: "来院動機",
-      field: "description",
-    },
+    // 「来院動機」「症状・痛む場所」は自由記述なので構造化カラムへの
+    // 連動は指定しない。これらの回答は送信時の Q&A サマリに含まれ、
+    // 自動的に顧客の備考 (description / カルテメモ) に追記される。
+    { id: genId(), type: "textarea", label: "来院動機" },
     { id: genId(), type: "textarea", label: "症状・痛む場所" },
   ];
 }
@@ -143,13 +147,25 @@ export function QuestionnaireForm({
       return;
     }
     setSaving(true);
+    // Textarea 編集中は空行を残していたので、保存直前にここで
+    // trim + 空行除外をまとめて行う (radio / checkbox 限定)。
+    const normalizedQuestions = questions.map((q) =>
+      q.type === "radio" || q.type === "checkbox"
+        ? {
+            ...q,
+            options: (q.options ?? [])
+              .map((s) => s.trim())
+              .filter(Boolean),
+          }
+        : q
+    );
     const payload = {
       brand_id: brandId,
       shop_id: shopId ?? null,
       slug: slug.trim(),
       title: title.trim(),
       description: description || null,
-      questions,
+      questions: normalizedQuestions,
       is_public: isPublic,
     };
     const result = isEdit
@@ -300,10 +316,11 @@ export function QuestionnaireForm({
                     value={(q.options ?? []).join("\n")}
                     onChange={(e) =>
                       updateQuestion(i, {
-                        options: e.target.value
-                          .split("\n")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
+                        // 編集中は trim / filter をかけない。空行を削ると
+                        // Enter で改行した直後の空行が即座に消え、改行できない
+                        // 症状になる。保存時 (handleSubmit) にまとめて
+                        // 空要素を除外する。
+                        options: e.target.value.split("\n"),
                       })
                     }
                     rows={3}
@@ -330,6 +347,12 @@ export function QuestionnaireForm({
                     </option>
                   ))}
                 </select>
+                <p className="text-[10px] leading-relaxed text-gray-400">
+                  連動を指定すると、回答を顧客カラムに直接書き込みます。
+                  <br />
+                  連動なしでも、回答は自動で顧客の備考
+                  (来院履歴・カルテ) に追記されます。
+                </p>
               </div>
             </div>
           ))}

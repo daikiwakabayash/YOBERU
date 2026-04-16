@@ -18,20 +18,18 @@ interface ReservationCalendarProps {
   enableMeetingBooking?: boolean;
 }
 
-// Calendar density — shrunk per user request so the day view fits more
-// staff + more hours without scrolling.
-//   SLOT_HEIGHT: base height of a 30-min slot block (previously 44)
-//   TIME_COL_WIDTH: narrower 時間軸 column (previously 76)
-//   STAFF_COL_WIDTH: narrower staff column (previously 260)
-const SLOT_HEIGHT = 34;
-const TIME_COL_WIDTH = 52;
-const STAFF_COL_WIDTH = 210;
+// Horizontal layout constants — staff rows on Y, time on X.
+// 幅を詰めて横スクロール量を小さくする:
+//   STAFF_ROW_HEIGHT: スタッフ行の高さ (縦方向は main の overflow-y:auto が担当)
+//   STAFF_LABEL_WIDTH: 左のスタッフ名列の幅
+//   TIME_HEADER_HEIGHT: 上部の時間ヘッダーの高さ
+//   PX_PER_MIN: 1分あたりの横幅 (以前は4。2.2にして約45%圧縮)
+//     → 30min = 66px, 60min = 132px, 12h = 1584px
+const STAFF_ROW_HEIGHT = 72;
+const STAFF_LABEL_WIDTH = 120;
+const TIME_HEADER_HEIGHT = 32;
+const PX_PER_MIN = 2.2;
 
-/**
- * Strip leading zeros from a customer code so "00000012" renders as
- * "12" on the calendar. Falls back to the raw string (or null) so we
- * never crash on non-numeric legacy codes.
- */
 function formatCustomerCode(code: string | null | undefined): string | null {
   if (!code) return null;
   const trimmed = code.replace(/^0+/, "");
@@ -58,13 +56,7 @@ export function ReservationCalendar({
   } | null>(null);
   const [nowMinutes, setNowMinutes] = useState<number | null>(null);
 
-  // Grid calculations (needed by drag handlers, so declare early).
-  //
-  // Display rule: any staff who has either a shift today OR an existing
-  // appointment today must show up as a column. Otherwise their
-  // appointments would be silently dropped, and the user would see a
-  // blank calendar plus a "予約が既に入っています" error when trying to
-  // re-book the same slot.
+  // Display rule: show staff with shift OR existing appointment.
   const staffHasAppt = useMemo(() => {
     const ids = new Set<number>();
     for (const a of appointments) ids.add(a.staffId);
@@ -73,16 +65,20 @@ export function ReservationCalendar({
   const workingStaffs = staffs.filter(
     (s) => s.isWorking || staffHasAppt.has(s.id)
   );
-  const slotHeightPx = (SLOT_HEIGHT * 30) / (frameMin || 30);
-  const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
-  const totalSlots = timeSlots.length;
-  const totalHeight = totalSlots * slotHeightPx;
 
-  // Drag state
+  const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
+  const endMinute =
+    timeSlots.length > 0
+      ? timeToMinutes(timeSlots[timeSlots.length - 1]) + frameMin
+      : 1260;
+  const totalMinutes = endMinute - startHour;
+  const totalWidth = totalMinutes * PX_PER_MIN;
+
+  // Drag state — horizontal drag changes time, vertical changes staff.
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
   const [dragStaffId, setDragStaffId] = useState<number | null>(null);
-  const [dragTop, setDragTop] = useState(0);
+  const [dragLeft, setDragLeft] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
   const hasMovedRef = useRef(false);
   const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -90,15 +86,7 @@ export function ReservationCalendar({
 
   const handleDragStart = useCallback(
     (appt: CalendarAppointment, e: React.MouseEvent) => {
-      // IMPORTANT: DO NOT call e.preventDefault() here. mousedown is
-      // synthesized from the initial touchstart on touch devices, and
-      // preventing default there cancels the browser's scroll-gesture
-      // decision for the whole touch sequence — that's the "1回目スク
-      // ロールできない" bug. Text selection is suppressed via the
-      // `select-none` class on the card itself.
       e.stopPropagation();
-      // Cancelled appointments are read-only on the calendar — no drag,
-      // just open the detail sheet so staff can see the reason / history.
       if (appt.status === 3 || appt.status === 4 || appt.status === 99) {
         setSelectedAppt(appt);
         return;
@@ -109,8 +97,8 @@ export function ReservationCalendar({
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
       setDragAppt(appt);
       setDragStaffId(appt.staffId);
-      setDragOffset(e.clientY - rect.top);
-      setDragTop(rect.top - (gridRef.current?.getBoundingClientRect().top ?? 0));
+      setDragOffset(e.clientX - rect.left);
+      setDragLeft(rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0));
     },
     []
   );
@@ -118,7 +106,7 @@ export function ReservationCalendar({
   useEffect(() => {
     if (!dragAppt || !gridRef.current) return;
     const gridRect = gridRef.current.getBoundingClientRect();
-    const DRAG_THRESHOLD = 5; // pixels
+    const DRAG_THRESHOLD = 5;
 
     function handleMouseMove(e: MouseEvent) {
       const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
@@ -129,14 +117,14 @@ export function ReservationCalendar({
       }
       if (!hasMovedRef.current) return;
 
-      const newTop = e.clientY - gridRect.top - dragOffset;
-      setDragTop(Math.max(0, newTop));
+      const newLeft = e.clientX - gridRect.left - dragOffset;
+      setDragLeft(Math.max(0, newLeft));
 
-      // Detect staff column
-      const staffHeaders = gridRef.current!.querySelectorAll("[data-staff-id]");
-      staffHeaders.forEach((el) => {
+      // Detect staff row by Y position
+      const staffRows = gridRef.current!.querySelectorAll("[data-staff-id]");
+      staffRows.forEach((el) => {
         const rect = el.getBoundingClientRect();
-        if (e.clientX >= rect.left && e.clientX <= rect.right) {
+        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
           setDragStaffId(Number(el.getAttribute("data-staff-id")));
         }
       });
@@ -145,7 +133,6 @@ export function ReservationCalendar({
     async function handleMouseUp() {
       if (!dragAppt) return;
 
-      // If mouse didn't move significantly, treat as a click: open detail sheet
       if (!hasMovedRef.current) {
         setSelectedAppt(dragAppt);
         setDragAppt(null);
@@ -154,10 +141,12 @@ export function ReservationCalendar({
         return;
       }
 
-      const pixelsPerMinute = slotHeightPx / frameMin;
-      const newMinutes = Math.round(dragTop / pixelsPerMinute / frameMin) * frameMin + startHour;
+      const newMinutes =
+        Math.round(dragLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
       const newStartTime = minutesToTime(newMinutes);
-      const durationMin = timeToMinutes(dragAppt.endAt.slice(11, 16)) - timeToMinutes(dragAppt.startAt.slice(11, 16));
+      const durationMin =
+        timeToMinutes(dragAppt.endAt.slice(11, 16)) -
+        timeToMinutes(dragAppt.startAt.slice(11, 16));
       const newEndTime = minutesToTime(newMinutes + durationMin);
 
       const newStartAt = `${date}T${newStartTime}:00`;
@@ -188,7 +177,7 @@ export function ReservationCalendar({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragAppt, dragOffset, dragTop, dragStaffId, date, frameMin, slotHeightPx, startHour]);
+  }, [dragAppt, dragOffset, dragLeft, dragStaffId, date, frameMin, startHour]);
 
   useEffect(() => {
     function updateNow() {
@@ -210,12 +199,12 @@ export function ReservationCalendar({
     return map;
   }, [appointments]);
 
-  const nowLineTop = useMemo(() => {
+  const nowLineLeft = useMemo(() => {
     if (nowMinutes === null) return null;
     const offsetMin = nowMinutes - startHour;
-    if (offsetMin < 0 || offsetMin > totalSlots * frameMin) return null;
-    return (offsetMin / frameMin) * slotHeightPx;
-  }, [nowMinutes, startHour, totalSlots, frameMin, slotHeightPx]);
+    if (offsetMin < 0 || offsetMin > totalMinutes) return null;
+    return offsetMin * PX_PER_MIN;
+  }, [nowMinutes, startHour, totalMinutes]);
 
   if (workingStaffs.length === 0) {
     return (
@@ -225,22 +214,28 @@ export function ReservationCalendar({
     );
   }
 
-  const gridCols = workingStaffs.length;
   const sheetOpen = !!selectedAppt || !!newBooking;
+
+  // Compute hour labels for the time header
+  const hourLabels: { label: string; left: number }[] = [];
+  for (let i = 0; i < timeSlots.length; i++) {
+    const slot = timeSlots[i];
+    if (slot.endsWith(":00") || slot.endsWith(":30")) {
+      const min = timeToMinutes(slot);
+      hourLabels.push({
+        label: slot,
+        left: (min - startHour) * PX_PER_MIN,
+      });
+    }
+  }
 
   return (
     <>
       {/* overflow-x: auto + overflow-y: clip.
-          CSS spec: when overflow-x is "auto", overflow-y can't be
-          "visible" — it gets promoted to "auto" too, which creates a
-          SECOND vertical scrollbar alongside <main>'s. That's the
-          "スクロールバーが2本" bug. Using overflow-y: clip delegates
-          all vertical scrolling to the parent <main> while keeping
-          horizontal scroll for wide calendars with many staff columns.
-
-          touch-action: pan-y tells the browser to immediately commit
-          to vertical scroll on the first gesture (no horizontal-scroll
-          ambiguity delay). */}
+          overflow-y を "auto" にすると、 overflow-x:auto と組み合わさって
+          ダッシュボード <main> のスクロールバーと二重になり、日付切替時に
+          外枠の height が 0 に潰れてカレンダーが消えて見える症状が起きる。
+          overflow-y:clip で縦スクロールは親の <main> に完全に委譲する。 */}
       <div
         className="rounded-2xl border bg-white shadow-sm"
         style={{
@@ -249,123 +244,61 @@ export function ReservationCalendar({
           touchAction: "pan-y",
         }}
       >
-        {/* Sticky header */}
+        {/* Time header (sticky top) */}
         <div
           className="sticky top-0 z-20 flex border-b bg-white/95 backdrop-blur-sm"
           style={{
-            minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH,
-            willChange: "transform",
+            minWidth: STAFF_LABEL_WIDTH + totalWidth,
+            height: TIME_HEADER_HEIGHT,
           }}
         >
+          {/* Top-left corner */}
           <div
-            className="flex shrink-0 items-center justify-center border-r text-xs font-medium text-gray-400"
-            style={{ width: TIME_COL_WIDTH }}
+            className="sticky left-0 z-30 flex shrink-0 items-center justify-center border-r bg-white/95 text-xs font-medium text-gray-400 backdrop-blur-sm"
+            style={{ width: STAFF_LABEL_WIDTH }}
           >
-            時間
+            スタッフ
           </div>
-          {workingStaffs.map((staff) => {
-            const isOffShift = !staff.isWorking;
-            const ratePct =
-              staff.utilizationRate != null
-                ? Math.round(staff.utilizationRate * 100)
-                : null;
-            // Color the badge by load: red ≥85%, amber ≥60%, green <60%
-            const rateClass =
-              ratePct == null
-                ? "bg-gray-100 text-gray-400"
-                : ratePct >= 85
-                  ? "bg-red-100 text-red-700"
-                  : ratePct >= 60
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-emerald-100 text-emerald-700";
-            return (
-              <div
-                key={staff.id}
-                className={`flex shrink-0 flex-col items-center justify-center border-r py-2 ${
-                  isOffShift ? "bg-gray-100" : ""
-                }`}
-                style={{ width: STAFF_COL_WIDTH }}
-              >
-                {/* Staff avatar circle */}
-                <div
-                  className={`mb-0.5 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-white ${
-                    isOffShift ? "opacity-60" : ""
-                  }`}
-                  style={{
-                    backgroundColor: staff.shiftColor || "#6366f1",
-                  }}
-                >
-                  {staff.name.slice(0, 1)}
-                </div>
-                <div className="flex items-center gap-1">
-                  <div
-                    className={`text-xs font-bold ${
-                      isOffShift ? "text-gray-500" : "text-gray-900"
-                    }`}
-                  >
-                    {staff.name}
-                  </div>
-                  {/* Today's utilization badge — empty for off-shift staff */}
-                  <span
-                    className={`rounded px-1 py-0.5 text-[9px] font-bold ${rateClass}`}
-                    title={`本日の稼働率 — 開放 ${staff.openMin}分 / 稼働 ${staff.busyMin}分`}
-                  >
-                    {ratePct != null ? `${ratePct}%` : "—"}
-                  </span>
-                </div>
-                {staff.shiftStart && staff.shiftEnd ? (
-                  <div className="text-[10px] text-gray-400">
-                    {staff.shiftStart.slice(0, 5)}-
-                    {staff.shiftEnd.slice(0, 5)}
-                  </div>
-                ) : (
-                  <div className="text-[9px] font-bold text-amber-600">
-                    シフト外
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Grid body */}
-        <div
-          ref={gridRef}
-          className="relative flex border-t-2 border-gray-400"
-          style={{
-            minWidth: TIME_COL_WIDTH + gridCols * STAFF_COL_WIDTH,
-            height: totalHeight,
-          }}
-        >
-          {/* Time column */}
-          <div
-            className="sticky left-0 z-10 shrink-0 border-r bg-white"
-            style={{ width: TIME_COL_WIDTH, willChange: "transform" }}
-          >
-            {timeSlots.map((slot, idx) => {
-              const isHour = slot.endsWith(":00");
-              if (!isHour) return null;
+          {/* Time labels */}
+          <div className="relative" style={{ width: totalWidth }}>
+            {hourLabels.map(({ label, left }) => {
+              const isHour = label.endsWith(":00");
               return (
                 <div
-                  key={slot}
-                  className="absolute right-0 flex items-start justify-end pr-3"
-                  // The label sits *below* its hour line. The previous
-                  // value of -8 made the very first label (9:00) clip
-                  // above the grid container — by anchoring to +6 every
-                  // label is fully visible inside its slot.
-                  style={{ top: idx * slotHeightPx + 4 }}
+                  key={label}
+                  className="absolute flex items-center justify-center"
+                  style={{
+                    left,
+                    top: 0,
+                    bottom: 0,
+                    width: frameMin * PX_PER_MIN,
+                  }}
                 >
-                  <span className="text-[11px] font-semibold text-gray-500">
-                    {slot}
+                  <span
+                    className={`text-[11px] ${
+                      isHour
+                        ? "font-semibold text-gray-600"
+                        : "font-normal text-gray-400"
+                    }`}
+                  >
+                    {label}
                   </span>
                 </div>
               );
             })}
           </div>
+        </div>
 
-          {/* Staff columns */}
+        {/* Grid body */}
+        <div
+          ref={gridRef}
+          className="relative"
+          style={{ minWidth: STAFF_LABEL_WIDTH + totalWidth }}
+        >
+          {/* Staff rows */}
           {workingStaffs.map((staff) => {
             const staffAppts = appointmentsByStaff.get(staff.id) || [];
+            const isOffShift = !staff.isWorking;
             const shiftStartMin = staff.shiftStart
               ? timeToMinutes(staff.shiftStart.slice(0, 5))
               : null;
@@ -373,10 +306,6 @@ export function ReservationCalendar({
               ? timeToMinutes(staff.shiftEnd.slice(0, 5))
               : null;
 
-            // Pre-compute "occupied" minutes for this staff so we can
-            // disable the new-booking click on slots that already have
-            // an active appointment. Cancelled (status 3/4/99) are NOT
-            // considered occupied — that slot can be re-used.
             const occupiedRanges: Array<[number, number]> = [];
             for (const a of staffAppts) {
               if (a.status === 3 || a.status === 4 || a.status === 99) continue;
@@ -388,382 +317,442 @@ export function ReservationCalendar({
             const isMinuteOccupied = (m: number) =>
               occupiedRanges.some(([s, e]) => m >= s && m < e);
 
+            const ratePct =
+              staff.utilizationRate != null
+                ? Math.round(staff.utilizationRate * 100)
+                : null;
+            const rateClass =
+              ratePct == null
+                ? "bg-gray-100 text-gray-400"
+                : ratePct >= 85
+                  ? "bg-red-100 text-red-700"
+                  : ratePct >= 60
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-emerald-100 text-emerald-700";
+
             return (
               <div
                 key={staff.id}
                 data-staff-id={staff.id}
-                className="relative shrink-0 border-r"
-                style={{ width: STAFF_COL_WIDTH }}
+                className="flex border-b"
+                style={{ height: STAFF_ROW_HEIGHT }}
               >
-                {/* Grid lines + clickable cells.
-                    The very first row's top edge is drawn by the grid
-                    container's `border-t-2` so 9:00 has a clearly
-                    visible horizontal line. */}
-                {timeSlots.map((slot, idx) => {
-                  const slotMin = timeToMinutes(slot);
-                  // Google Calendar style: the line drawn at the BOTTOM
-                  // of this slot belongs to the next slot's start. If
-                  // that next slot starts on a whole hour, draw a thick
-                  // dark line (hour separator). Otherwise a thin light
-                  // line (half-hour / quarter-hour separator).
-                  const bottomMin = slotMin + frameMin;
-                  const isBottomHour = bottomMin % 60 === 0;
-                  const isInShift =
-                    shiftStartMin !== null &&
-                    shiftEndMin !== null &&
-                    slotMin >= shiftStartMin &&
-                    slotMin < shiftEndMin;
-                  const isOccupied = isMinuteOccupied(slotMin);
-                  const isClickable = isInShift && !isOccupied;
-
-                  return (
+                {/* Staff label (sticky left) */}
+                <div
+                  className={`sticky left-0 z-10 flex shrink-0 flex-col items-center justify-center border-r bg-white ${
+                    isOffShift ? "bg-gray-50" : ""
+                  }`}
+                  style={{ width: STAFF_LABEL_WIDTH }}
+                >
+                  <div className="flex items-center gap-1">
                     <div
-                      key={slot}
-                      className={`absolute w-full ${
-                        isBottomHour
-                          ? "border-b-2 border-gray-300"
-                          : "border-b border-gray-100"
-                      } ${
-                        !isInShift
-                          ? "bg-gray-100"
-                          : isOccupied
-                            ? "bg-gray-50"
-                            : "cursor-pointer hover:bg-blue-50/30"
-                      }`}
-                      style={{ top: idx * slotHeightPx, height: slotHeightPx }}
-                      onClick={
-                        isClickable
-                          ? () =>
-                              setNewBooking({
-                                staffId: staff.id,
-                                staffName: staff.name,
-                                date,
-                                time: slot,
-                              })
-                          : undefined
-                      }
-                    />
-                  );
-                })}
-
-                {/* Appointment blocks
-                    Layout strategy:
-                      - Cancelled (status 3 / 4 / 99) render as a narrow
-                        strip pinned to the right edge so the slot still
-                        shows "this person had a booking here" without
-                        eating the whole row.
-                      - Active appointments that overlap a cancelled one
-                        get their right edge pulled in to leave room for
-                        the strip (like Google Calendar side-by-side).
-                      - Active overlap with active is unchanged for now —
-                        existing double-booking still overlaps. */}
-                {(() => {
-                  const isCancelledStatus = (s: number) =>
-                    s === 3 || s === 4 || s === 99;
-                  const cancelledRanges = staffAppts
-                    .filter((a) => isCancelledStatus(a.status))
-                    .map((a) => ({
-                      startMin: timeToMinutes(a.startAt.slice(11, 16)),
-                      endMin: timeToMinutes(a.endAt.slice(11, 16)),
-                    }));
-                  const overlapsCancelled = (apptStartMin: number, apptEndMin: number) =>
-                    cancelledRanges.some(
-                      (c) => c.startMin < apptEndMin && c.endMin > apptStartMin
-                    );
-                  return staffAppts.map((appt) => {
-                  const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
-                  const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
-                  // Use minute-based positioning for pixel-perfect alignment
-                  const minutesFromStart = apptStartMin - startHour;
-                  const durationMinutes = apptEndMin - apptStartMin;
-                  const pixelsPerMinute = slotHeightPx / frameMin;
-                  const top = minutesFromStart * pixelsPerMinute + 2;
-                  const height = durationMinutes * pixelsPerMinute - 4;
-
-                  // Slot block (ミーティング / その他 / 休憩 / user-defined).
-                  // Rendered with the master palette color and the block's
-                  // label/memo instead of the system-placeholder customer.
-                  const isSlotBlock = !!appt.slotBlock;
-
-                  // Colors based on customer type + status.
-                  // visit_count = 1 means "this is the customer's first
-                  // actual visit" per the schema comment in 00002.
-                  const isNew =
-                    !isSlotBlock &&
-                    (appt.isNewCustomer || appt.visitCount === 1);
-                  const isPast = appt.status === 2;
-                  const isInProgress = appt.status === 1;
-                  const isCancelled = appt.status === 3 || appt.status === 99;
-                  const isSameDayCancelled = appt.status === 4;
-                  const isAnyCancelled = isCancelled || isSameDayCancelled;
-
-                  let borderColor = "border-blue-300";
-                  let bgColor = "bg-white";
-                  let statusBadge = "";
-                  let statusBadgeColor = "";
-
-                  if (isNew) {
-                    borderColor = "border-orange-300";
-                    bgColor = "bg-orange-50/50";
-                  }
-                  if (isPast) {
-                    statusBadge = "完了";
-                    statusBadgeColor = "bg-gray-100 text-gray-500";
-                    bgColor = "bg-gray-50";
-                    borderColor = "border-gray-200";
-                  } else if (isInProgress) {
-                    statusBadge = "施術中";
-                    statusBadgeColor = "bg-green-100 text-green-700";
-                    borderColor = "border-green-400";
-                  } else if (isSameDayCancelled) {
-                    statusBadge = "当日キャンセル";
-                    statusBadgeColor = "bg-red-100 text-red-700";
-                    borderColor = "border-red-300";
-                    bgColor = "bg-red-50/40";
-                  } else if (isCancelled) {
-                    statusBadge = "キャンセル";
-                    statusBadgeColor = "bg-red-100 text-red-600";
-                    borderColor = "border-red-200";
-                    bgColor = "bg-red-50/30";
-                  } else if (appt.status === 0) {
-                    statusBadge = "待機";
-                    statusBadgeColor = "bg-orange-100 text-orange-700";
-                  }
-
-                  // Visit count badge
-                  const visitLabel = isNew
-                    ? null
-                    : appt.visitCount > 0
-                      ? `${appt.visitCount}回目`
-                      : null;
-
-                  const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
-
-                  // ---------------- Cancelled: narrow right strip ----------------
-                  // Rendered as a real <button> with onClick so taps on
-                  // tablets/iPads reliably open the sheet. onMouseDown
-                  // was unreliable because it runs before click, and
-                  // browser hit-testing on a narrow strip over an active
-                  // card sometimes routed clicks back to the parent
-                  // grid. A button + onClick is the idiomatic fix.
-                  if (isAnyCancelled) {
-                    return (
-                      <button
-                        key={appt.id}
-                        type="button"
-                        data-appt={appt.id}
-                        className={`absolute overflow-hidden rounded-md border-2 text-left ${borderColor} ${bgColor} px-1.5 py-1 transition-shadow hover:shadow-md cursor-pointer`}
-                        style={{
-                          top,
-                          height,
-                          right: 6,
-                          width: "32%",
-                          zIndex: 20,
-                          // Same rationale as the active card: let touch
-                          // pan scroll the page instead of being trapped
-                          // by the button's hit-test on the first swipe.
-                          touchAction: "pan-y",
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedAppt(appt);
-                        }}
-                        onMouseDown={(e) => {
-                          // Belt-and-suspenders: some browsers need us
-                          // to claim the mousedown so a drag handler on
-                          // a parent doesn't swallow the click.
-                          e.stopPropagation();
-                        }}
-                        title={`${appt.customerName} (${isSameDayCancelled ? "当日キャンセル" : "キャンセル"}) - タップで詳細`}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span
-                            className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold ${statusBadgeColor}`}
-                          >
-                            {isSameDayCancelled ? "当日" : "キャンセル"}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 truncate text-[10px] font-bold text-gray-700 line-through">
-                          {appt.customerName}
-                          {formatCustomerCode(appt.customerCode) && (
-                            <span className="ml-1 font-normal text-gray-500">
-                              ({formatCustomerCode(appt.customerCode)})
-                            </span>
-                          )}
-                        </div>
-                        <div className="truncate text-[10px] text-gray-500 line-through">
-                          {appt.menuName}
-                        </div>
-                      </button>
-                    );
-                  }
-
-                  // ---------------- Slot block (meeting / other / break) ----------------
-                  // Fills the full column width like an active card but
-                  // uses the master palette color for its left border +
-                  // tinted background, and shows "ミーティング" / "その他"
-                  // / "休憩" as the primary label with the memo or
-                  // other_label as the secondary text. Clicking still
-                  // routes to the AppointmentDetailSheet — the sheet
-                  // itself detects slotBlock and switches to the editor.
-                  if (isSlotBlock && appt.slotBlock) {
-                    const sb = appt.slotBlock;
-                    const blockColor = sb.color ?? "#9333ea";
-                    const blockLabel = sb.label;
-                    // For "その他" the memorable text lives in other_label
-                    // (free-form title). For "ミーティング" / "休憩" we
-                    // fall back to memo / customer_record which is the
-                    // note the user typed in the meeting form.
-                    const subText =
-                      sb.code === "other"
-                        ? appt.otherLabel || appt.customerRecord || ""
-                        : appt.memo || appt.customerRecord || "";
-                    return (
-                      <div
-                        key={appt.id}
-                        data-appt={appt.id}
-                        className="absolute select-none cursor-pointer overflow-hidden rounded-md border-l-4 bg-white px-2 py-1 shadow-sm transition-shadow hover:shadow-md"
-                        style={{
-                          top: isBeingDragged ? dragTop : top,
-                          height,
-                          left: 6,
-                          right: 6,
-                          zIndex: isBeingDragged ? 50 : 5,
-                          borderLeftColor: blockColor,
-                          backgroundColor: `${blockColor}12`,
-                          touchAction: "pan-y",
-                        }}
-                        onMouseDown={(e) => handleDragStart(appt, e)}
-                      >
-                        <div className="flex items-center gap-1 leading-tight">
-                          <span
-                            className="rounded px-1.5 py-0 text-[10px] font-bold"
-                            style={{
-                              backgroundColor: blockColor,
-                              color: sb.labelTextColor ?? "#ffffff",
-                            }}
-                          >
-                            {blockLabel}
-                          </span>
-                        </div>
-                        {subText && (
-                          <div className="mt-0.5 truncate text-[11px] text-gray-700">
-                            {subText}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  // ---------------- Active appointment ----------------
-                  // If this active row overlaps a cancelled strip on the
-                  // right, narrow its right edge so they don't visually
-                  // collide.
-                  const narrowForCancelled = overlapsCancelled(
-                    apptStartMin,
-                    apptEndMin
-                  );
-
-                  return (
-                    <div
-                      key={appt.id}
-                      data-appt={appt.id}
-                      className={`absolute select-none overflow-hidden rounded-md border ${borderColor} ${bgColor} px-1.5 py-0.5 transition-shadow hover:shadow-md ${
-                        isBeingDragged
-                          ? "cursor-grabbing opacity-60 z-50"
-                          : "cursor-grab"
+                      className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                        isOffShift ? "opacity-60" : ""
                       }`}
                       style={{
-                        top: isBeingDragged ? dragTop : top,
-                        height,
-                        left: 6,
-                        right: narrowForCancelled ? "36%" : 6,
-                        zIndex: isBeingDragged ? 50 : 5,
-                        // Critical for touch / trackpad: tell the browser
-                        // that vertical pan wins over any drag intent on
-                        // this card. Without this, the first swipe over
-                        // an appointment was consumed by hit-testing /
-                        // drag-decision and didn't scroll the page —
-                        // exactly the "1回目スクロールできない" bug.
-                        // Desktop mouse drag is unaffected because
-                        // touch-action only applies to touch + scroll.
-                        touchAction: "pan-y",
+                        backgroundColor: staff.shiftColor || "#6366f1",
                       }}
-                      onMouseDown={(e) => handleDragStart(appt, e)}
                     >
-                      {/* Single-line header: name + code + badge + status.
-                          Everything on one row with truncate so 30-min
-                          slots don't overflow their box. */}
-                      <div className="flex items-center gap-1 truncate leading-snug">
-                        <span className="truncate text-[11px] font-black text-gray-900">
-                          {appt.customerName}
-                        </span>
-                        {formatCustomerCode(appt.customerCode) && (
-                          <span className="shrink-0 text-[9px] font-bold text-gray-500">
-                            ({formatCustomerCode(appt.customerCode)})
-                          </span>
-                        )}
-                        {isNew ? (
-                          <span
-                            className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
-                            style={{
-                              backgroundColor: appt.sourceColor ?? "#ef4444",
-                              color: appt.sourceTextColor ?? "#ffffff",
-                            }}
-                          >
-                            {appt.source ? `${appt.source}新規` : "新規"}
-                          </span>
-                        ) : (
-                          visitLabel && (
-                            <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[9px] font-bold text-white">
-                              {visitLabel}
-                            </span>
-                          )
-                        )}
-                        {statusBadge && (
-                          <span
-                            className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
-                          >
-                            {statusBadge}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Menu + duration — second line, auto-hidden when
-                          the card is too short (30-min slots). */}
-                      <div className="truncate text-[10px] text-gray-600">
-                        {appt.menuName}
-                        {appt.duration > 0 && `（${appt.duration}分）`}
-                      </div>
+                      {staff.name.slice(0, 1)}
                     </div>
-                  );
-                  });
-                })()}
+                    <span
+                      className={`text-xs font-bold ${
+                        isOffShift ? "text-gray-500" : "text-gray-900"
+                      }`}
+                    >
+                      {staff.name}
+                    </span>
+                    <span
+                      className={`rounded px-1 py-0.5 text-[9px] font-bold ${rateClass}`}
+                      title={`本日の稼働率 — 開放 ${staff.openMin}分 / 稼働 ${staff.busyMin}分`}
+                    >
+                      {ratePct != null ? `${ratePct}%` : "—"}
+                    </span>
+                  </div>
+                  {staff.shiftStart && staff.shiftEnd ? (
+                    <div className="text-[10px] text-gray-400">
+                      [{staff.shiftStart.slice(0, 5)}-{staff.shiftEnd.slice(0, 5)}]
+                    </div>
+                  ) : (
+                    <div className="text-[9px] font-bold text-red-500">
+                      休日
+                    </div>
+                  )}
+                </div>
+
+                {/* Timeline area */}
+                <div
+                  className="relative"
+                  style={{ width: totalWidth, height: STAFF_ROW_HEIGHT }}
+                >
+                  {/* Grid lines (vertical) + clickable cells + off-shift shading */}
+                  {timeSlots.map((slot) => {
+                    const slotMin = timeToMinutes(slot);
+                    const leftPx = (slotMin - startHour) * PX_PER_MIN;
+                    const widthPx = frameMin * PX_PER_MIN;
+                    const isHour = slotMin % 60 === 0;
+                    const isHalf = slotMin % 30 === 0 && !isHour;
+                    const isInShift =
+                      shiftStartMin !== null &&
+                      shiftEndMin !== null &&
+                      slotMin >= shiftStartMin &&
+                      slotMin < shiftEndMin;
+                    const isOccupied = isMinuteOccupied(slotMin);
+                    const isClickable = isInShift && !isOccupied;
+
+                    return (
+                      <div
+                        key={slot}
+                        className={`absolute top-0 h-full ${
+                          isHour
+                            ? "border-l-2 border-gray-300"
+                            : isHalf
+                              ? "border-l border-gray-200"
+                              : "border-l border-gray-100"
+                        } ${
+                          !isInShift
+                            ? "bg-gray-100"
+                            : isOccupied
+                              ? "bg-gray-50"
+                              : "cursor-pointer hover:bg-blue-50/30"
+                        }`}
+                        style={{ left: leftPx, width: widthPx }}
+                        onClick={
+                          isClickable
+                            ? () =>
+                                setNewBooking({
+                                  staffId: staff.id,
+                                  staffName: staff.name,
+                                  date,
+                                  time: slot,
+                                })
+                            : undefined
+                        }
+                      />
+                    );
+                  })}
+
+                  {/* Appointment blocks */}
+                  {(() => {
+                    const isCancelledStatus = (s: number) =>
+                      s === 3 || s === 4 || s === 99;
+                    const cancelledRanges = staffAppts
+                      .filter((a) => isCancelledStatus(a.status))
+                      .map((a) => ({
+                        startMin: timeToMinutes(a.startAt.slice(11, 16)),
+                        endMin: timeToMinutes(a.endAt.slice(11, 16)),
+                      }));
+                    const overlapsCancelled = (s: number, e: number) =>
+                      cancelledRanges.some(
+                        (c) => c.startMin < e && c.endMin > s
+                      );
+
+                    return staffAppts.map((appt) => {
+                      const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
+                      const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
+                      const minutesFromStart = apptStartMin - startHour;
+                      const durationMinutes = apptEndMin - apptStartMin;
+                      const apptLeft = minutesFromStart * PX_PER_MIN + 1;
+                      const apptWidth = durationMinutes * PX_PER_MIN - 2;
+
+                      const isSlotBlock = !!appt.slotBlock;
+                      // 新規判定: visitCount が 0 (submitPublicBooking は
+                      // visit_count を未設定のまま INSERT するため DB
+                      // デフォルト 0 になる) または 1 の場合を新規とみなす。
+                      // isNewCustomer は「顧客の created_at が今日」で判定
+                      // するため、前日に作成した顧客の翌日予約は false になる。
+                      const isNew =
+                        !isSlotBlock &&
+                        (appt.isNewCustomer || appt.visitCount <= 1);
+                      const isPast = appt.status === 2;
+                      const isInProgress = appt.status === 1;
+                      const isCancelled = appt.status === 3 || appt.status === 99;
+                      const isSameDayCancelled = appt.status === 4;
+                      const isAnyCancelled = isCancelled || isSameDayCancelled;
+
+                      let borderColor = "border-blue-300";
+                      let bgColor = "bg-white";
+                      let statusBadge = "";
+                      let statusBadgeColor = "";
+
+                      if (isNew) {
+                        borderColor = "border-orange-300";
+                        bgColor = "bg-orange-50/50";
+                      }
+                      if (isPast) {
+                        statusBadge = "完了";
+                        statusBadgeColor = "bg-gray-100 text-gray-500";
+                        bgColor = "bg-gray-50";
+                        borderColor = "border-gray-200";
+                      } else if (isInProgress) {
+                        statusBadge = "施術中";
+                        statusBadgeColor = "bg-green-100 text-green-700";
+                        borderColor = "border-green-400";
+                      } else if (isSameDayCancelled) {
+                        statusBadge = "当日キャンセル";
+                        statusBadgeColor = "bg-red-100 text-red-700";
+                        borderColor = "border-red-300";
+                        bgColor = "bg-red-50/40";
+                      } else if (isCancelled) {
+                        statusBadge = "キャンセル";
+                        statusBadgeColor = "bg-red-100 text-red-600";
+                        borderColor = "border-red-200";
+                        bgColor = "bg-red-50/30";
+                      } else if (appt.status === 0) {
+                        statusBadge = "待機";
+                        statusBadgeColor = "bg-orange-100 text-orange-700";
+                      }
+
+                      const visitLabel = isNew
+                        ? null
+                        : appt.visitCount > 0
+                          ? `${appt.visitCount}回目`
+                          : null;
+
+                      const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
+
+                      // Cancelled: narrow bottom strip
+                      if (isAnyCancelled) {
+                        return (
+                          <button
+                            key={appt.id}
+                            type="button"
+                            data-appt={appt.id}
+                            className={`absolute overflow-hidden rounded-md border text-left ${borderColor} ${bgColor} px-1 py-0.5 transition-shadow hover:shadow-md cursor-pointer`}
+                            style={{
+                              left: apptLeft,
+                              width: apptWidth,
+                              bottom: 2,
+                              height: "30%",
+                              zIndex: 20,
+                              touchAction: "pan-x",
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedAppt(appt);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            title={`${appt.customerName} (${isSameDayCancelled ? "当日キャンセル" : "キャンセル"}) - タップで詳細`}
+                          >
+                            <div className="flex items-center gap-1 truncate">
+                              <span
+                                className={`shrink-0 rounded px-1 py-0 text-[8px] font-bold ${statusBadgeColor}`}
+                              >
+                                {isSameDayCancelled ? "当日" : "キャンセル"}
+                              </span>
+                              <span className="truncate text-[9px] font-bold text-gray-700 line-through">
+                                {appt.customerName}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      }
+
+                      // Slot block (meeting / other / break)
+                      if (isSlotBlock && appt.slotBlock) {
+                        const sb = appt.slotBlock;
+                        const blockColor = sb.color ?? "#9333ea";
+                        const subText =
+                          sb.code === "other"
+                            ? appt.otherLabel || appt.customerRecord || ""
+                            : appt.memo || appt.customerRecord || "";
+                        return (
+                          <div
+                            key={appt.id}
+                            data-appt={appt.id}
+                            className="absolute select-none cursor-pointer overflow-hidden rounded-md border-l-4 bg-white px-2 py-1 shadow-sm transition-shadow hover:shadow-md"
+                            style={{
+                              left: isBeingDragged ? dragLeft : apptLeft,
+                              width: apptWidth,
+                              top: 3,
+                              bottom: 3,
+                              zIndex: isBeingDragged ? 50 : 5,
+                              borderLeftColor: blockColor,
+                              backgroundColor: `${blockColor}12`,
+                              touchAction: "pan-x",
+                            }}
+                            onMouseDown={(e) => handleDragStart(appt, e)}
+                          >
+                            <div className="flex items-center gap-1 leading-tight">
+                              <span
+                                className="rounded px-1.5 py-0 text-[10px] font-bold"
+                                style={{
+                                  backgroundColor: blockColor,
+                                  color: sb.labelTextColor ?? "#ffffff",
+                                }}
+                              >
+                                {sb.label}
+                              </span>
+                              <span className="truncate text-[10px] text-gray-600">
+                                {appt.startAt.slice(11, 16)}-{appt.endAt.slice(11, 16)}
+                              </span>
+                            </div>
+                            {subText && (
+                              <div className="mt-0.5 truncate text-[10px] text-gray-700">
+                                {subText}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // Active appointment
+                      const narrowForCancelled = overlapsCancelled(
+                        apptStartMin,
+                        apptEndMin
+                      );
+
+                      // 30 分枠などカード幅が狭いと顧客名が truncate されて
+                      // 数文字しか見えないケースがある。せめてマウスを
+                      // 乗せたとき (title ツールチップ) にフルの名前 /
+                      // カルテ番号 / メニュー / 時間帯が読めるようにする。
+                      const tooltipLines: string[] = [];
+                      if (appt.customerName) {
+                        const codeStr = formatCustomerCode(appt.customerCode);
+                        tooltipLines.push(
+                          codeStr
+                            ? `${appt.customerName} (${codeStr})`
+                            : appt.customerName
+                        );
+                      } else if (formatCustomerCode(appt.customerCode)) {
+                        tooltipLines.push(
+                          `カルテ #${formatCustomerCode(appt.customerCode)}`
+                        );
+                      }
+                      tooltipLines.push(
+                        `${appt.startAt.slice(11, 16)}-${appt.endAt.slice(11, 16)}`
+                      );
+                      if (appt.menuName) {
+                        tooltipLines.push(
+                          appt.duration > 0
+                            ? `${appt.menuName}（${appt.duration}分）`
+                            : appt.menuName
+                        );
+                      }
+                      if (statusBadge) tooltipLines.push(statusBadge);
+                      const apptTooltip = tooltipLines.join("\n");
+
+                      return (
+                        <div
+                          key={appt.id}
+                          data-appt={appt.id}
+                          className={`group absolute select-none rounded-md border ${borderColor} ${bgColor} transition-shadow hover:shadow-md ${
+                            isBeingDragged
+                              ? "cursor-grabbing opacity-60 z-50"
+                              : "cursor-grab"
+                          }`}
+                          style={{
+                            left: isBeingDragged ? dragLeft : apptLeft,
+                            width: apptWidth,
+                            top: 3,
+                            bottom: narrowForCancelled ? "34%" : 3,
+                            zIndex: isBeingDragged ? 50 : 5,
+                            touchAction: "pan-x",
+                          }}
+                          onMouseDown={(e) => handleDragStart(appt, e)}
+                        >
+                          {/* 内側で overflow-hidden して truncate を効かせる。
+                              外側はカードからツールチップが飛び出せるように
+                              overflow を切らない。 */}
+                          <div className="overflow-hidden px-1.5 py-0.5">
+                          {/* 1 行目: 顧客名 + カルテ番号 (名前を最優先で表示)。
+                              名前は truncate + min-w-0 でカード幅に合わせて
+                              省略されるが、min-w-0 を付けないと intrinsic
+                              width を保持してしまい、右側の shrink-0 要素に
+                              押し出されて見えなくなる。名前が無い場合のみ
+                              「未設定」を薄色表示して空白にならないようにする。 */}
+                          <div className="flex min-w-0 items-baseline gap-1 leading-tight">
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[12px] font-black ${
+                                appt.customerName
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }`}
+                            >
+                              {appt.customerName || "未設定"}
+                            </span>
+                            {formatCustomerCode(appt.customerCode) && (
+                              <span className="shrink-0 text-[9px] font-bold text-gray-500">
+                                ({formatCustomerCode(appt.customerCode)})
+                              </span>
+                            )}
+                          </div>
+                          {/* 2 行目: 来店バッジ + ステータス + メニュー名。
+                              名前行を邪魔しないように小さめフォントにまとめ、
+                              メニュー名は truncate で省略する。 */}
+                          <div className="flex min-w-0 items-center gap-1 leading-tight">
+                            {isNew ? (
+                              <span
+                                className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
+                                style={{
+                                  backgroundColor: appt.sourceColor ?? "#ef4444",
+                                  color: appt.sourceTextColor ?? "#ffffff",
+                                }}
+                              >
+                                {appt.source ? `${appt.source}新規` : "新規"}
+                              </span>
+                            ) : (
+                              visitLabel && (
+                                <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[9px] font-bold text-white">
+                                  {visitLabel}
+                                </span>
+                              )
+                            )}
+                            {statusBadge && (
+                              <span
+                                className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
+                              >
+                                {statusBadge}
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1 truncate text-[10px] text-gray-600">
+                              {appt.menuName}
+                              {appt.duration > 0 && `（${appt.duration}分）`}
+                            </span>
+                          </div>
+                          </div>
+                          {/* カスタム ツールチップ: ホバー即表示 (OS の title は
+                              ~500ms の遅延が固定で変えられないため自前描画)。
+                              カードの上に絶対配置して overflow を外に出す。 */}
+                          {apptTooltip && (
+                            <div
+                              className="pointer-events-none absolute bottom-full left-0 z-[60] mb-1 hidden min-w-max max-w-xs whitespace-pre-line rounded-md bg-gray-900/95 px-2 py-1 text-[11px] leading-snug font-normal text-white shadow-lg group-hover:block"
+                            >
+                              {apptTooltip}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
               </div>
             );
           })}
 
-          {/* Current time red line */}
-          {nowLineTop !== null && nowLineTop > 0 && (
+          {/* Current time vertical red line */}
+          {nowLineLeft !== null && nowLineLeft > 0 && (
             <div
-              className="pointer-events-none absolute left-0 right-0 z-30"
-              style={{ top: nowLineTop }}
+              className="pointer-events-none absolute z-30"
+              style={{
+                left: STAFF_LABEL_WIDTH + nowLineLeft,
+                top: 0,
+                bottom: 0,
+              }}
             >
               <div
                 className="absolute h-[10px] w-[10px] rounded-full bg-red-500"
-                style={{ left: TIME_COL_WIDTH - 5 }}
+                style={{ top: -5, left: -5 }}
               />
               <div
-                className="absolute h-[2px] bg-red-400/75"
-                style={{ left: TIME_COL_WIDTH, right: 0 }}
+                className="absolute w-[2px] bg-red-400/75"
+                style={{ top: 0, bottom: 0, left: -1 }}
               />
             </div>
           )}
         </div>
       </div>
 
-      {/* Booking / Detail Sheet — key forces remount on selection change
-          so initial form state is re-derived from the new appointment. */}
       <AppointmentDetailSheet
         key={
           selectedAppt

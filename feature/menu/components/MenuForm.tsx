@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { menuSchema, type MenuFormValues } from "../schema/menu.schema";
@@ -34,8 +35,23 @@ interface MenuFormProps {
   initialData?: MenuFormValues & { id: number };
 }
 
+// Base UI Select は <SelectValue> が `value` 文字列をそのまま表示するため、
+// `items` プロップ (value → label の map) を渡さないとトリガーに数字 ID が
+// 出てしまう。ハードコード選択肢の map をモジュールトップで定義する。
+const MENU_TYPE_ITEMS: Record<string, string> = {
+  "0": "ブランド共通",
+  "1": "店舗限定",
+};
+
 export function MenuForm({ brandId, categories, initialData }: MenuFormProps) {
   const isEdit = !!initialData;
+
+  // カテゴリ Select 用の items map (id → 名前)。categories は親から渡る
+  // 配列なので useMemo でキャッシュする。
+  const categoryItems = useMemo(
+    () => Object.fromEntries(categories.map((c) => [String(c.id), c.name])),
+    [categories]
+  );
 
   const {
     register,
@@ -106,6 +122,7 @@ export function MenuForm({ brandId, categories, initialData }: MenuFormProps) {
               render={({ field }) => (
                 <Select
                   value={field.value != null ? String(field.value) : undefined}
+                  items={categoryItems}
                   onValueChange={(val) => field.onChange(Number(val))}
                 >
                   <SelectTrigger className="w-full" id="category_id">
@@ -137,6 +154,7 @@ export function MenuForm({ brandId, categories, initialData }: MenuFormProps) {
               render={({ field }) => (
                 <Select
                   value={String(field.value)}
+                  items={MENU_TYPE_ITEMS}
                   onValueChange={(val) => field.onChange(Number(val))}
                 >
                   <SelectTrigger className="w-full" id="menu_type">

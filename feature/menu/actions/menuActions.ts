@@ -175,3 +175,70 @@ export async function deleteMenu(id: number) {
   revalidatePath("/booking-link");
   return { success: true };
 }
+
+/**
+ * 既存メニューを複製する。料金・施術時間・カテゴリ等はそのまま引き継ぎ、
+ * 名前に「（コピー）」を付けて新しい menu_manage_id を採番する。
+ * 採番方式は createMenu と同じ (BRD-{id} / STR-{id}、id は最大 + 1)。
+ */
+export async function copyMenu(
+  id: number
+): Promise<{ success: true; id: number } | { error: string }> {
+  const supabase = await createClient();
+
+  // 1. コピー元を取得
+  const { data: original, error: fetchErr } = await supabase
+    .from("menus")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .single();
+
+  if (fetchErr || !original) {
+    return { error: "コピー元のメニューが見つかりません" };
+  }
+
+  // 2. 新しい menu_manage_id を採番
+  const prefix = original.menu_type === 0 ? "BRD" : "STR";
+  const { data: lastMenu } = await supabase
+    .from("menus")
+    .select("id")
+    .order("id", { ascending: false })
+    .limit(1)
+    .single();
+  const nextId = (lastMenu?.id ?? 0) + 1;
+  const newMenuManageId = `${prefix}-${nextId}`;
+
+  // 3. クローン用オブジェクト (id / created_at / updated_at は除外)
+  const clone = {
+    brand_id: original.brand_id,
+    shop_id: original.shop_id,
+    category_id: original.category_id,
+    menu_type: original.menu_type,
+    name: `${original.name}（コピー）`.slice(0, 255),
+    price: original.price,
+    price_disp_type: original.price_disp_type,
+    duration: original.duration,
+    image_url: original.image_url,
+    available_count: original.available_count,
+    status: original.status,
+    sort_number: original.sort_number,
+    menu_manage_id: newMenuManageId,
+  };
+
+  // 4. INSERT → 新 id を取得
+  const { data: inserted, error: insertErr } = await supabase
+    .from("menus")
+    .insert(clone)
+    .select("id")
+    .single();
+
+  if (insertErr || !inserted) {
+    return { error: insertErr?.message ?? "コピーに失敗しました" };
+  }
+
+  revalidatePath("/menu");
+  revalidatePath("/reservation");
+  revalidatePath("/booking-link");
+  return { success: true, id: inserted.id as number };
+}

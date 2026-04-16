@@ -4,14 +4,46 @@ import { useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"] as const;
-const TIME_SLOTS: string[] = (() => {
+
+/**
+ * availability map から一番早い開始時刻と一番遅い終了時刻を求め、
+ * 30 分刻みのスロット配列を返す。availability が無い場合は
+ * 9:00–21:00 をフォールバック。
+ */
+function buildTimeSlots(
+  availability?: Record<string, DayAvailability | null>
+): string[] {
+  let earliest = 9 * 60;  // default 09:00
+  let latest = 21 * 60;   // default 21:00
+
+  if (availability) {
+    let hasAny = false;
+    for (const day of Object.values(availability)) {
+      if (!day) continue;
+      hasAny = true;
+      if (day.startMin < earliest) earliest = day.startMin;
+      if (day.endMin > latest) latest = day.endMin;
+    }
+    if (!hasAny) {
+      earliest = 9 * 60;
+      latest = 21 * 60;
+    }
+  }
+
+  // 30 分の境界に丸める
+  earliest = Math.floor(earliest / 30) * 30;
+  latest = Math.ceil(latest / 30) * 30;
+
   const slots: string[] = [];
-  for (let h = 10; h <= 20; h++) {
-    slots.push(`${String(h).padStart(2, "0")}:00`);
-    if (h < 20) slots.push(`${String(h).padStart(2, "0")}:30`);
+  for (let min = earliest; min < latest; min += 30) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    slots.push(
+      `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+    );
   }
   return slots;
-})();
+}
 
 /**
  * Per-day shop availability passed in by the parent. `null` for a date
@@ -92,6 +124,7 @@ export function AvailabilityCalendar({
   });
 
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart]);
+  const timeSlots = useMemo(() => buildTimeSlots(availability), [availability]);
   const now = useMemo(() => new Date(), []);
   const today = toLocalDateString(now);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -233,7 +266,7 @@ export function AvailabilityCalendar({
 
         {/* Time slots */}
         <div className="max-h-[360px] overflow-y-auto">
-          {TIME_SLOTS.map((time) => (
+          {timeSlots.map((time) => (
             <div
               key={time}
               className="grid grid-cols-[56px_repeat(7,1fr)] border-b border-gray-100 last:border-b-0"

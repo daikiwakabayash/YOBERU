@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getMenus, getMenuCategories } from "../services/getMenus";
 import { MenuDeleteButton } from "./MenuDeleteButton";
+import { MenuCopyButton } from "./MenuCopyButton";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +109,7 @@ export async function MenuList({ brandId, categoryId }: MenuListProps) {
                           <Pencil className="size-4" />
                         </Button>
                       </Link>
+                      <MenuCopyButton id={menu.id} name={menu.name} />
                       <MenuDeleteButton id={menu.id} name={menu.name} />
                     </div>
                   </TableCell>

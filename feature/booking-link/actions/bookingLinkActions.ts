@@ -240,19 +240,28 @@ export async function submitPublicBooking(formData: FormData) {
   if (existing.data) {
     customerId = existing.data.id as number;
   } else {
-    // Generate code
-    const maxRow = await supabase
+    // カルテナンバーは「小さい数字から連番」がオペレーション要件なので、
+    // 1, 2, 3 ... の文字列で保存する (ゼロ埋めしない)。createCustomer 側
+    // と同じ採番ロジックを使うこと。customers.code は VARCHAR なので
+    // SQL の order は文字列順 ("9" > "10") になり、誤った max が返る。
+    // 全件取って数値比較する (店舗単位なのでサイズはたかが知れている)。
+    // ゼロ埋め値 ("00000012" 等) も parseInt で正しく扱える。
+    //
+    // 旧実装は order("code") + padStart(8, "0") を使っており、ダッシュ
+    // ボードから登録された "1","2","3" 等の非ゼロ埋めコードと混在する
+    // と、誤った最大値から "00000004" 等を生成して既存コードと衝突し、
+    // customers.code は UNIQUE (グローバル、全店舗・削除済み含む) なので、
+    // 採番は全レコードを対象に最大値を求める。shop_id や deleted_at で
+    // 絞ると他店舗/削除済みのコードと衝突して UNIQUE 違反になる。
+    const { data: allCodes } = await supabase
       .from("customers")
-      .select("code")
-      .eq("shop_id", shopId)
-      .order("code", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    let nextCode = "00000001";
-    if (maxRow.data?.code) {
-      const num = parseInt(String(maxRow.data.code), 10);
-      if (!isNaN(num)) nextCode = String(num + 1).padStart(8, "0");
+      .select("code");
+    let maxNumeric = 0;
+    for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
+      const n = parseInt((r.code ?? "0").trim(), 10);
+      if (Number.isFinite(n) && n > maxNumeric) maxNumeric = n;
     }
+    const nextCode = String(maxNumeric + 1);
 
     const inserted = await supabase
       .from("customers")
@@ -409,6 +418,7 @@ export async function submitPublicBooking(formData: FormData) {
     is_couple: false,
     sales: 0,
     status: 0,
+    visit_count: 1,
     visit_source_id: link.data.visit_source_id ?? null,
     memo: utmSource ? `流入元: ${utmSource}` : null,
   });

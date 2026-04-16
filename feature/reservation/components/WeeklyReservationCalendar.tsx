@@ -20,17 +20,15 @@ interface WeeklyReservationCalendarProps {
   enableMeetingBooking?: boolean;
 }
 
-const SLOT_HEIGHT = 34;
-const TIME_COL_WIDTH = 52;
-// Each day column flexes to fill available width (1/7 of the viewport
-// minus the time column). min-width prevents the column from becoming
-// too narrow on very small screens.
-const DAY_COL_MIN_WIDTH = 100;
+// Horizontal layout constants — day rows on Y, time on X.
+// 幅を詰めて横スクロール量を小さくする:
+//   PX_PER_MIN: 1分あたりの横幅 (以前は4。2.2にして約45%圧縮)
+//     → 30min = 66px, 60min = 132px, 12h = 1584px
+const DAY_ROW_HEIGHT = 72;
+const DAY_LABEL_WIDTH = 100;
+const TIME_HEADER_HEIGHT = 32;
+const PX_PER_MIN = 2.2;
 
-/**
- * Strip leading zeros from a customer code so "00000012" renders as
- * "12". See ReservationCalendar for rationale.
- */
 function formatCustomerCode(code: string | null | undefined): string | null {
   if (!code) return null;
   const trimmed = code.replace(/^0+/, "");
@@ -58,12 +56,13 @@ export function WeeklyReservationCalendar({
     staffBusyMin,
     dailyUtilization,
   } = data;
-  // Map date → daily util row for O(1) lookup in the header render.
+
   const dailyUtilByDate = useMemo(() => {
     const m = new Map<string, (typeof dailyUtilization)[number]>();
     for (const d of dailyUtilization) m.set(d.date, d);
     return m;
   }, [dailyUtilization]);
+
   const [selectedAppt, setSelectedAppt] = useState<CalendarAppointment | null>(null);
   const [newBooking, setNewBooking] = useState<{
     staffId: number;
@@ -73,18 +72,20 @@ export function WeeklyReservationCalendar({
   } | null>(null);
   const [nowMinutes, setNowMinutes] = useState<number | null>(null);
 
-  // Grid calculations
-  const slotHeightPx = (SLOT_HEIGHT * 30) / (frameMin || 30);
   const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
-  const totalSlots = timeSlots.length;
-  const totalHeight = totalSlots * slotHeightPx;
+  const endMinute =
+    timeSlots.length > 0
+      ? timeToMinutes(timeSlots[timeSlots.length - 1]) + frameMin
+      : 1260;
+  const totalMinutes = endMinute - startHour;
+  const totalWidth = totalMinutes * PX_PER_MIN;
   const today = toLocalDateString(new Date());
 
-  // Drag state
+  // Drag state — horizontal drag changes time, vertical changes day.
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
   const [dragDate, setDragDate] = useState<string | null>(null);
-  const [dragTop, setDragTop] = useState(0);
+  const [dragLeft, setDragLeft] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
   const hasMovedRef = useRef(false);
   const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -92,21 +93,16 @@ export function WeeklyReservationCalendar({
 
   const handleDragStart = useCallback(
     (appt: CalendarAppointment, e: React.MouseEvent) => {
-      // DO NOT call e.preventDefault() here — same fix as the day view.
-      // mousedown is synthesized from touchstart on touch devices, and
-      // preventing default cancels the browser's scroll decision for the
-      // entire touch sequence (= "1回目スクロールできない" bug).
       e.stopPropagation();
       const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
       if (!rect) return;
-      // Determine the date of this appointment from its startAt
       const apptDate = appt.startAt.slice(0, 10);
       hasMovedRef.current = false;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
       setDragAppt(appt);
       setDragDate(apptDate);
-      setDragOffset(e.clientY - rect.top);
-      setDragTop(rect.top - (gridRef.current?.getBoundingClientRect().top ?? 0));
+      setDragOffset(e.clientX - rect.left);
+      setDragLeft(rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0));
     },
     []
   );
@@ -125,14 +121,14 @@ export function WeeklyReservationCalendar({
       }
       if (!hasMovedRef.current) return;
 
-      const newTop = e.clientY - gridRect.top - dragOffset;
-      setDragTop(Math.max(0, newTop));
+      const newLeft = e.clientX - gridRect.left - dragOffset;
+      setDragLeft(Math.max(0, newLeft));
 
-      // Detect which day column the cursor is over
-      const dayCols = gridRef.current!.querySelectorAll("[data-date]");
-      dayCols.forEach((el) => {
+      // Detect day row by Y position
+      const dayRows = gridRef.current!.querySelectorAll("[data-date]");
+      dayRows.forEach((el) => {
         const rect = el.getBoundingClientRect();
-        if (e.clientX >= rect.left && e.clientX <= rect.right) {
+        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
           setDragDate(el.getAttribute("data-date"));
         }
       });
@@ -141,7 +137,6 @@ export function WeeklyReservationCalendar({
     async function handleMouseUp() {
       if (!dragAppt || !dragDate) return;
 
-      // Click (no movement): open detail sheet
       if (!hasMovedRef.current) {
         setSelectedAppt(dragAppt);
         setDragAppt(null);
@@ -150,10 +145,12 @@ export function WeeklyReservationCalendar({
         return;
       }
 
-      const pixelsPerMinute = slotHeightPx / frameMin;
-      const newMinutes = Math.round(dragTop / pixelsPerMinute / frameMin) * frameMin + startHour;
+      const newMinutes =
+        Math.round(dragLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
       const newStartTime = minutesToTime(newMinutes);
-      const durationMin = timeToMinutes(dragAppt.endAt.slice(11, 16)) - timeToMinutes(dragAppt.startAt.slice(11, 16));
+      const durationMin =
+        timeToMinutes(dragAppt.endAt.slice(11, 16)) -
+        timeToMinutes(dragAppt.startAt.slice(11, 16));
       const newEndTime = minutesToTime(newMinutes + durationMin);
 
       const newStartAt = `${dragDate}T${newStartTime}:00`;
@@ -182,9 +179,8 @@ export function WeeklyReservationCalendar({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragAppt, dragOffset, dragTop, dragDate, frameMin, slotHeightPx, startHour]);
+  }, [dragAppt, dragOffset, dragLeft, dragDate, frameMin, startHour]);
 
-  // Current time tracker
   useEffect(() => {
     function updateNow() {
       const now = new Date();
@@ -195,7 +191,6 @@ export function WeeklyReservationCalendar({
     return () => clearInterval(interval);
   }, []);
 
-  // Group appointments by date
   const appointmentsByDate = useMemo(() => {
     const map = new Map<string, CalendarAppointment[]>();
     for (const appt of appointments) {
@@ -207,12 +202,12 @@ export function WeeklyReservationCalendar({
     return map;
   }, [appointments]);
 
-  const nowLineTop = useMemo(() => {
+  const nowLineLeft = useMemo(() => {
     if (nowMinutes === null) return null;
     const offsetMin = nowMinutes - startHour;
-    if (offsetMin < 0 || offsetMin > totalSlots * frameMin) return null;
-    return (offsetMin / frameMin) * slotHeightPx;
-  }, [nowMinutes, startHour, totalSlots, frameMin, slotHeightPx]);
+    if (offsetMin < 0 || offsetMin > totalMinutes) return null;
+    return offsetMin * PX_PER_MIN;
+  }, [nowMinutes, startHour, totalMinutes]);
 
   if (weekDates.length === 0) {
     return (
@@ -222,11 +217,8 @@ export function WeeklyReservationCalendar({
     );
   }
 
-  const gridCols = weekDates.length; // 7
   const sheetOpen = !!selectedAppt || !!newBooking;
 
-  // Color the utilization badge by load: red ≥85%, amber ≥60%,
-  // green <60% — same palette as the day view staff column header.
   const ratePct =
     staffUtilizationRate != null
       ? Math.round(staffUtilizationRate * 100)
@@ -240,8 +232,24 @@ export function WeeklyReservationCalendar({
           ? "bg-amber-100 text-amber-700"
           : "bg-emerald-100 text-emerald-700";
 
+  // Compute time labels for header
+  const hourLabels: { label: string; left: number }[] = [];
+  for (let i = 0; i < timeSlots.length; i++) {
+    const slot = timeSlots[i];
+    if (slot.endsWith(":00") || slot.endsWith(":30")) {
+      const min = timeToMinutes(slot);
+      hourLabels.push({
+        label: slot,
+        left: (min - startHour) * PX_PER_MIN,
+      });
+    }
+  }
+
   return (
     <>
+      {/* overflow-x: auto + overflow-y: clip で縦スクロールは <main> に委譲。
+          日表示側と同じ理由: overflow-y:auto にすると二重スクロールで
+          日付切替時にカレンダーが潰れる症状が出るため。 */}
       <div
         className="rounded-2xl border bg-white shadow-sm"
         style={{
@@ -250,9 +258,7 @@ export function WeeklyReservationCalendar({
           touchAction: "pan-y",
         }}
       >
-        {/* Staff banner — shows the currently filtered staff + their
-            weekly utilization rate. Only rendered when a staff is
-            selected (week view is always staff-filtered). */}
+        {/* Staff banner */}
         {staffName && (
           <div className="flex items-center gap-3 border-b bg-gray-50/80 px-4 py-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 text-sm font-bold text-white">
@@ -271,18 +277,58 @@ export function WeeklyReservationCalendar({
           </div>
         )}
 
-        {/* Sticky header - day columns */}
+        {/* Time header (sticky top) */}
         <div
           className="sticky top-0 z-20 flex border-b bg-white/95 backdrop-blur-sm"
-          style={{ minWidth: TIME_COL_WIDTH + gridCols * DAY_COL_MIN_WIDTH }}
+          style={{
+            minWidth: DAY_LABEL_WIDTH + totalWidth,
+            height: TIME_HEADER_HEIGHT,
+          }}
         >
           <div
-            className="flex shrink-0 items-center justify-center border-r text-xs font-medium text-gray-400"
-            style={{ width: TIME_COL_WIDTH }}
+            className="sticky left-0 z-30 flex shrink-0 items-center justify-center border-r bg-white/95 text-xs font-medium text-gray-400 backdrop-blur-sm"
+            style={{ width: DAY_LABEL_WIDTH }}
           >
-            時間
+            日付
           </div>
+          <div className="relative" style={{ width: totalWidth }}>
+            {hourLabels.map(({ label, left }) => {
+              const isHour = label.endsWith(":00");
+              return (
+                <div
+                  key={label}
+                  className="absolute flex items-center justify-center"
+                  style={{
+                    left,
+                    top: 0,
+                    bottom: 0,
+                    width: frameMin * PX_PER_MIN,
+                  }}
+                >
+                  <span
+                    className={`text-[11px] ${
+                      isHour
+                        ? "font-semibold text-gray-600"
+                        : "font-normal text-gray-400"
+                    }`}
+                  >
+                    {label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Grid body */}
+        <div
+          ref={gridRef}
+          className="relative"
+          style={{ minWidth: DAY_LABEL_WIDTH + totalWidth }}
+        >
+          {/* Day rows */}
           {weekDates.map((dateStr) => {
+            const dayAppts = appointmentsByDate.get(dateStr) || [];
             const d = new Date(dateStr + "T00:00:00");
             const dayLabel = WEEKDAY_LABELS_JP[d.getDay()];
             const month = d.getMonth() + 1;
@@ -291,314 +337,314 @@ export function WeeklyReservationCalendar({
             const isSunday = d.getDay() === 0;
             const isSaturday = d.getDay() === 6;
 
-            return (
-              <div
-                key={dateStr}
-                className={`flex shrink-0 flex-col items-center justify-center border-r py-3 ${
-                  isToday ? "bg-blue-50" : ""
-                }`}
-                style={{ minWidth: DAY_COL_MIN_WIDTH, flex: 1 }}
-              >
-                <div
-                  className={`text-sm font-medium ${
-                    isToday
-                      ? "text-blue-600"
-                      : isSunday
-                        ? "text-red-500"
-                        : isSaturday
-                          ? "text-blue-500"
-                          : "text-gray-500"
-                  }`}
-                >
-                  {dayLabel}
-                </div>
-                <div
-                  className={`text-lg font-bold ${
-                    isToday
-                      ? "text-blue-600"
-                      : "text-gray-900"
-                  }`}
-                >
-                  {month}/{day}
-                </div>
-                {/* Per-day utilization badge — same palette as the
-                    weekly banner (85%↑=red, 60%↑=amber, <60%=green,
-                    no shift → grey "—"). Only rendered when a staff
-                    is selected so the week header has util data. */}
-                {(() => {
-                  const du = dailyUtilByDate.get(dateStr);
-                  if (!du) return null;
-                  const pct =
-                    du.rate != null ? Math.round(du.rate * 100) : null;
-                  const cls =
-                    pct == null
-                      ? "bg-gray-100 text-gray-400"
-                      : pct >= 85
-                        ? "bg-red-100 text-red-700"
-                        : pct >= 60
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-emerald-100 text-emerald-700";
-                  return (
-                    <span
-                      className={`mt-1 rounded px-1.5 py-0.5 text-[10px] font-bold ${cls}`}
-                      title={`${dateStr} 稼働率 — 開放 ${du.openMin}分 / 稼働 ${du.busyMin}分`}
-                    >
-                      {pct != null ? `${pct}%` : "—"}
-                    </span>
-                  );
-                })()}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Grid body — border-t-2 draws the top line of the first
-            slot so the earliest hour (e.g. 9:00) has a visible line,
-            matching the day view exactly. */}
-        <div
-          ref={gridRef}
-          className="relative flex border-t-2 border-gray-400"
-          style={{
-            minWidth: TIME_COL_WIDTH + gridCols * DAY_COL_MIN_WIDTH,
-            height: totalHeight,
-          }}
-        >
-          {/* Time column — labels sit JUST BELOW each hour line, same
-              rule as the day view (top = idx * slotHeightPx + 4). The
-              previous -8 offset made labels float above their hour,
-              leaving 11:00 lined up with the 10:30 area. */}
-          <div
-            className="sticky left-0 z-10 shrink-0 border-r bg-white"
-            style={{ width: TIME_COL_WIDTH }}
-          >
-            {timeSlots.map((slot, idx) => {
-              const isHour = slot.endsWith(":00");
-              if (!isHour) return null;
-              return (
-                <div
-                  key={slot}
-                  className="absolute right-0 flex items-start justify-end pr-2"
-                  style={{ top: idx * slotHeightPx + 4 }}
-                >
-                  <span className="text-[11px] font-semibold text-gray-500">
-                    {slot}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Day columns */}
-          {weekDates.map((dateStr) => {
-            const dayAppts = appointmentsByDate.get(dateStr) || [];
-            const isToday = dateStr === today;
+            const du = dailyUtilByDate.get(dateStr);
+            const duPct = du?.rate != null ? Math.round(du.rate * 100) : null;
+            const duClass =
+              duPct == null
+                ? "bg-gray-100 text-gray-400"
+                : duPct >= 85
+                  ? "bg-red-100 text-red-700"
+                  : duPct >= 60
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-emerald-100 text-emerald-700";
 
             return (
               <div
                 key={dateStr}
                 data-date={dateStr}
-                className={`relative shrink-0 border-r ${isToday ? "bg-blue-50/30" : ""}`}
-                style={{ minWidth: DAY_COL_MIN_WIDTH, flex: 1 }}
+                className="flex border-b"
+                style={{ height: DAY_ROW_HEIGHT }}
               >
-                {/* Grid lines + clickable cells — same Google-Calendar
-                    style as the day view: the horizontal line drawn at
-                    the BOTTOM of this slot belongs to the next slot's
-                    start, and if that start sits on a whole hour we
-                    draw a thick dark separator. */}
-                {timeSlots.map((slot, idx) => {
-                  const slotMin = timeToMinutes(slot);
-                  const bottomMin = slotMin + frameMin;
-                  const isBottomHour = bottomMin % 60 === 0;
-                  return (
-                    <div
-                      key={slot}
-                      className={`absolute w-full ${
-                        isBottomHour
-                          ? "border-b-2 border-gray-300"
-                          : "border-b border-gray-100"
-                      } cursor-pointer hover:bg-blue-50/30`}
-                      style={{ top: idx * slotHeightPx, height: slotHeightPx }}
-                      onClick={() => {
-                        if (staffId) {
-                          setNewBooking({
-                            staffId,
-                            staffName: data.staffName ?? "",
-                            date: dateStr,
-                            time: slot,
-                          });
-                        }
-                      }}
-                    />
-                  );
-                })}
+                {/* Day label (sticky left) */}
+                <div
+                  className={`sticky left-0 z-10 flex shrink-0 flex-col items-center justify-center border-r bg-white ${
+                    isToday ? "bg-blue-50" : ""
+                  }`}
+                  style={{ width: DAY_LABEL_WIDTH }}
+                >
+                  <div
+                    className={`text-sm font-medium ${
+                      isToday
+                        ? "text-blue-600"
+                        : isSunday
+                          ? "text-red-500"
+                          : isSaturday
+                            ? "text-blue-500"
+                            : "text-gray-500"
+                    }`}
+                  >
+                    {dayLabel}
+                  </div>
+                  <div
+                    className={`text-lg font-bold ${
+                      isToday ? "text-blue-600" : "text-gray-900"
+                    }`}
+                  >
+                    {month}/{day}
+                  </div>
+                  {du && (
+                    <span
+                      className={`mt-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold ${duClass}`}
+                      title={`${dateStr} 稼働率 — 開放 ${du.openMin}分 / 稼働 ${du.busyMin}分`}
+                    >
+                      {duPct != null ? `${duPct}%` : "—"}
+                    </span>
+                  )}
+                </div>
 
-                {/* Appointment blocks */}
-                {dayAppts.map((appt) => {
-                  const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
-                  const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
-                  const minutesFromStart = apptStartMin - startHour;
-                  const durationMinutes = apptEndMin - apptStartMin;
-                  const pixelsPerMinute = slotHeightPx / frameMin;
-                  const top = minutesFromStart * pixelsPerMinute + 2;
-                  const height = durationMinutes * pixelsPerMinute - 4;
+                {/* Timeline area */}
+                <div
+                  className={`relative ${isToday ? "bg-blue-50/30" : ""}`}
+                  style={{ width: totalWidth, height: DAY_ROW_HEIGHT }}
+                >
+                  {/* Grid lines (vertical) + clickable cells */}
+                  {timeSlots.map((slot) => {
+                    const slotMin = timeToMinutes(slot);
+                    const leftPx = (slotMin - startHour) * PX_PER_MIN;
+                    const widthPx = frameMin * PX_PER_MIN;
+                    const isHour = slotMin % 60 === 0;
+                    const isHalf = slotMin % 30 === 0 && !isHour;
 
-                  const isDragging = isDraggingReal && dragAppt?.id === appt.id;
+                    return (
+                      <div
+                        key={slot}
+                        className={`absolute top-0 h-full ${
+                          isHour
+                            ? "border-l-2 border-gray-300"
+                            : isHalf
+                              ? "border-l border-gray-200"
+                              : "border-l border-gray-100"
+                        } cursor-pointer hover:bg-blue-50/30`}
+                        style={{ left: leftPx, width: widthPx }}
+                        onClick={() => {
+                          if (staffId) {
+                            setNewBooking({
+                              staffId,
+                              staffName: data.staffName ?? "",
+                              date: dateStr,
+                              time: slot,
+                            });
+                          }
+                        }}
+                      />
+                    );
+                  })}
 
-                  // Slot block (meeting / other / break / custom) renders
-                  // with the master palette color instead of the customer
-                  // card. Handled as an early return below.
-                  const isSlotBlock = !!appt.slotBlock;
-                  if (isSlotBlock && appt.slotBlock) {
-                    const sb = appt.slotBlock;
-                    const blockColor = sb.color ?? "#9333ea";
-                    const subText =
-                      sb.code === "other"
-                        ? appt.otherLabel || appt.customerRecord || ""
-                        : appt.memo || appt.customerRecord || "";
+                  {/* Appointment blocks */}
+                  {dayAppts.map((appt) => {
+                    const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
+                    const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
+                    const minutesFromStart = apptStartMin - startHour;
+                    const durationMinutes = apptEndMin - apptStartMin;
+                    const apptLeft = minutesFromStart * PX_PER_MIN + 1;
+                    const apptWidth = durationMinutes * PX_PER_MIN - 2;
+
+                    const isDragging = isDraggingReal && dragAppt?.id === appt.id;
+                    const isSlotBlock = !!appt.slotBlock;
+
+                    if (isSlotBlock && appt.slotBlock) {
+                      const sb = appt.slotBlock;
+                      const blockColor = sb.color ?? "#9333ea";
+                      const subText =
+                        sb.code === "other"
+                          ? appt.otherLabel || appt.customerRecord || ""
+                          : appt.memo || appt.customerRecord || "";
+                      return (
+                        <div
+                          key={appt.id}
+                          data-appt={appt.id}
+                          className="absolute cursor-pointer select-none overflow-hidden rounded-md border-l-4 bg-white px-2 py-1 shadow-sm transition-shadow hover:shadow-md"
+                          style={{
+                            left: isDragging ? dragLeft : apptLeft,
+                            width: apptWidth,
+                            top: 3,
+                            bottom: 3,
+                            zIndex: isDragging ? 50 : 5,
+                            borderLeftColor: blockColor,
+                            backgroundColor: `${blockColor}12`,
+                            touchAction: "pan-x",
+                          }}
+                          onMouseDown={(e) => handleDragStart(appt, e)}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span
+                              className="rounded px-1 py-0 text-[9px] font-bold"
+                              style={{
+                                backgroundColor: blockColor,
+                                color: sb.labelTextColor ?? "#ffffff",
+                              }}
+                            >
+                              {sb.label}
+                            </span>
+                          </div>
+                          {subText && (
+                            <div className="mt-0.5 truncate text-[10px] text-gray-700">
+                              {subText}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const isNew = appt.isNewCustomer || appt.visitCount <= 1;
+                    const isPast = appt.status === 2;
+                    const isInProgress = appt.status === 1;
+                    const isCancelled = appt.status === 3 || appt.status === 99;
+
+                    let borderColor = "border-blue-300";
+                    let bgColor = "bg-white";
+                    let statusBadge = "";
+                    let statusBadgeColor = "";
+
+                    if (isNew) {
+                      borderColor = "border-orange-300";
+                      bgColor = "bg-orange-50/50";
+                    }
+                    if (isPast) {
+                      statusBadge = "会計完了";
+                      statusBadgeColor = "bg-gray-100 text-gray-500";
+                      bgColor = "bg-gray-50";
+                      borderColor = "border-gray-200";
+                    } else if (isInProgress) {
+                      statusBadge = "施術中";
+                      statusBadgeColor = "bg-green-100 text-green-700";
+                      borderColor = "border-green-400";
+                    } else if (isCancelled) {
+                      statusBadge = "キャンセル";
+                      statusBadgeColor = "bg-red-100 text-red-600";
+                      borderColor = "border-red-200";
+                      bgColor = "bg-red-50/30";
+                    }
+
+                    // カード幅が狭いケース用に、ホバー時にフル情報を読める
+                    // title ツールチップを用意する。
+                    const tooltipLines: string[] = [];
+                    if (appt.customerName) {
+                      const codeStr = formatCustomerCode(appt.customerCode);
+                      tooltipLines.push(
+                        codeStr
+                          ? `${appt.customerName} (${codeStr})`
+                          : appt.customerName
+                      );
+                    } else if (formatCustomerCode(appt.customerCode)) {
+                      tooltipLines.push(
+                        `カルテ #${formatCustomerCode(appt.customerCode)}`
+                      );
+                    }
+                    tooltipLines.push(
+                      `${appt.startAt.slice(11, 16)}-${appt.endAt.slice(11, 16)}`
+                    );
+                    if (appt.menuName) {
+                      tooltipLines.push(
+                        appt.duration > 0
+                          ? `${appt.menuName}（${appt.duration}分）`
+                          : appt.menuName
+                      );
+                    }
+                    if (statusBadge) tooltipLines.push(statusBadge);
+                    const apptTooltip = tooltipLines.join("\n");
+
                     return (
                       <div
                         key={appt.id}
                         data-appt={appt.id}
-                        className="absolute left-1.5 right-1.5 cursor-pointer select-none overflow-hidden rounded-md border-l-4 bg-white px-2 py-1.5 shadow-sm transition-shadow hover:shadow-md"
+                        className={`group absolute select-none rounded-md border ${borderColor} ${bgColor} transition-shadow hover:shadow-md ${
+                          isDragging
+                            ? "cursor-grabbing opacity-60 z-50"
+                            : "cursor-grab"
+                        }`}
                         style={{
-                          top: isDragging ? dragTop : top,
-                          height,
+                          left: isDragging ? dragLeft : apptLeft,
+                          width: apptWidth,
+                          top: 3,
+                          bottom: 3,
                           zIndex: isDragging ? 50 : 5,
-                          borderLeftColor: blockColor,
-                          backgroundColor: `${blockColor}12`,
+                          touchAction: "pan-x",
                         }}
                         onMouseDown={(e) => handleDragStart(appt, e)}
                       >
-                        <div className="flex items-center gap-1">
-                          <span
-                            className="rounded px-1 py-0 text-[9px] font-bold"
-                            style={{
-                              backgroundColor: blockColor,
-                              color: sb.labelTextColor ?? "#ffffff",
-                            }}
-                          >
-                            {sb.label}
-                          </span>
+                        <div className="overflow-hidden px-1.5 py-0.5">
+                          {/* 名前行 (最優先で見える。min-w-0 でカード幅に合わせて省略)。 */}
+                          <div className="flex min-w-0 items-baseline gap-1 leading-tight">
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[12px] font-black ${
+                                appt.customerName
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }`}
+                            >
+                              {appt.customerName || "未設定"}
+                            </span>
+                            {formatCustomerCode(appt.customerCode) && (
+                              <span className="shrink-0 text-[9px] font-bold text-gray-500">
+                                ({formatCustomerCode(appt.customerCode)})
+                              </span>
+                            )}
+                          </div>
+                          {/* 2 行目: バッジ + メニュー名。 */}
+                          <div className="flex min-w-0 items-center gap-1 leading-tight">
+                            {isNew && (
+                              <span
+                                className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
+                                style={{
+                                  backgroundColor: appt.sourceColor ?? "#ef4444",
+                                  color: appt.sourceTextColor ?? "#ffffff",
+                                }}
+                              >
+                                {appt.source ? `${appt.source}新規` : "新規"}
+                              </span>
+                            )}
+                            {statusBadge && (
+                              <span
+                                className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
+                              >
+                                {statusBadge}
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1 truncate text-[10px] text-gray-600">
+                              {appt.menuName}
+                              {appt.duration > 0 && `（${appt.duration}分）`}
+                            </span>
+                          </div>
                         </div>
-                        {subText && (
-                          <div className="mt-0.5 truncate text-[10px] text-gray-700">
-                            {subText}
+                        {apptTooltip && (
+                          <div
+                            className="pointer-events-none absolute bottom-full left-0 z-[60] mb-1 hidden min-w-max max-w-xs whitespace-pre-line rounded-md bg-gray-900/95 px-2 py-1 text-[11px] leading-snug font-normal text-white shadow-lg group-hover:block"
+                          >
+                            {apptTooltip}
                           </div>
                         )}
                       </div>
                     );
-                  }
-
-                  // Colors based on customer type + status
-                  const isNew = appt.isNewCustomer || appt.visitCount <= 1;
-                  const isPast = appt.status === 2;
-                  const isInProgress = appt.status === 1;
-                  const isCancelled = appt.status === 3 || appt.status === 99;
-
-                  let borderColor = "border-blue-300";
-                  let bgColor = "bg-white";
-                  let statusBadge = "";
-                  let statusBadgeColor = "";
-
-                  if (isNew) {
-                    borderColor = "border-orange-300";
-                    bgColor = "bg-orange-50/50";
-                  }
-                  if (isPast) {
-                    statusBadge = "会計完了";
-                    statusBadgeColor = "bg-gray-100 text-gray-500";
-                    bgColor = "bg-gray-50";
-                    borderColor = "border-gray-200";
-                  } else if (isInProgress) {
-                    statusBadge = "施術中";
-                    statusBadgeColor = "bg-green-100 text-green-700";
-                    borderColor = "border-green-400";
-                  } else if (isCancelled) {
-                    statusBadge = "キャンセル";
-                    statusBadgeColor = "bg-red-100 text-red-600";
-                    borderColor = "border-red-200";
-                    bgColor = "bg-red-50/30";
-                  }
-
-                  return (
-                    <div
-                      key={appt.id}
-                      data-appt={appt.id}
-                      className={`absolute left-1.5 right-1.5 select-none overflow-hidden rounded-md border ${borderColor} ${bgColor} px-1.5 py-0.5 transition-shadow hover:shadow-md ${
-                        isDragging
-                          ? "cursor-grabbing opacity-60 z-50"
-                          : "cursor-grab"
-                      }`}
-                      style={{
-                        top: isDragging ? dragTop : top,
-                        height,
-                        zIndex: isDragging ? 50 : 5,
-                        touchAction: "pan-y",
-                      }}
-                      onMouseDown={(e) => handleDragStart(appt, e)}
-                    >
-                      {/* Single-line header: name + code + badge + status */}
-                      <div className="flex items-center gap-1 truncate leading-snug">
-                        <span className="truncate text-[11px] font-black text-gray-900">
-                          {appt.customerName}
-                        </span>
-                        {formatCustomerCode(appt.customerCode) && (
-                          <span className="shrink-0 text-[9px] font-bold text-gray-500">
-                            ({formatCustomerCode(appt.customerCode)})
-                          </span>
-                        )}
-                        {isNew && (
-                          <span
-                            className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
-                            style={{
-                              backgroundColor: appt.sourceColor ?? "#ef4444",
-                              color: appt.sourceTextColor ?? "#ffffff",
-                            }}
-                          >
-                            {appt.source ? `${appt.source}新規` : "新規"}
-                          </span>
-                        )}
-                        {statusBadge && (
-                          <span
-                            className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
-                          >
-                            {statusBadge}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Menu + duration */}
-                      <div className="truncate text-[10px] text-gray-600">
-                        {appt.menuName}
-                        {appt.duration > 0 && `（${appt.duration}分）`}
-                      </div>
-                    </div>
-                  );
-                })}
+                  })}
+                </div>
               </div>
             );
           })}
 
-          {/* Current time red line */}
-          {nowLineTop !== null && nowLineTop > 0 && (
+          {/* Current time vertical red line */}
+          {nowLineLeft !== null && nowLineLeft > 0 && (
             <div
-              className="pointer-events-none absolute left-0 right-0 z-30"
-              style={{ top: nowLineTop }}
+              className="pointer-events-none absolute z-30"
+              style={{
+                left: DAY_LABEL_WIDTH + nowLineLeft,
+                top: 0,
+                bottom: 0,
+              }}
             >
               <div
                 className="absolute h-[10px] w-[10px] rounded-full bg-red-500"
-                style={{ left: TIME_COL_WIDTH - 5 }}
+                style={{ top: -5, left: -5 }}
               />
               <div
-                className="absolute h-[2px] bg-red-400/75"
-                style={{ left: TIME_COL_WIDTH, right: 0 }}
+                className="absolute w-[2px] bg-red-400/75"
+                style={{ top: 0, bottom: 0, left: -1 }}
               />
             </div>
           )}
         </div>
       </div>
 
-      {/* Booking / Detail Sheet — key forces remount on selection change */}
       <AppointmentDetailSheet
         key={
           selectedAppt
