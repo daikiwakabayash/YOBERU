@@ -597,10 +597,41 @@ export function ReservationCalendar({
                         apptEndMin
                       );
 
+                      // 30 分枠などカード幅が狭いと顧客名が truncate されて
+                      // 数文字しか見えないケースがある。せめてマウスを
+                      // 乗せたとき (title ツールチップ) にフルの名前 /
+                      // カルテ番号 / メニュー / 時間帯が読めるようにする。
+                      const tooltipLines: string[] = [];
+                      if (appt.customerName) {
+                        const codeStr = formatCustomerCode(appt.customerCode);
+                        tooltipLines.push(
+                          codeStr
+                            ? `${appt.customerName} (${codeStr})`
+                            : appt.customerName
+                        );
+                      } else if (formatCustomerCode(appt.customerCode)) {
+                        tooltipLines.push(
+                          `カルテ #${formatCustomerCode(appt.customerCode)}`
+                        );
+                      }
+                      tooltipLines.push(
+                        `${appt.startAt.slice(11, 16)}-${appt.endAt.slice(11, 16)}`
+                      );
+                      if (appt.menuName) {
+                        tooltipLines.push(
+                          appt.duration > 0
+                            ? `${appt.menuName}（${appt.duration}分）`
+                            : appt.menuName
+                        );
+                      }
+                      if (statusBadge) tooltipLines.push(statusBadge);
+                      const apptTooltip = tooltipLines.join("\n");
+
                       return (
                         <div
                           key={appt.id}
                           data-appt={appt.id}
+                          title={apptTooltip}
                           className={`absolute select-none overflow-hidden rounded-md border ${borderColor} ${bgColor} px-1.5 py-0.5 transition-shadow hover:shadow-md ${
                             isBeingDragged
                               ? "cursor-grabbing opacity-60 z-50"
