@@ -548,8 +548,7 @@ export function WeeklyReservationCalendar({
                       <div
                         key={appt.id}
                         data-appt={appt.id}
-                        title={apptTooltip}
-                        className={`absolute select-none overflow-hidden rounded-md border ${borderColor} ${bgColor} px-1.5 py-0.5 transition-shadow hover:shadow-md ${
+                        className={`group absolute select-none rounded-md border ${borderColor} ${bgColor} transition-shadow hover:shadow-md ${
                           isDragging
                             ? "cursor-grabbing opacity-60 z-50"
                             : "cursor-grab"
@@ -564,48 +563,57 @@ export function WeeklyReservationCalendar({
                         }}
                         onMouseDown={(e) => handleDragStart(appt, e)}
                       >
-                        {/* 名前行 (最優先で見える。min-w-0 でカード幅に合わせて省略)。 */}
-                        <div className="flex min-w-0 items-baseline gap-1 leading-tight">
-                          <span
-                            className={`min-w-0 flex-1 truncate text-[12px] font-black ${
-                              appt.customerName
-                                ? "text-gray-900"
-                                : "text-gray-400"
-                            }`}
+                        <div className="overflow-hidden px-1.5 py-0.5">
+                          {/* 名前行 (最優先で見える。min-w-0 でカード幅に合わせて省略)。 */}
+                          <div className="flex min-w-0 items-baseline gap-1 leading-tight">
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[12px] font-black ${
+                                appt.customerName
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }`}
+                            >
+                              {appt.customerName || "未設定"}
+                            </span>
+                            {formatCustomerCode(appt.customerCode) && (
+                              <span className="shrink-0 text-[9px] font-bold text-gray-500">
+                                ({formatCustomerCode(appt.customerCode)})
+                              </span>
+                            )}
+                          </div>
+                          {/* 2 行目: バッジ + メニュー名。 */}
+                          <div className="flex min-w-0 items-center gap-1 leading-tight">
+                            {isNew && (
+                              <span
+                                className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
+                                style={{
+                                  backgroundColor: appt.sourceColor ?? "#ef4444",
+                                  color: appt.sourceTextColor ?? "#ffffff",
+                                }}
+                              >
+                                {appt.source ? `${appt.source}新規` : "新規"}
+                              </span>
+                            )}
+                            {statusBadge && (
+                              <span
+                                className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
+                              >
+                                {statusBadge}
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1 truncate text-[10px] text-gray-600">
+                              {appt.menuName}
+                              {appt.duration > 0 && `（${appt.duration}分）`}
+                            </span>
+                          </div>
+                        </div>
+                        {apptTooltip && (
+                          <div
+                            className="pointer-events-none absolute bottom-full left-0 z-[60] mb-1 hidden min-w-max max-w-xs whitespace-pre-line rounded-md bg-gray-900/95 px-2 py-1 text-[11px] leading-snug font-normal text-white shadow-lg group-hover:block"
                           >
-                            {appt.customerName || "未設定"}
-                          </span>
-                          {formatCustomerCode(appt.customerCode) && (
-                            <span className="shrink-0 text-[9px] font-bold text-gray-500">
-                              ({formatCustomerCode(appt.customerCode)})
-                            </span>
-                          )}
-                        </div>
-                        {/* 2 行目: バッジ + メニュー名。 */}
-                        <div className="flex min-w-0 items-center gap-1 leading-tight">
-                          {isNew && (
-                            <span
-                              className="shrink-0 rounded px-1 py-0 text-[9px] font-bold"
-                              style={{
-                                backgroundColor: appt.sourceColor ?? "#ef4444",
-                                color: appt.sourceTextColor ?? "#ffffff",
-                              }}
-                            >
-                              {appt.source ? `${appt.source}新規` : "新規"}
-                            </span>
-                          )}
-                          {statusBadge && (
-                            <span
-                              className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
-                            >
-                              {statusBadge}
-                            </span>
-                          )}
-                          <span className="min-w-0 flex-1 truncate text-[10px] text-gray-600">
-                            {appt.menuName}
-                            {appt.duration > 0 && `（${appt.duration}分）`}
-                          </span>
-                        </div>
+                            {apptTooltip}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

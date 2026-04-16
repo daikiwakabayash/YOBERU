@@ -631,8 +631,7 @@ export function ReservationCalendar({
                         <div
                           key={appt.id}
                           data-appt={appt.id}
-                          title={apptTooltip}
-                          className={`absolute select-none overflow-hidden rounded-md border ${borderColor} ${bgColor} px-1.5 py-0.5 transition-shadow hover:shadow-md ${
+                          className={`group absolute select-none rounded-md border ${borderColor} ${bgColor} transition-shadow hover:shadow-md ${
                             isBeingDragged
                               ? "cursor-grabbing opacity-60 z-50"
                               : "cursor-grab"
@@ -647,6 +646,10 @@ export function ReservationCalendar({
                           }}
                           onMouseDown={(e) => handleDragStart(appt, e)}
                         >
+                          {/* 内側で overflow-hidden して truncate を効かせる。
+                              外側はカードからツールチップが飛び出せるように
+                              overflow を切らない。 */}
+                          <div className="overflow-hidden px-1.5 py-0.5">
                           {/* 1 行目: 顧客名 + カルテ番号 (名前を最優先で表示)。
                               名前は truncate + min-w-0 でカード幅に合わせて
                               省略されるが、min-w-0 を付けないと intrinsic
@@ -702,6 +705,17 @@ export function ReservationCalendar({
                               {appt.duration > 0 && `（${appt.duration}分）`}
                             </span>
                           </div>
+                          </div>
+                          {/* カスタム ツールチップ: ホバー即表示 (OS の title は
+                              ~500ms の遅延が固定で変えられないため自前描画)。
+                              カードの上に絶対配置して overflow を外に出す。 */}
+                          {apptTooltip && (
+                            <div
+                              className="pointer-events-none absolute bottom-full left-0 z-[60] mb-1 hidden min-w-max max-w-xs whitespace-pre-line rounded-md bg-gray-900/95 px-2 py-1 text-[11px] leading-snug font-normal text-white shadow-lg group-hover:block"
+                            >
+                              {apptTooltip}
+                            </div>
+                          )}
                         </div>
                       );
                     });
