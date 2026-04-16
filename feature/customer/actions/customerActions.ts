@@ -32,14 +32,15 @@ export async function createCustomer(formData: FormData) {
   //
   // 注意点: customers.code は VARCHAR なので DB のソートは文字列順。
   // "9" > "10" になってしまうため、max を SQL order で取ると間違った
-  // customers.code は UNIQUE (グローバル、全店舗・削除済み含む) なので、
-  // 採番は全レコードを対象に最大値を求める。shop_id や deleted_at で
-  // 絞ると他店舗/削除済みのコードと衝突して UNIQUE 違反になる。
+  // カルテナンバーは店舗別の連番 (1, 2, 3...)。
+  // UNIQUE 制約は (shop_id, code) WHERE deleted_at IS NULL に変更済み。
   // 古いデータのゼロ埋め値 ("00000012" 等) は parseInt が処理するので
   // 混在していても破綻しない。
+  const shopId = parsed.data.shop_id;
   const { data: allCodes } = await supabase
     .from("customers")
-    .select("code");
+    .select("code")
+    .eq("shop_id", shopId);
 
   let maxNumeric = 0;
   for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {

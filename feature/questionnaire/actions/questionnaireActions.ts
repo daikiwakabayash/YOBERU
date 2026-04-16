@@ -16,6 +16,24 @@ import { sanitizeSlug } from "../utils/slug";
  * Empty answers are skipped. The block is appended (with a blank line
  * separator) so multiple questionnaires accumulate over time.
  */
+// field マッピングで顧客カラムに直接保存される項目は、description
+// サマリには含めない。名前・性別・電話・生年月日 等がメモに二重表示
+// されるのを防ぐ。来院動機や症状など field マッピングの無い自由記述
+// だけをサマリに残す。
+const EXCLUDE_FROM_SUMMARY = new Set([
+  "full_name",
+  "full_name_kana",
+  "phone_number_1",
+  "phone_number_2",
+  "email",
+  "gender",
+  "birth_date",
+  "zip_code",
+  "address",
+  "occupation",
+  "line_id",
+]);
+
 function buildQuestionnaireSummary(
   questionnaireTitle: string,
   questions: Question[],
@@ -24,6 +42,8 @@ function buildQuestionnaireSummary(
   const dateLabel = toLocalDateString(new Date());
   const lines: string[] = [`[${dateLabel} 問診票: ${questionnaireTitle}]`];
   for (const q of questions) {
+    // field マッピング済み項目はカラムに直接入っているのでサマリに出さない
+    if (q.field && EXCLUDE_FROM_SUMMARY.has(q.field)) continue;
     const raw = answers[q.id];
     if (raw == null) continue;
     const val = Array.isArray(raw) ? raw.join(", ") : String(raw);
@@ -322,12 +342,13 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   // 名前も電話も無いケースでもプレースホルダ名で作成して、回答が
   // どこにも紐付かない孤立状態にならないようにする。
   if (!customerId) {
-    // customers.code は UNIQUE (グローバル、全店舗・削除済み含む) なので、
-    // 採番は全レコードを対象に最大値を求める。shop_id や deleted_at で
-    // 絞ると他店舗/削除済みのコードと衝突して UNIQUE 違反になる。
+    // カルテナンバーは店舗別の連番 (1, 2, 3...)。
+    // UNIQUE 制約は (shop_id, code) WHERE deleted_at IS NULL に変更済み。
+    const newCustShopId = matchedShopId ?? questShopId ?? 1;
     const { data: allCodes } = await supabase
       .from("customers")
-      .select("code");
+      .select("code")
+      .eq("shop_id", newCustShopId);
     let maxNumeric = 0;
     for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
       const n = parseInt((r.code ?? "0").trim(), 10);
@@ -339,8 +360,6 @@ export async function submitQuestionnaireResponse(formData: FormData) {
       (customerUpdate.last_name as string | undefined) ||
       `(問診票回答 ${toLocalDateString(new Date())})`;
 
-    // 新規作成時の shop_id: マッチ済み顧客の店舗 → 問診票の店舗 → 1
-    const newCustShopId = matchedShopId ?? questShopId ?? 1;
     const insertData: Record<string, unknown> = {
       brand_id: q.brand_id,
       shop_id: newCustShopId,

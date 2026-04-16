@@ -716,7 +716,7 @@ export function ReservationCalendar({
                               カードの上に絶対配置して overflow を外に出す。 */}
                           {apptTooltip && (
                             <div
-                              className="pointer-events-none absolute bottom-full left-0 z-[60] mb-1 hidden min-w-max max-w-xs whitespace-pre-line rounded-md bg-gray-900/95 px-2 py-1 text-[11px] leading-snug font-normal text-white shadow-lg group-hover:block"
+                              className="pointer-events-none absolute bottom-full left-0 z-[60] mb-1 hidden min-w-max max-w-xs whitespace-pre-line rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] leading-snug font-normal text-gray-800 shadow-xl group-hover:block"
                             >
                               {apptTooltip}
                             </div>
