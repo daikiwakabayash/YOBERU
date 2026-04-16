@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Sheet,
   SheetContent,
@@ -1801,6 +1802,49 @@ const TYPE_LABELS: Record<number, { label: string; cls: string }> = {
   2: { label: "退会", cls: "bg-red-100 text-red-700" },
 };
 
+/**
+ * 問診票データ手動反映ボタン。
+ * クリックすると syncQuestionnaireToCustomer を呼び、
+ * 孤立した問診票回答を含めて顧客レコードに上書き反映する。
+ */
+function SyncQuestionnaireButton({ customerId }: { customerId: number }) {
+  const [syncing, setSyncing] = useState(false);
+  const router = useRouter();
+
+  async function handleSync() {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const { syncQuestionnaireToCustomer } = await import(
+        "@/feature/questionnaire/actions/questionnaireActions"
+      );
+      const result = await syncQuestionnaireToCustomer(customerId);
+      if ("error" in result && result.error) {
+        toast.error(result.error);
+      } else if ("synced" in result) {
+        toast.success(`問診票データを反映しました（${result.synced}件）`);
+        router.refresh();
+      }
+    } catch {
+      toast.error("同期に失敗しました");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleSync}
+      disabled={syncing}
+      className="gap-1.5 text-xs"
+    >
+      {syncing ? "反映中..." : "問診票データを反映"}
+    </Button>
+  );
+}
+
 function CustomerDossierPanel({
   rightPanelCustomer,
   detail,
@@ -1865,6 +1909,8 @@ function CustomerDossierPanel({
             <div className="mt-0.5 text-xs text-gray-500">{kanaName}</div>
           )}
         </div>
+        {/* 問診票データ反映ボタン */}
+        <SyncQuestionnaireButton customerId={rightPanelCustomer.id} />
       </div>
 
       {/* ===== 4 KPI cards — 来店回数 / 累計売上 / ステータス / 最終来院 ===== */}
