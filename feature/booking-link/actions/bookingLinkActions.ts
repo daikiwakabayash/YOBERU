@@ -418,6 +418,7 @@ export async function submitPublicBooking(formData: FormData) {
     is_couple: false,
     sales: 0,
     status: 0,
+    visit_count: 1,
     visit_source_id: link.data.visit_source_id ?? null,
     memo: utmSource ? `流入元: ${utmSource}` : null,
   });

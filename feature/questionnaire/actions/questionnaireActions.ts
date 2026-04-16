@@ -210,7 +210,11 @@ export async function submitQuestionnaireResponse(formData: FormData) {
     answers
   );
 
-  const targetShopId = (q.shop_id as number | null) ?? 1;
+  // 問診票がブランド共通 (shop_id NULL) の場合、全店舗を横断して
+  // 顧客を検索する。店舗限定問診票の場合はその shop_id で絞る。
+  // 旧実装は NULL 時にフォールバック 1 を使っていたため、顧客が
+  // 別の shop にいるとマッチに失敗して問診票が反映されなかった。
+  const questShopId: number | null = (q.shop_id as number | null);
 
   // ---- 既存顧客とのマッチング ----
   //
@@ -219,10 +223,9 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   //   2) 電話のみ一致 (引っ越し等で名前変えた場合)
   //   3) 姓 + 名 が一致 (機種変更で電話番号が変わった場合)
   // どれにもマッチしなければ新規作成。
-  // 過去の挙動は (2) のみだったので、片方しか一致しない場面で重複顧客が
-  // 生まれていた。本フローは name による補完を追加する。
   let customerId: number | null = null;
   let existingDescription: string | null = null;
+  let matchedShopId: number | null = null;
 
   const phone =
     (customerUpdate.phone_number_1 as string | undefined) ??
@@ -231,51 +234,55 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   const lastName = (customerUpdate.last_name as string | undefined) ?? null;
   const firstName = (customerUpdate.first_name as string | undefined) ?? null;
 
+  // shop_id フィルタ付きクエリビルダー。ブランド共通問診票のときは
+  // shop_id 条件を付けず全店舗を横断検索する。
+  function custQuery() {
+    let qb = supabase
+      .from("customers")
+      .select("id, description, shop_id");
+    if (questShopId != null) qb = qb.eq("shop_id", questShopId);
+    return qb.is("deleted_at", null);
+  }
+
   // 1) 電話 + 姓 + 名 で完全一致
   if (phone && lastName && firstName) {
-    const { data: byBoth } = await supabase
-      .from("customers")
-      .select("id, description")
-      .eq("shop_id", targetShopId)
+    const { data: byBoth } = await custQuery()
       .eq("phone_number_1", String(phone))
       .eq("last_name", String(lastName))
       .eq("first_name", String(firstName))
-      .is("deleted_at", null)
+      .limit(1)
       .maybeSingle();
     if (byBoth?.id) {
       customerId = byBoth.id as number;
       existingDescription = (byBoth.description as string | null) ?? null;
+      matchedShopId = (byBoth.shop_id as number | null) ?? null;
     }
   }
 
   // 2) 電話のみ
   if (!customerId && phone) {
-    const { data: byPhone } = await supabase
-      .from("customers")
-      .select("id, description")
-      .eq("shop_id", targetShopId)
+    const { data: byPhone } = await custQuery()
       .eq("phone_number_1", String(phone))
-      .is("deleted_at", null)
+      .limit(1)
       .maybeSingle();
     if (byPhone?.id) {
       customerId = byPhone.id as number;
       existingDescription = (byPhone.description as string | null) ?? null;
+      matchedShopId = (byPhone.shop_id as number | null) ?? null;
     }
   }
 
   // 3) 姓 + 名
   if (!customerId && lastName && firstName) {
-    const { data: byName } = await supabase
-      .from("customers")
-      .select("id, description")
-      .eq("shop_id", targetShopId)
+    const { data: byName } = await custQuery()
       .eq("last_name", String(lastName))
       .eq("first_name", String(firstName))
-      .is("deleted_at", null)
+      .limit(1)
       .maybeSingle();
     if (byName?.id) {
       customerId = byName.id as number;
       existingDescription = (byName.description as string | null) ?? null;
+      matchedShopId = (byName.shop_id as number | null) ?? null;
     }
   }
 
@@ -311,9 +318,11 @@ export async function submitQuestionnaireResponse(formData: FormData) {
       (customerUpdate.last_name as string | undefined) ||
       `(問診票回答 ${toLocalDateString(new Date())})`;
 
+    // 新規作成時の shop_id: マッチ済み顧客の店舗 → 問診票の店舗 → 1
+    const newCustShopId = matchedShopId ?? questShopId ?? 1;
     const insertData: Record<string, unknown> = {
       brand_id: q.brand_id,
-      shop_id: targetShopId,
+      shop_id: newCustShopId,
       code: nextCode,
       type: 0,
       gender: 0,

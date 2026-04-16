@@ -456,9 +456,14 @@ export function ReservationCalendar({
                       const apptWidth = durationMinutes * PX_PER_MIN - 2;
 
                       const isSlotBlock = !!appt.slotBlock;
+                      // 新規判定: visitCount が 0 (submitPublicBooking は
+                      // visit_count を未設定のまま INSERT するため DB
+                      // デフォルト 0 になる) または 1 の場合を新規とみなす。
+                      // isNewCustomer は「顧客の created_at が今日」で判定
+                      // するため、前日に作成した顧客の翌日予約は false になる。
                       const isNew =
                         !isSlotBlock &&
-                        (appt.isNewCustomer || appt.visitCount === 1);
+                        (appt.isNewCustomer || appt.visitCount <= 1);
                       const isPast = appt.status === 2;
                       const isInProgress = appt.status === 1;
                       const isCancelled = appt.status === 3 || appt.status === 99;
