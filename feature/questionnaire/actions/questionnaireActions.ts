@@ -201,22 +201,20 @@ export async function submitQuestionnaireResponse(formData: FormData) {
 
     switch (question.field) {
       case "full_name": {
-        // スペース区切りで姓名を分割。スペースが無い場合は
-        // 全体を last_name にセットし、first_name は触らない
-        // (既存値を壊さないため)。
+        // スペース区切りで姓名を分割。常に both last_name + first_name
+        // をセットする (スペース無しの場合は first_name を空にして
+        // 古い値が残って「山田太郎 太郎」のように崩れるのを防ぐ)。
         const parts = String(val).trim().split(/\s+/);
         customerUpdate.last_name = parts[0] ?? "";
-        if (parts.length > 1) {
-          customerUpdate.first_name = parts.slice(1).join(" ");
-        }
+        customerUpdate.first_name =
+          parts.length > 1 ? parts.slice(1).join(" ") : "";
         break;
       }
       case "full_name_kana": {
         const parts = String(val).trim().split(/\s+/);
         customerUpdate.last_name_kana = parts[0] ?? "";
-        if (parts.length > 1) {
-          customerUpdate.first_name_kana = parts.slice(1).join(" ");
-        }
+        customerUpdate.first_name_kana =
+          parts.length > 1 ? parts.slice(1).join(" ") : "";
         break;
       }
       case "gender": {
@@ -496,17 +494,15 @@ export async function syncQuestionnaireToCustomer(
         case "full_name": {
           const parts = String(val).trim().split(/\s+/);
           updates.last_name = parts[0] ?? "";
-          if (parts.length > 1) {
-            updates.first_name = parts.slice(1).join(" ");
-          }
+          updates.first_name =
+            parts.length > 1 ? parts.slice(1).join(" ") : "";
           break;
         }
         case "full_name_kana": {
           const parts = String(val).trim().split(/\s+/);
           updates.last_name_kana = parts[0] ?? "";
-          if (parts.length > 1) {
-            updates.first_name_kana = parts.slice(1).join(" ");
-          }
+          updates.first_name_kana =
+            parts.length > 1 ? parts.slice(1).join(" ") : "";
           break;
         }
         case "gender":

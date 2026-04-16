@@ -1792,9 +1792,9 @@ type DossierDetail = {
 };
 
 const GENDER_LABELS: Record<number, string> = {
-  0: "男性",
-  1: "女性",
-  2: "その他",
+  0: "未設定",
+  1: "男性",
+  2: "女性",
 };
 const TYPE_LABELS: Record<number, { label: string; cls: string }> = {
   0: { label: "一般", cls: "bg-gray-100 text-gray-700" },
@@ -1953,59 +1953,71 @@ function CustomerDossierPanel({
               顧客情報の取得に失敗しました
             </div>
           ) : (
-            <div className="space-y-3 text-sm">
-              {customer.phone_number_1 && (
-                <div className="flex items-start gap-2">
-                  <span className="shrink-0 text-gray-400">電話</span>
-                  <span className="text-gray-800">
-                    {customer.phone_number_1}
-                  </span>
-                </div>
-              )}
-              {customer.email && (
-                <div className="flex items-start gap-2">
-                  <span className="shrink-0 text-gray-400">Email</span>
-                  <span className="break-all text-gray-800">
-                    {customer.email}
-                  </span>
-                </div>
-              )}
-              {customer.address && (
-                <div className="flex items-start gap-2">
-                  <span className="shrink-0 text-gray-400">住所</span>
-                  <span className="text-gray-800">
-                    {customer.zip_code && (
-                      <span className="text-gray-500">
-                        〒{customer.zip_code}{" "}
-                      </span>
-                    )}
-                    {customer.address}
-                  </span>
-                </div>
-              )}
+            <div className="space-y-2 text-sm">
+              {/* 主要項目: ラベル幅を揃えて整列 */}
+              <table className="w-full text-sm">
+                <tbody>
+                  {customer.phone_number_1 && (
+                    <tr>
+                      <td className="w-16 py-1 align-top text-xs text-gray-400">
+                        電話
+                      </td>
+                      <td className="py-1 font-medium text-gray-800">
+                        {customer.phone_number_1}
+                      </td>
+                    </tr>
+                  )}
+                  {customer.email && (
+                    <tr>
+                      <td className="w-16 py-1 align-top text-xs text-gray-400">
+                        Email
+                      </td>
+                      <td className="break-all py-1 text-gray-800">
+                        {customer.email}
+                      </td>
+                    </tr>
+                  )}
+                  {(customer.address || customer.zip_code) && (
+                    <tr>
+                      <td className="w-16 py-1 align-top text-xs text-gray-400">
+                        住所
+                      </td>
+                      <td className="py-1 text-gray-800">
+                        {customer.zip_code && (
+                          <span className="text-gray-500">
+                            〒{customer.zip_code}{" "}
+                          </span>
+                        )}
+                        {customer.address}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
               <Separator />
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-gray-400">性別: </span>
-                  <span className="text-gray-800">
+              {/* 属性: 2列グリッド */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-gray-400">性別</span>
+                  <span className="font-medium text-gray-800">
                     {GENDER_LABELS[customer.gender ?? 0] ?? "-"}
                   </span>
                 </div>
-                <div>
-                  <span className="text-gray-400">生年月日: </span>
-                  <span className="text-gray-800">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-gray-400">生年月日</span>
+                  <span className="font-medium text-gray-800">
                     {customer.birth_date || "-"}
                   </span>
                 </div>
-                <div>
-                  <span className="text-gray-400">職業: </span>
-                  <span className="text-gray-800">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-gray-400">職業</span>
+                  <span className="font-medium text-gray-800">
                     {customer.occupation || "-"}
                   </span>
                 </div>
-                <div>
-                  <span className="text-gray-400">LINE: </span>
-                  <span className="text-gray-800">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-gray-400">LINE</span>
+                  <span className="font-medium text-gray-800">
                     {customer.line_id || "-"}
                   </span>
                 </div>
