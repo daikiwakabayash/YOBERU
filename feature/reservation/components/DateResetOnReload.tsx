@@ -1,52 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
-
 /**
- * Detects browser reloads and redirects to today's date when the URL has
- * a stale `date` query parameter.
+ * Previously, this component detected browser reloads and stripped the
+ * `?date=` URL parameter so the calendar always jumped back to today.
  *
- * UX: the user wants "reload always shows today", even if the URL had a
- * past date from previous navigation. This hook checks
- * PerformanceNavigationTiming on mount — if the navigation type is "reload",
- * we strip the date param so the page re-renders with today's data.
+ * The user requested the opposite behaviour: reloading the page while
+ * viewing April 20 should keep showing April 20. So this component now
+ * renders nothing and performs no side effects.
  *
- * In-session navigation via toolbar buttons still works normally because
- * this effect only runs once (empty deps) and only on a true reload.
+ * Kept as a file rather than deleted because page.tsx imports it inside
+ * a <Suspense> boundary — removing the export would break the import.
  */
 export function DateResetOnReload() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const entries = performance.getEntriesByType(
-      "navigation"
-    ) as PerformanceNavigationTiming[];
-    const nav = entries[0];
-    if (!nav || nav.type !== "reload") return;
-
-    const urlDate = searchParams.get("date");
-    if (!urlDate) return;
-
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(now.getDate()).padStart(2, "0")}`;
-
-    if (urlDate !== today) {
-      // Rebuild URL with date stripped but keep other params
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete("date");
-      const queryString = params.toString();
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return null;
 }

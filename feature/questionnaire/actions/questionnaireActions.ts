@@ -16,6 +16,24 @@ import { sanitizeSlug } from "../utils/slug";
  * Empty answers are skipped. The block is appended (with a blank line
  * separator) so multiple questionnaires accumulate over time.
  */
+// field マッピングで顧客カラムに直接保存される項目は、description
+// サマリには含めない。名前・性別・電話・生年月日 等がメモに二重表示
+// されるのを防ぐ。来院動機や症状など field マッピングの無い自由記述
+// だけをサマリに残す。
+const EXCLUDE_FROM_SUMMARY = new Set([
+  "full_name",
+  "full_name_kana",
+  "phone_number_1",
+  "phone_number_2",
+  "email",
+  "gender",
+  "birth_date",
+  "zip_code",
+  "address",
+  "occupation",
+  "line_id",
+]);
+
 function buildQuestionnaireSummary(
   questionnaireTitle: string,
   questions: Question[],
@@ -24,6 +42,8 @@ function buildQuestionnaireSummary(
   const dateLabel = toLocalDateString(new Date());
   const lines: string[] = [`[${dateLabel} 問診票: ${questionnaireTitle}]`];
   for (const q of questions) {
+    // field マッピング済み項目はカラムに直接入っているのでサマリに出さない
+    if (q.field && EXCLUDE_FROM_SUMMARY.has(q.field)) continue;
     const raw = answers[q.id];
     if (raw == null) continue;
     const val = Array.isArray(raw) ? raw.join(", ") : String(raw);
@@ -197,6 +217,11 @@ export async function submitQuestionnaireResponse(formData: FormData) {
         customerUpdate.gender = s.includes("男") ? 1 : s.includes("女") ? 2 : 0;
         break;
       }
+      case "zip_code": {
+        // 郵便番号は VARCHAR(7) なのでハイフンを除去して7桁に揃える
+        customerUpdate.zip_code = String(val).replace(/-/g, "").slice(0, 7);
+        break;
+      }
       default:
         customerUpdate[question.field] = val;
         break;
@@ -286,27 +311,44 @@ export async function submitQuestionnaireResponse(formData: FormData) {
     }
   }
 
-  // マッチした場合: 既存顧客に上書き + description にサマリを追記
+  // マッチした場合: 既存顧客に上書き + description にサマリを追記。
+  // フィールド長超過などで UPDATE が失敗するケースがあったため、
+  // エラー時は description のみの最低限更新にフォールバックする。
   if (customerId) {
-    await supabase
+    const fullPayload = {
+      ...customerUpdate,
+      description: appendDescription(existingDescription, summaryBlock),
+    };
+    const { error: updateErr } = await supabase
       .from("customers")
-      .update({
-        ...customerUpdate,
-        description: appendDescription(existingDescription, summaryBlock),
-      })
+      .update(fullPayload)
       .eq("id", customerId);
+    if (updateErr) {
+      console.error(
+        "[questionnaire] full customer update failed, falling back to description-only",
+        updateErr
+      );
+      // description だけでも確実に書き込む
+      await supabase
+        .from("customers")
+        .update({
+          description: appendDescription(existingDescription, summaryBlock),
+        })
+        .eq("id", customerId);
+    }
   }
 
   // どれにもマッチしなければ新規作成。
   // 名前も電話も無いケースでもプレースホルダ名で作成して、回答が
   // どこにも紐付かない孤立状態にならないようにする。
   if (!customerId) {
-    // customers.code は UNIQUE (グローバル、全店舗・削除済み含む) なので、
-    // 採番は全レコードを対象に最大値を求める。shop_id や deleted_at で
-    // 絞ると他店舗/削除済みのコードと衝突して UNIQUE 違反になる。
+    // カルテナンバーは店舗別の連番 (1, 2, 3...)。
+    // UNIQUE 制約は (shop_id, code) WHERE deleted_at IS NULL に変更済み。
+    const newCustShopId = matchedShopId ?? questShopId ?? 1;
     const { data: allCodes } = await supabase
       .from("customers")
-      .select("code");
+      .select("code")
+      .eq("shop_id", newCustShopId);
     let maxNumeric = 0;
     for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
       const n = parseInt((r.code ?? "0").trim(), 10);
@@ -318,8 +360,6 @@ export async function submitQuestionnaireResponse(formData: FormData) {
       (customerUpdate.last_name as string | undefined) ||
       `(問診票回答 ${toLocalDateString(new Date())})`;
 
-    // 新規作成時の shop_id: マッチ済み顧客の店舗 → 問診票の店舗 → 1
-    const newCustShopId = matchedShopId ?? questShopId ?? 1;
     const insertData: Record<string, unknown> = {
       brand_id: q.brand_id,
       shop_id: newCustShopId,
@@ -357,4 +397,160 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   if (customerId) revalidatePath(`/customer/${customerId}`);
 
   return { success: true };
+}
+
+// -----------------------------------------------------------------------
+// 手動同期: 顧客に紐づく問診票回答を再適用
+// -----------------------------------------------------------------------
+
+/**
+ * 指定顧客の問診票回答データを顧客レコードに手動で再反映する。
+ * AppointmentDetailSheet 等から「問診票データを反映」ボタンで呼ぶ。
+ */
+export async function syncQuestionnaireToCustomer(
+  customerId: number
+): Promise<{ success: true; synced: number } | { error: string }> {
+  const supabase = await createClient();
+
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("id, description, phone_number_1")
+    .eq("id", customerId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!cust) return { error: "顧客が見つかりません" };
+
+  const phone = (cust.phone_number_1 as string | null) ?? null;
+
+  // customer_id で紐づく回答を取得
+  type Resp = {
+    id: number;
+    questionnaire_id: number;
+    customer_id: number | null;
+    answers: Record<string, string | string[]>;
+    created_at: string;
+  };
+  const responses: Resp[] = [];
+
+  const { data: byId } = await supabase
+    .from("questionnaire_responses")
+    .select("id, questionnaire_id, customer_id, answers, created_at")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: true });
+  if (byId) responses.push(...(byId as Resp[]));
+
+  // customer_id IS NULL で電話番号マッチの孤立回答も拾う
+  if (phone) {
+    const { data: orphans } = await supabase
+      .from("questionnaire_responses")
+      .select("id, questionnaire_id, customer_id, answers, created_at")
+      .is("customer_id", null)
+      .order("created_at", { ascending: true });
+    for (const resp of (orphans ?? []) as Resp[]) {
+      const { data: q } = await supabase
+        .from("questionnaires")
+        .select("questions")
+        .eq("id", resp.questionnaire_id)
+        .single();
+      if (!q) continue;
+      const questions = (q.questions as Question[]) ?? [];
+      const phoneQ = questions.find((qq) => qq.field === "phone_number_1");
+      if (!phoneQ) continue;
+      if (String(resp.answers[phoneQ.id] ?? "") === phone) {
+        responses.push(resp);
+      }
+    }
+  }
+
+  if (responses.length === 0) {
+    return { error: "この顧客に紐づく問診票回答がありません" };
+  }
+
+  let synced = 0;
+  let currentDesc = ((cust.description as string | null) ?? "").trimEnd();
+
+  for (const resp of responses) {
+    const { data: q } = await supabase
+      .from("questionnaires")
+      .select("title, questions")
+      .eq("id", resp.questionnaire_id)
+      .single();
+    if (!q) continue;
+
+    const questions = (q.questions as Question[]) ?? [];
+    const updates: Record<string, unknown> = {};
+    for (const question of questions) {
+      if (!question.field) continue;
+      const raw = resp.answers[question.id];
+      const val = Array.isArray(raw) ? raw.join(", ") : raw;
+      if (val == null || val === "") continue;
+
+      switch (question.field) {
+        case "full_name": {
+          const parts = String(val).trim().split(/\s+/);
+          updates.last_name = parts[0] ?? "";
+          updates.first_name = parts.slice(1).join(" ") || null;
+          break;
+        }
+        case "full_name_kana": {
+          const parts = String(val).trim().split(/\s+/);
+          updates.last_name_kana = parts[0] ?? "";
+          updates.first_name_kana = parts.slice(1).join(" ") || null;
+          break;
+        }
+        case "gender":
+          updates.gender = String(val).includes("男")
+            ? 1
+            : String(val).includes("女")
+              ? 2
+              : 0;
+          break;
+        case "zip_code":
+          updates.zip_code = String(val).replace(/-/g, "").slice(0, 7);
+          break;
+        case "phone_number_1":
+          break;
+        default:
+          updates[question.field] = val;
+          break;
+      }
+    }
+
+    const summaryBlock = buildQuestionnaireSummary(
+      String(q.title ?? "問診票"),
+      questions,
+      resp.answers
+    );
+    const firstLine = summaryBlock.split("\n")[0];
+    if (!currentDesc.includes(firstLine)) {
+      currentDesc = currentDesc
+        ? `${currentDesc}\n\n${summaryBlock}`
+        : summaryBlock;
+    }
+
+    const { error: updateErr } = await supabase
+      .from("customers")
+      .update({ ...updates, description: currentDesc })
+      .eq("id", customerId);
+    if (updateErr) {
+      console.error("[syncQuestionnaire] update failed, fallback", updateErr);
+      await supabase
+        .from("customers")
+        .update({ description: currentDesc })
+        .eq("id", customerId);
+    }
+
+    if (resp.customer_id !== customerId) {
+      await supabase
+        .from("questionnaire_responses")
+        .update({ customer_id: customerId })
+        .eq("id", resp.id);
+    }
+    synced++;
+  }
+
+  revalidatePath("/customer");
+  revalidatePath(`/customer/${customerId}`);
+  revalidatePath("/reservation");
+  return { success: true, synced };
 }
