@@ -2,6 +2,7 @@
 
 import { createClient } from "@/helper/lib/supabase/server";
 import { bookingLinkSchema } from "../schema/bookingLink.schema";
+import { getNextCustomerCode } from "@/feature/customer/services/getNextCustomerCode";
 import { revalidatePath } from "next/cache";
 
 function parseForm(raw: Record<string, FormDataEntryValue>) {
@@ -240,28 +241,9 @@ export async function submitPublicBooking(formData: FormData) {
   if (existing.data) {
     customerId = existing.data.id as number;
   } else {
-    // カルテナンバーは「小さい数字から連番」がオペレーション要件なので、
-    // 1, 2, 3 ... の文字列で保存する (ゼロ埋めしない)。createCustomer 側
-    // と同じ採番ロジックを使うこと。customers.code は VARCHAR なので
-    // SQL の order は文字列順 ("9" > "10") になり、誤った max が返る。
-    // 全件取って数値比較する (店舗単位なのでサイズはたかが知れている)。
-    // ゼロ埋め値 ("00000012" 等) も parseInt で正しく扱える。
-    //
-    // 旧実装は order("code") + padStart(8, "0") を使っており、ダッシュ
-    // ボードから登録された "1","2","3" 等の非ゼロ埋めコードと混在する
-    // と、誤った最大値から "00000004" 等を生成して既存コードと衝突し、
-    // カルテナンバーは店舗別の連番 (1, 2, 3...)。
-    // UNIQUE 制約は (shop_id, code) WHERE deleted_at IS NULL に変更済み。
-    const { data: allCodes } = await supabase
-      .from("customers")
-      .select("code")
-      .eq("shop_id", shopId);
-    let maxNumeric = 0;
-    for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
-      const n = parseInt((r.code ?? "0").trim(), 10);
-      if (Number.isFinite(n) && n > maxNumeric) maxNumeric = n;
-    }
-    const nextCode = String(maxNumeric + 1);
+    // カルテナンバーは店舗別に 1, 2, 3... と小さい数字から連番で採番する。
+    // 詳細は getNextCustomerCode を参照 (createCustomer 側と同じヘルパー)。
+    const nextCode = await getNextCustomerCode(supabase, shopId);
 
     const inserted = await supabase
       .from("customers")

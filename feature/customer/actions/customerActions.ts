@@ -2,6 +2,7 @@
 
 import { createClient } from "@/helper/lib/supabase/server";
 import { customerSchema } from "../schema/customer.schema";
+import { getNextCustomerCode } from "../services/getNextCustomerCode";
 import { revalidatePath } from "next/cache";
 
 export async function createCustomer(formData: FormData) {
@@ -25,29 +26,10 @@ export async function createCustomer(formData: FormData) {
     return { error: parsed.error.flatten().fieldErrors };
   }
 
-  // Auto-generate the customer code = カルテナンバー.
-  //
-  // カルテナンバーは「小さい数字から連番」がオペレーション要件なので、
-  // 1, 2, 3 ... の文字列で保存する (ゼロ埋めしない)。
-  //
-  // 注意点: customers.code は VARCHAR なので DB のソートは文字列順。
-  // "9" > "10" になってしまうため、max を SQL order で取ると間違った
-  // カルテナンバーは店舗別の連番 (1, 2, 3...)。
-  // UNIQUE 制約は (shop_id, code) WHERE deleted_at IS NULL に変更済み。
-  // 古いデータのゼロ埋め値 ("00000012" 等) は parseInt が処理するので
-  // 混在していても破綻しない。
+  // カルテナンバーは店舗別に 1, 2, 3... と小さい数字から連番で採番する。
+  // 実装詳細 (巨大レガシー値を無視する理由など) は getNextCustomerCode を参照。
   const shopId = parsed.data.shop_id;
-  const { data: allCodes } = await supabase
-    .from("customers")
-    .select("code")
-    .eq("shop_id", shopId);
-
-  let maxNumeric = 0;
-  for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
-    const n = parseInt((r.code ?? "0").trim(), 10);
-    if (Number.isFinite(n) && n > maxNumeric) maxNumeric = n;
-  }
-  const nextCode = String(maxNumeric + 1);
+  const nextCode = await getNextCustomerCode(supabase, shopId);
 
   // Convert empty strings to null for DB compatibility
   const cleanedData: Record<string, unknown> = {};

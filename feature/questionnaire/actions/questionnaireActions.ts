@@ -3,6 +3,7 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { toLocalDateString } from "@/helper/utils/time";
+import { getNextCustomerCode } from "@/feature/customer/services/getNextCustomerCode";
 import type { Question } from "../types";
 import { sanitizeSlug } from "../utils/slug";
 
@@ -342,19 +343,10 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   // 名前も電話も無いケースでもプレースホルダ名で作成して、回答が
   // どこにも紐付かない孤立状態にならないようにする。
   if (!customerId) {
-    // カルテナンバーは店舗別の連番 (1, 2, 3...)。
-    // UNIQUE 制約は (shop_id, code) WHERE deleted_at IS NULL に変更済み。
+    // カルテナンバーは店舗別に 1, 2, 3... と小さい数字から連番で採番する。
+    // 詳細は getNextCustomerCode を参照。
     const newCustShopId = matchedShopId ?? questShopId ?? 1;
-    const { data: allCodes } = await supabase
-      .from("customers")
-      .select("code")
-      .eq("shop_id", newCustShopId);
-    let maxNumeric = 0;
-    for (const r of (allCodes ?? []) as Array<{ code: string | null }>) {
-      const n = parseInt((r.code ?? "0").trim(), 10);
-      if (Number.isFinite(n) && n > maxNumeric) maxNumeric = n;
-    }
-    const nextCode = String(maxNumeric + 1);
+    const nextCode = await getNextCustomerCode(supabase, newCustShopId);
 
     const placeholderLastName =
       (customerUpdate.last_name as string | undefined) ||
