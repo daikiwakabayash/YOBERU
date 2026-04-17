@@ -249,6 +249,9 @@ export function AppointmentDetailSheet({
   // ---- Saving ----
   const [saving, setSaving] = useState(false);
 
+  // ---- Router (for refreshing the calendar after partial updates) ----
+  const router = useRouter();
+
   // ---- Derived ----
   const startTime =
     appointment?.startAt?.slice(11, 16) ?? newBooking?.time ?? "";
@@ -502,6 +505,66 @@ export function AppointmentDetailSheet({
     setStatus(4);
     toast.success("当日キャンセルとして記録しました");
     onClose();
+  }
+
+  // -----------------------------------------------------------------------
+  // 予約情報の部分更新: 「更新」ボタン
+  //
+  // 既存予約に対して、来店経路 / メニュー / カルテメモ / 入会フラグ
+  // など編集可能な項目だけを保存する。会計確定 (status=2) は行わない
+  // ので status は現状維持。
+  //
+  // ユーザーが予約パネルで来店経路を Instagram に付け替えたとき等、
+  // 会計確定や当日キャンセル以外で変更を永続化する手段がなく、
+  // リロードするとせっかくの編集が消えてしまう問題への対応。
+  // -----------------------------------------------------------------------
+  async function handleUpdateOnly() {
+    if (!appointment) return;
+    setSaving(true);
+    try {
+      const form = new FormData();
+      if (visitSourceId) {
+        form.set("visit_source_id", String(visitSourceId));
+      }
+      // メニューが変わると所要時間も変わるので、end_at を再計算して
+      // 送る。updateAppointment 側でスタッフ重複判定が走る。
+      const chosenMenuId = selectedMenuIds[0];
+      if (chosenMenuId) {
+        form.set("menu_manage_id", chosenMenuId);
+        const menu = menus.find((m) => m.menu_manage_id === chosenMenuId);
+        if (menu && menu.duration > 0) {
+          const startAt = appointment.startAt;
+          const startDateStr = startAt.slice(0, 10);
+          const startTimeStr = startAt.slice(11, 16);
+          const endTimeStr = minutesToTime(
+            timeToMinutes(startTimeStr) + menu.duration
+          );
+          form.set("start_at", startAt);
+          form.set("end_at", `${startDateStr}T${endTimeStr}:00`);
+        }
+      }
+      form.set("customer_record", customerRecord);
+      form.set("is_member_join", isMemberJoin ? "true" : "false");
+
+      const result = await updateAppointment(appointment.id, form);
+      if ("error" in result && result.error) {
+        toast.error(
+          typeof result.error === "string"
+            ? result.error
+            : "更新に失敗しました"
+        );
+        return;
+      }
+      toast.success("予約情報を更新しました");
+      // 予約表のカード (Meta広告新規 等) に即反映させるため、サーバー
+      // コンポーネントを再実行させる。シートは開いたまま。
+      router.refresh();
+    } catch (e) {
+      toast.error("エラーが発生しました");
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -1682,6 +1745,24 @@ export function AppointmentDetailSheet({
               disabled={saving}
             >
               {saving ? "保存中..." : "一時保存（予約のみ登録）"}
+            </Button>
+          )}
+
+          {/* ===== 更新 button (existing regular appointment) =====
+              来店経路やメニューを付け替えた場合に、会計確定せず
+              編集内容だけ保存する。status=0/1 (待機/施術中) に加え、
+              status=2 (完了) でも来店経路の打ち間違い訂正ができる
+              よう表示する。slot-block (ミーティング/その他) では
+              handleSaveSlotBlock が担当するのでここでは除外。 */}
+          {!isNew && !isExistingSlotBlock && status !== 3 && status !== 4 && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-2 border-blue-500 py-5 text-base font-bold text-blue-600 hover:bg-blue-50"
+              onClick={handleUpdateOnly}
+              disabled={saving}
+            >
+              {saving ? "更新中..." : "更新"}
             </Button>
           )}
 
