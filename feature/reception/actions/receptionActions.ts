@@ -30,7 +30,7 @@ export async function checkinAppointment(id: number) {
  * Complete appointment with sales amount.
  *
  * Side effects (best-effort, never fail the main update):
- *  - Increments customers.visit_count by 1
+ *  - Increments customers.visit_count by 1 (skipped for 継続決済)
  *  - Sets customers.last_visit_date to the appointment's start date in
  *    Asia/Tokyo (so the calendar's "新規" badge correctly turns off after
  *    a returning visit, and customer reports show the right last-visit date)
@@ -38,6 +38,10 @@ export async function checkinAppointment(id: number) {
  * Same-day cancellation (`sameDayCancelAppointment`, status = 4) and
  * generic cancellation (`cancelAppointment`, status = 3) intentionally
  * skip this so a no-show is never counted as a real visit.
+ *
+ * **Continued billing (is_continued_billing = TRUE)** もスキップ対象。
+ * サブスクの月額課金だけ売上計上する "幽霊予約" なので、来院回数にも
+ * チケット消化にもカウントしない (= last_visit_date も動かさない)。
  */
 export async function completeAppointment(id: number, salesAmount: number) {
   const supabase = await createClient();
@@ -59,10 +63,12 @@ export async function completeAppointment(id: number, salesAmount: number) {
   try {
     const { data: appt } = await supabase
       .from("appointments")
-      .select("customer_id, start_at")
+      .select("customer_id, start_at, is_continued_billing")
       .eq("id", id)
       .maybeSingle();
-    if (appt?.customer_id) {
+    // 継続決済 (サブスクの月次課金だけ反映する "幽霊予約") は
+    // 来院扱いにしない。visit_count / last_visit_date は据置。
+    if (appt?.customer_id && !appt.is_continued_billing) {
       const { data: cust } = await supabase
         .from("customers")
         .select("visit_count")

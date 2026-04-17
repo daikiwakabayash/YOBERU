@@ -37,6 +37,8 @@ export default async function MenuDetailPage({ params }: Props) {
     available_count: menu.available_count ?? undefined,
     status: menu.status ?? true,
     sort_number: menu.sort_number ?? 0,
+    plan_type: (menu.plan_type ?? null) as "ticket" | "subscription" | null,
+    ticket_count: menu.ticket_count ?? null,
   };
 
   return (

@@ -22,6 +22,20 @@ export const menuSchema = z.object({
   available_count: z.coerce.number().int().min(0).optional(),
   status: z.boolean().default(true),
   sort_number: z.coerce.number().int().min(0).default(0),
+  // 会員プラン区分:
+  //   null        = 通常メニュー (施術メニュー等)
+  //   'ticket'    = 回数券 (ticket_count で回数指定)
+  //   'subscription' = 月額サブスクリプション
+  plan_type: z
+    .preprocess((v) => (v === "" || v == null ? null : v), z.enum(["ticket", "subscription"]).nullable())
+    .optional(),
+  // plan_type='ticket' のときの総回数 (4 回券なら 4)
+  ticket_count: z.coerce
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .optional(),
 });
 
 export type MenuFormValues = z.infer<typeof menuSchema>;

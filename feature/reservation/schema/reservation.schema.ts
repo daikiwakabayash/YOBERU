@@ -31,6 +31,17 @@ export const appointmentSchema = z.object({
   // zod は未定義フィールドを strip するため、ここに列挙しないと
   // FormData で送っても createAppointment の insertRow から消える。
   visit_source_id: z.coerce.number().int().positive().optional(),
+  // 継続決済フラグ: サブスクの月次課金だけ売上計上したい "幽霊予約"。
+  // 来院回数 / チケット消化には入らない (completeAppointment 側で
+  // スキップする)。チェックボックスからの入力は "true" / "false"
+  // 文字列で飛んでくるので z.preprocess で boolean に落とす。
+  is_continued_billing: z
+    .preprocess((v) => {
+      if (typeof v === "boolean") return v;
+      if (typeof v === "string") return v === "true";
+      return false;
+    }, z.boolean())
+    .optional(),
 });
 
 export type AppointmentFormValues = z.infer<typeof appointmentSchema>;

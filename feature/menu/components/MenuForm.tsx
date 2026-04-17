@@ -43,6 +43,15 @@ const MENU_TYPE_ITEMS: Record<string, string> = {
   "1": "店舗限定",
 };
 
+// プラン区分 (menus.plan_type)。通常のメニュー (施術) は「なし」、
+// 回数券と月額サブスクは AppointmentDetailSheet のプラン提案カードに
+// 自動的に並ぶ。
+const PLAN_TYPE_ITEMS: Record<string, string> = {
+  none: "なし (通常メニュー)",
+  ticket: "チケット (回数券)",
+  subscription: "サブスクリプション (月額)",
+};
+
 export function MenuForm({ brandId, categories, initialData }: MenuFormProps) {
   const isEdit = !!initialData;
 
@@ -74,6 +83,8 @@ export function MenuForm({ brandId, categories, initialData }: MenuFormProps) {
       available_count: initialData?.available_count ?? undefined,
       status: initialData?.status ?? true,
       sort_number: initialData?.sort_number ?? 0,
+      plan_type: initialData?.plan_type ?? null,
+      ticket_count: initialData?.ticket_count ?? null,
     },
   });
 
@@ -93,6 +104,12 @@ export function MenuForm({ brandId, categories, initialData }: MenuFormProps) {
     }
     formData.append("status", String(values.status));
     formData.append("sort_number", String(values.sort_number));
+    // plan_type: "" を送ると "通常メニュー" として扱う (null 相当)。
+    // zod 側の preprocess で "" / null → null に落ちるので、空文字で送る。
+    formData.append("plan_type", values.plan_type ?? "");
+    if (values.ticket_count != null) {
+      formData.append("ticket_count", String(values.ticket_count));
+    }
 
     if (isEdit && initialData) {
       await updateMenu(initialData.id, formData);
@@ -245,6 +262,66 @@ export function MenuForm({ brandId, categories, initialData }: MenuFormProps) {
               {...register("available_count", { valueAsNumber: true })}
             />
           </div>
+
+          {/* プラン区分 (回数券 / サブスク / 通常) */}
+          <div className="space-y-1.5">
+            <Label htmlFor="plan_type">プラン区分</Label>
+            <Controller
+              control={control}
+              name="plan_type"
+              render={({ field }) => (
+                <Select
+                  value={field.value ?? "none"}
+                  items={PLAN_TYPE_ITEMS}
+                  onValueChange={(val) =>
+                    field.onChange(val === "none" ? null : val)
+                  }
+                >
+                  <SelectTrigger className="w-full" id="plan_type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">なし (通常メニュー)</SelectItem>
+                    <SelectItem value="ticket">チケット (回数券)</SelectItem>
+                    <SelectItem value="subscription">
+                      サブスクリプション (月額)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            <p className="text-[11px] text-gray-500">
+              チケット / サブスクを選ぶと、予約シートの「プラン提案」カードに
+              自動で表示され、購入すると顧客の残数管理に反映されます。
+            </p>
+          </div>
+
+          {/* チケット回数 (plan_type='ticket' のときのみ意味あり) */}
+          <Controller
+            control={control}
+            name="plan_type"
+            render={({ field: planTypeField }) =>
+              planTypeField.value === "ticket" ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="ticket_count">チケット回数</Label>
+                  <Input
+                    id="ticket_count"
+                    type="number"
+                    min={1}
+                    placeholder="例: 4 (4 回券)"
+                    {...register("ticket_count", { valueAsNumber: true })}
+                  />
+                  {errors.ticket_count && (
+                    <p className="text-xs text-destructive">
+                      {errors.ticket_count.message}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <></>
+              )
+            }
+          />
 
           {/* 公開状態 */}
           <div className="flex items-center gap-3">
