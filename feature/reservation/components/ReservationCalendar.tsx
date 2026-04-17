@@ -20,13 +20,14 @@ interface ReservationCalendarProps {
 
 // Horizontal layout constants — staff rows on Y, time on X.
 // 幅を詰めて横スクロール量を小さくする:
-//   STAFF_ROW_HEIGHT: スタッフ行の高さ。30 分枠 (幅 66px) でも顧客名
-//     + バッジ + メニュー名を縦積みで読めるように高めに確保する。
+//   STAFF_ROW_HEIGHT: スタッフ行の高さ。30 分枠 (幅 66px) でも 1 行目に
+//     名前、2 行目にバッジ + メニュー名が収まるよう、コンパクトな
+//     "横広がり" レイアウトを取る。縦に間延びさせない。
 //   STAFF_LABEL_WIDTH: 左のスタッフ名列の幅
 //   TIME_HEADER_HEIGHT: 上部の時間ヘッダーの高さ
 //   PX_PER_MIN: 1分あたりの横幅 (以前は4。2.2にして約45%圧縮)
 //     → 30min = 66px, 60min = 132px, 12h = 1584px
-const STAFF_ROW_HEIGHT = 100;
+const STAFF_ROW_HEIGHT = 64;
 const STAFF_LABEL_WIDTH = 120;
 const TIME_HEADER_HEIGHT = 32;
 const PX_PER_MIN = 2.2;
@@ -662,20 +663,30 @@ export function ReservationCalendar({
                           }}
                           onMouseDown={(e) => handleDragStart(appt, e)}
                         >
-                          {/* 内側で overflow-hidden して長いテキストを
-                              カード外にはみ出させない。外側はツールチップが
-                              カードの外に出られるよう overflow を切らない。
-                              30 分枠 (幅 66px) でも読めるよう、情報を縦に
-                              積む: バッジ行 → 顧客名 → メニュー名 (wrap)。
-                              カルテ番号は横幅を食うのでカード本体からは
-                              外し、ホバー時ツールチップで確認できるように
-                              してある。 */}
-                          <div className="flex h-full flex-col overflow-hidden px-1 py-[2px]">
-                            {/* 1 行目 (上): 来店バッジ + ステータス */}
-                            <div className="flex min-w-0 items-center gap-0.5 leading-none">
+                          {/* コンパクトな縦積みレイアウト。30 分枠 (幅 66px)
+                              に収まるよう、行高を詰めてフォントサイズを
+                              小さめに統一する。
+                              - 1 行目: 顧客名 (text-[11px] 太字、truncate)
+                              - 2 行目: バッジ + メニュー名を横並び
+                                  (バッジ text-[9px], メニュー text-[10px])
+                              カルテ番号やフル情報はホバー時の OS title で
+                              確認できる。 */}
+                          <div className="flex h-full flex-col justify-center overflow-hidden px-1 py-[1px]">
+                            {/* 1 行目: 顧客名 */}
+                            <div
+                              className={`truncate text-[11px] font-black leading-none ${
+                                appt.customerName ? "text-gray-900" : "text-gray-400"
+                              }`}
+                            >
+                              {appt.customerName || "未設定"}
+                            </div>
+                            {/* 2 行目: バッジ群 + メニュー名 (横並び)。
+                                バッジは shrink-0、メニュー名は flex-1 で
+                                truncate して 1 行に収める。 */}
+                            <div className="mt-0.5 flex min-w-0 items-center gap-0.5 leading-none">
                               {isNew ? (
                                 <span
-                                  className="shrink-0 truncate rounded px-1 py-0 text-[10px] font-bold"
+                                  className="shrink-0 truncate rounded px-1 py-0 text-[9px] font-bold"
                                   style={{
                                     backgroundColor: appt.sourceColor ?? "#ef4444",
                                     color: appt.sourceTextColor ?? "#ffffff",
@@ -685,37 +696,25 @@ export function ReservationCalendar({
                                 </span>
                               ) : (
                                 visitLabel && (
-                                  <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[10px] font-bold text-white">
+                                  <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[9px] font-bold text-white">
                                     {visitLabel}
                                   </span>
                                 )
                               )}
                               {statusBadge && (
                                 <span
-                                  className={`shrink-0 rounded px-1 py-0 text-[10px] font-bold ${statusBadgeColor}`}
+                                  className={`shrink-0 rounded px-1 py-0 text-[9px] font-bold ${statusBadgeColor}`}
                                 >
                                   {statusBadge}
                                 </span>
                               )}
+                              {appt.menuName && (
+                                <span className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-500">
+                                  {appt.menuName}
+                                  {appt.duration > 0 && `（${appt.duration}分）`}
+                                </span>
+                              )}
                             </div>
-                            {/* 2 行目: 顧客名 (太字・最優先)。1 行で
-                                truncate させて、長い名前は "…" で省略。 */}
-                            <div
-                              className={`mt-0.5 truncate text-[12px] font-black leading-tight ${
-                                appt.customerName ? "text-gray-900" : "text-gray-400"
-                              }`}
-                            >
-                              {appt.customerName || "未設定"}
-                            </div>
-                            {/* 3 行目以降: メニュー名。30 分枠でも読める
-                                よう line-clamp-2 で最大 2 行まで折り返し
-                                て表示する。 */}
-                            {appt.menuName && (
-                              <div className="mt-0.5 line-clamp-2 break-words text-[10px] leading-tight text-gray-600">
-                                {appt.menuName}
-                                {appt.duration > 0 && `（${appt.duration}分）`}
-                              </div>
-                            )}
                           </div>
                         </div>
                       );
