@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, BarChart3, RefreshCw } from "lucide-react";
 import { getWeekdayLabel } from "@/helper/utils/weekday";
 import { toLocalDateString } from "@/helper/utils/time";
 import {
@@ -93,6 +93,21 @@ export function ReservationCalendarToolbar({
 
   return (
     <div className="flex items-center gap-2">
+      {/* Refresh button: re-runs the server component so new bookings
+          from the public link (or other tabs) show up without a full
+          page reload. router.refresh() invalidates the Server Component
+          cache for the current route. */}
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5"
+        onClick={() => router.refresh()}
+        aria-label="予約表を更新"
+      >
+        <RefreshCw className="h-4 w-4" />
+        更新
+      </Button>
+
       {/* Aggregate button with confirmation dialog */}
       <Button
         variant="outline"

@@ -327,12 +327,8 @@ export function WeeklyReservationCalendar({
           style={{ minWidth: DAY_LABEL_WIDTH + totalWidth }}
         >
           {/* Day rows */}
-          {weekDates.map((dateStr, dayIndex) => {
+          {weekDates.map((dateStr) => {
             const dayAppts = appointmentsByDate.get(dateStr) || [];
-            // 1 行目 (最上段の日付) はカード上部に余白がなく、ツールチップを
-            // 上方向に出すと親の overflow-y: clip でクリップされるため、
-            // 下方向に反転させる。
-            const tooltipBelow = dayIndex === 0;
             const d = new Date(dateStr + "T00:00:00");
             const dayLabel = WEEKDAY_LABELS_JP[d.getDay()];
             const month = d.getMonth() + 1;
@@ -552,7 +548,11 @@ export function WeeklyReservationCalendar({
                       <div
                         key={appt.id}
                         data-appt={appt.id}
-                        className={`group absolute select-none rounded-md border ${borderColor} ${bgColor} transition-shadow hover:shadow-md ${
+                        // カスタムフローティングツールチップは隣の行のカードに
+                        // 重なる問題があったため撤去。OS 標準の title 属性で
+                        // フル情報を提供する。
+                        title={apptTooltip || undefined}
+                        className={`absolute select-none rounded-md border ${borderColor} ${bgColor} transition-shadow hover:shadow-md ${
                           isDragging
                             ? "cursor-grabbing opacity-60 z-50"
                             : "cursor-grab"
@@ -609,15 +609,6 @@ export function WeeklyReservationCalendar({
                             </div>
                           )}
                         </div>
-                        {apptTooltip && (
-                          <div
-                            className={`pointer-events-none absolute left-0 z-[60] hidden min-w-max max-w-xs whitespace-pre-line rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] leading-snug font-normal text-gray-800 shadow-xl group-hover:block ${
-                              tooltipBelow ? "top-full mt-1" : "bottom-full mb-1"
-                            }`}
-                          >
-                            {apptTooltip}
-                          </div>
-                        )}
                       </div>
                     );
                   })}

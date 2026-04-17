@@ -297,12 +297,8 @@ export function ReservationCalendar({
           style={{ minWidth: STAFF_LABEL_WIDTH + totalWidth }}
         >
           {/* Staff rows */}
-          {workingStaffs.map((staff, staffIndex) => {
+          {workingStaffs.map((staff) => {
             const staffAppts = appointmentsByStaff.get(staff.id) || [];
-            // 1 行目 (最上段スタッフ) はカード上部に余白がなく、ツールチップを
-            // 上方向 (bottom-full) に出すと親の overflow-y: clip でクリップ
-            // されるため、下方向 (top-full) に反転させる。
-            const tooltipBelow = staffIndex === 0;
             const isOffShift = !staff.isWorking;
             const shiftStartMin = staff.shiftStart
               ? timeToMinutes(staff.shiftStart.slice(0, 5))
@@ -641,7 +637,12 @@ export function ReservationCalendar({
                         <div
                           key={appt.id}
                           data-appt={appt.id}
-                          className={`group absolute select-none rounded-md border ${borderColor} ${bgColor} transition-shadow hover:shadow-md ${
+                          // ホバー時のフル情報は OS の title でのみ提供する。
+                          // 自前のフローティングツールチップは隣の行のカードに
+                          // 重なって読みにくかったため撤去 (カード本体が
+                          // 縦積みレイアウトで十分な情報を表示する)。
+                          title={apptTooltip || undefined}
+                          className={`absolute select-none rounded-md border ${borderColor} ${bgColor} transition-shadow hover:shadow-md ${
                             isBeingDragged
                               ? "cursor-grabbing opacity-60 z-50"
                               : "cursor-grab"
@@ -711,19 +712,6 @@ export function ReservationCalendar({
                               </div>
                             )}
                           </div>
-                          {/* カスタム ツールチップ: ホバー即表示 (OS の title は
-                              ~500ms の遅延が固定で変えられないため自前描画)。
-                              1 行目 (staffIndex === 0) は上が clip されるため
-                              下方向 (top-full) に反転させる。 */}
-                          {apptTooltip && (
-                            <div
-                              className={`pointer-events-none absolute left-0 z-[60] hidden min-w-max max-w-xs whitespace-pre-line rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] leading-snug font-normal text-gray-800 shadow-xl group-hover:block ${
-                                tooltipBelow ? "top-full mt-1" : "bottom-full mb-1"
-                              }`}
-                            >
-                              {apptTooltip}
-                            </div>
-                          )}
                         </div>
                       );
                     });
