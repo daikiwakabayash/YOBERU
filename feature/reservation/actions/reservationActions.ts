@@ -337,6 +337,9 @@ export async function updateAppointment(id: number, formData: FormData) {
     updateData.additional_charge = Number(raw.additional_charge);
   if (raw.is_member_join !== undefined)
     updateData.is_member_join = raw.is_member_join === "true";
+  // 継続決済: 後からフラグ反転できるように update でも受け付ける。
+  if (raw.is_continued_billing !== undefined)
+    updateData.is_continued_billing = raw.is_continued_billing === "true";
   // Slot block editing: let the user swap between meeting / other /
   // break and change the free-form title on an existing row.
   if (raw.type !== undefined) updateData.type = Number(raw.type);

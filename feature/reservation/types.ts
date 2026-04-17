@@ -88,6 +88,14 @@ export interface CalendarAppointment {
   customerId: number;
   menuManageId: string;
   isMemberJoin: boolean;
+  /**
+   * 継続決済フラグ。サブスクの月次課金だけ記録する "幽霊予約"
+   * (来院/チケット消化に含めない売上計上だけの行)。予約表では
+   * 営業時間外に拡張された「継続決済エリア」に表示される。
+   */
+  isContinuedBilling: boolean;
+  /** チケット消化で紐付いた customer_plans.id (null なら未消化) */
+  consumedPlanId: number | null;
 }
 
 export interface CalendarData {

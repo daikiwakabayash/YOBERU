@@ -29,6 +29,7 @@ import {
   completeAppointment,
 } from "@/feature/reception/actions/receptionActions";
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
+import { PlanPurchaseDialog } from "@/feature/customer-plan/components/PlanPurchaseDialog";
 import { getLastVisitForCustomer } from "@/feature/reservation/services/getAppointments";
 import type { CustomerSummary } from "@/feature/customer/types";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
@@ -91,12 +92,6 @@ const STATUS_BADGE: Record<number, { label: string; cls: string }> = {
   4: { label: "当日キャンセル", cls: "border-red-400 text-red-700 bg-red-50" },
 };
 
-const PLAN_CARDS = [
-  { name: "月4回", price: 15400, unit: "月" },
-  { name: "月8回", price: 26400, unit: "月" },
-  { name: "通い放題", price: 35200, unit: "月" },
-] as const;
-
 // ===========================================================================
 // Component
 // ===========================================================================
@@ -147,7 +142,12 @@ export function AppointmentDetailSheet({
     }
     return 30;
   });
-  const [otherLabel, setOtherLabel] = useState(appointment?.otherLabel ?? "");
+  // 「その他」スロットブロックは以前 `内容` フィールド (other_label) を
+  // 必須入力にしていたが、現場運用では「その他」=「その他」で十分で、
+  // 詳細はメモに自由記述する形に統一したいとの要望を受け、UI と保存
+  // からは otherLabel を排除した。サーバ側の other_label カラムは
+  // 旧データ互換のため残してあるが、新規/更新の経路では空文字で
+  // 上書きされるためカード表示は memo にフォールバックする。
   const isSlotBlockMode = bookingMode !== "regular";
 
   // Fallback to built-in list if master data not provided
@@ -241,6 +241,42 @@ export function AppointmentDetailSheet({
     String(appointment?.additionalCharge ?? 0)
   );
 
+  // ---- 会員プラン ----
+  //
+  // 提案できるプランの一覧 (ブランド共通 + 店舗限定) と、既に顧客が
+  // 保有しているアクティブプラン (サブスク継続中 / チケット残数あり) を
+  // シート表示時にまとめて取得する。プラン提案カードはここから描画する。
+  //
+  // justPurchasedPlan は「このシート内で今まさに購入したプラン」を覚えて
+  // おき、合計金額に price_snapshot を加算するために使う。保存 (会計確定)
+  // 後は自動でリセットされる。
+  type LoadedPlanMenu = {
+    menu_manage_id: string;
+    name: string;
+    price: number;
+    plan_type: "ticket" | "subscription";
+    ticket_count: number | null;
+  };
+  type LoadedCustomerPlan = {
+    id: number;
+    menu_manage_id: string;
+    menu_name_snapshot: string;
+    plan_type: "ticket" | "subscription";
+    total_count: number | null;
+    used_count: number;
+    price_snapshot: number;
+  };
+  const [planMenus, setPlanMenus] = useState<LoadedPlanMenu[]>([]);
+  const [activePlans, setActivePlans] = useState<LoadedCustomerPlan[]>([]);
+  const [planPurchaseTarget, setPlanPurchaseTarget] =
+    useState<LoadedPlanMenu | null>(null);
+  const [justPurchasedPrice, setJustPurchasedPrice] = useState(0);
+
+  // ---- 継続決済 (サブスク月額課金だけ計上する "幽霊予約") ----
+  const [isContinuedBilling, setIsContinuedBilling] = useState(
+    appointment?.isContinuedBilling ?? false
+  );
+
   // ---- Payment ----
   const [paymentMethod, setPaymentMethod] = useState<string>(
     appointment?.paymentMethod ?? ""
@@ -248,6 +284,9 @@ export function AppointmentDetailSheet({
 
   // ---- Saving ----
   const [saving, setSaving] = useState(false);
+
+  // ---- Router (for refreshing the calendar after partial updates) ----
+  const router = useRouter();
 
   // ---- Derived ----
   const startTime =
@@ -258,7 +297,10 @@ export function AppointmentDetailSheet({
       .reduce((sum, m) => sum + m.price, 0);
   }, [menus, selectedMenuIds]);
 
-  const total = menuTotal + (Number(additionalCharge) || 0);
+  // 合計金額 = メニュー小計 + 追加料金 + 本セッション中に購入したプラン代。
+  // justPurchasedPrice は PlanPurchaseDialog の onPurchased で加算される。
+  const total =
+    menuTotal + (Number(additionalCharge) || 0) + justPurchasedPrice;
 
   // -----------------------------------------------------------------------
   // Customer search (for new booking)
@@ -337,6 +379,60 @@ export function AppointmentDetailSheet({
       })
       .finally(() => {
         if (!cancelled) setCustomerDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCustomerId]);
+
+  // ---- プラン提案用データのロード ----
+  //
+  // 1. planMenus: ブランド+店舗で提案可能なプランメニュー一覧
+  //    (menus.plan_type IS NOT NULL をサービスで抽出)
+  // 2. activePlans: この顧客が現在保有中のアクティブプラン一覧
+  //    (status=0 のもの、サブスク継続中 / チケット残数あり)
+  // ブランド / 店舗が変わらない限りカードは再取得不要。顧客が変わったら
+  // 残数も取り直す。
+  useEffect(() => {
+    let cancelled = false;
+    import("@/feature/customer-plan/services/getCustomerPlans")
+      .then((m) => m.getPlanMenusForShop(brandId, shopId))
+      .then((res) => {
+        if (!cancelled) setPlanMenus(res as LoadedPlanMenu[]);
+      })
+      .catch(() => {
+        if (!cancelled) setPlanMenus([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId, shopId]);
+
+  useEffect(() => {
+    if (!activeCustomerId) {
+      setActivePlans([]);
+      return;
+    }
+    let cancelled = false;
+    import("@/feature/customer-plan/services/getCustomerPlans")
+      .then((m) => m.getActiveCustomerPlans(activeCustomerId))
+      .then((res) => {
+        if (!cancelled) {
+          setActivePlans(
+            res.map((r) => ({
+              id: r.id,
+              menu_manage_id: r.menu_manage_id,
+              menu_name_snapshot: r.menu_name_snapshot,
+              plan_type: r.plan_type,
+              total_count: r.total_count,
+              used_count: r.used_count,
+              price_snapshot: r.price_snapshot,
+            }))
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setActivePlans([]);
       });
     return () => {
       cancelled = true;
@@ -505,6 +601,67 @@ export function AppointmentDetailSheet({
   }
 
   // -----------------------------------------------------------------------
+  // 予約情報の部分更新: 「更新」ボタン
+  //
+  // 既存予約に対して、来店経路 / メニュー / カルテメモ / 入会フラグ
+  // など編集可能な項目だけを保存する。会計確定 (status=2) は行わない
+  // ので status は現状維持。
+  //
+  // ユーザーが予約パネルで来店経路を Instagram に付け替えたとき等、
+  // 会計確定や当日キャンセル以外で変更を永続化する手段がなく、
+  // リロードするとせっかくの編集が消えてしまう問題への対応。
+  // -----------------------------------------------------------------------
+  async function handleUpdateOnly() {
+    if (!appointment) return;
+    setSaving(true);
+    try {
+      const form = new FormData();
+      if (visitSourceId) {
+        form.set("visit_source_id", String(visitSourceId));
+      }
+      // メニューが変わると所要時間も変わるので、end_at を再計算して
+      // 送る。updateAppointment 側でスタッフ重複判定が走る。
+      const chosenMenuId = selectedMenuIds[0];
+      if (chosenMenuId) {
+        form.set("menu_manage_id", chosenMenuId);
+        const menu = menus.find((m) => m.menu_manage_id === chosenMenuId);
+        if (menu && menu.duration > 0) {
+          const startAt = appointment.startAt;
+          const startDateStr = startAt.slice(0, 10);
+          const startTimeStr = startAt.slice(11, 16);
+          const endTimeStr = minutesToTime(
+            timeToMinutes(startTimeStr) + menu.duration
+          );
+          form.set("start_at", startAt);
+          form.set("end_at", `${startDateStr}T${endTimeStr}:00`);
+        }
+      }
+      form.set("customer_record", customerRecord);
+      form.set("is_member_join", isMemberJoin ? "true" : "false");
+      form.set("is_continued_billing", isContinuedBilling ? "true" : "false");
+
+      const result = await updateAppointment(appointment.id, form);
+      if ("error" in result && result.error) {
+        toast.error(
+          typeof result.error === "string"
+            ? result.error
+            : "更新に失敗しました"
+        );
+        return;
+      }
+      toast.success("予約情報を更新しました");
+      // 予約表のカード (Meta広告新規 等) に即反映させるため、サーバー
+      // コンポーネントを再実行させる。シートは開いたまま。
+      router.refresh();
+    } catch (e) {
+      toast.error("エラーが発生しました");
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Quick save: 一時保存 (名前+電話+メモ+経路のみで予約作成)
   // -----------------------------------------------------------------------
   async function handleQuickSave() {
@@ -581,6 +738,7 @@ export function AppointmentDetailSheet({
       form.set("is_couple", "false");
       form.set("sales", "0");
       form.set("status", "0"); // 待機 status
+      form.set("is_continued_billing", isContinuedBilling ? "true" : "false");
       if (visitSourceId) {
         form.set("visit_source_id", String(visitSourceId));
       }
@@ -618,10 +776,6 @@ export function AppointmentDetailSheet({
   // `type != 0` to exclude them.
   // -----------------------------------------------------------------------
   async function handleSaveSlotBlock() {
-    if (bookingMode === "other" && !otherLabel.trim()) {
-      toast.error("内容を入力してください");
-      return;
-    }
     // Map the current bookingMode to a (type, code) pair. type !== 0
     // flags the row as a slot block so aggregation services exclude
     // it; code drives the label + color via slot_block_types.
@@ -644,11 +798,8 @@ export function AppointmentDetailSheet({
         form.set("start_at", `${date}T${startTime}:00`);
         form.set("end_at", `${date}T${endTime}:00`);
         form.set("memo", customerRecord);
-        if (bookingMode === "other") {
-          form.set("other_label", otherLabel.trim());
-        } else {
-          form.set("other_label", "");
-        }
+        // other_label は廃止。旧データを上書きして空にしておく。
+        form.set("other_label", "");
         form.set("type", String(slotBlockTypeNum));
         form.set("slot_block_type_code", slotBlockCode);
 
@@ -690,9 +841,7 @@ export function AppointmentDetailSheet({
       form.set("sales", "0");
       form.set("is_couple", "false");
       form.set("memo", customerRecord);
-      if (bookingMode === "other") {
-        form.set("other_label", otherLabel.trim());
-      }
+      // other_label は廃止 (送らない)。
 
       const result = await createAppointment(form);
       if ("error" in result && result.error) {
@@ -884,6 +1033,7 @@ export function AppointmentDetailSheet({
         form.set("sales", String(total));
         form.set("status", "2");
         form.set("is_member_join", isMemberJoin ? "true" : "false");
+        form.set("is_continued_billing", isContinuedBilling ? "true" : "false");
         if (visitSourceId) {
           form.set("visit_source_id", String(visitSourceId));
         }
@@ -1147,16 +1297,10 @@ export function AppointmentDetailSheet({
                   ? "ミーティング内容"
                   : bookingMode === "break"
                     ? "休憩メモ"
-                    : "内容"}
+                    : "その他メモ"}
               </div>
-              {bookingMode === "other" && (
-                <Input
-                  placeholder="例: 外出 / 電話対応 / 備品搬入 など"
-                  value={otherLabel}
-                  onChange={(e) => setOtherLabel(e.target.value)}
-                  maxLength={128}
-                />
-              )}
+              {/* 「その他」の `内容` 入力欄は廃止。タイトルは固定で
+                  「その他」とし、詳細は下のメモ欄で記述する。 */}
               <div>
                 <Label className="text-[11px] font-bold text-gray-500">
                   時間
@@ -1524,6 +1668,34 @@ export function AppointmentDetailSheet({
             </section>
           )}
 
+          {/* ===== Section: 継続決済 (サブスク月次課金専用) =====
+              サブスクリプションが月次で自動課金されたとき、実際には
+              来店していないが売上には計上しなければならない。この
+              チェックを入れると:
+                - completeAppointment 側で visit_count を加算しない
+                - チケット消化対象にもしない (consumed_plan_id も付けない)
+                - 予約表では営業時間外に拡張された「継続決済枠」に表示
+              新規予約 / 既存予約のどちらでも指定可能。 */}
+          <section className="flex items-start gap-3 rounded-lg border border-purple-100 bg-purple-50/40 p-3">
+            <input
+              type="checkbox"
+              id="is-continued-billing"
+              checked={isContinuedBilling}
+              onChange={(e) => setIsContinuedBilling(e.target.checked)}
+              className="mt-1 h-4 w-4 shrink-0 cursor-pointer"
+            />
+            <label
+              htmlFor="is-continued-billing"
+              className="flex-1 cursor-pointer text-sm"
+            >
+              <span className="font-bold text-gray-900">継続決済</span>
+              <span className="ml-2 text-[11px] text-gray-500">
+                実来院せず、サブスクの月次課金だけを売上に記録する
+                (来院回数 / チケット消化にはカウントされません)
+              </span>
+            </label>
+          </section>
+
           <Separator />
 
           {/* ===== Section: Billing (お会計) ===== */}
@@ -1615,33 +1787,74 @@ export function AppointmentDetailSheet({
 
           <Separator />
 
-          {/* ===== Section: Plan suggestion ===== */}
-          {!isNew && appointment && (
+          {/* ===== Section: Plan suggestion =====
+              DB 駆動のプランメニュー (menus.plan_type IS NOT NULL) を
+              カード化する。カードクリックで PlanPurchaseDialog を開き、
+              「今日を 1 回目」「次回を 1 回目」を必ず選んでから購入する
+              フローへ進む。購入すると customer_plans に 1 行作り、
+              appointments.is_member_join=true を立てるのでマーケティング
+              ダッシュボードの入会率分子にもカウントされる。
+
+              既に保有中のプラン (activePlans) があれば、提案カードの上に
+              「X/Y 消化」の残数付きでバッジ表示する。 */}
+          {!isNew && appointment && activeCustomerId && (
             <section className="space-y-2">
               <Label className="text-xs font-bold text-gray-500">
                 プラン提案
               </Label>
-              <p className="text-xs text-orange-600">
-                プラン未契約 - プランを提案してください
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {PLAN_CARDS.map((plan) => (
-                  <div
-                    key={plan.name}
-                    className="cursor-pointer rounded-lg border border-gray-200 p-3 text-center transition-colors hover:border-orange-300 hover:bg-orange-50"
-                  >
-                    <div className="text-xs font-bold text-gray-700">
-                      {plan.name}
+
+              {activePlans.length > 0 ? (
+                <div className="space-y-1">
+                  {activePlans.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs"
+                    >
+                      <span className="font-bold text-emerald-800">
+                        {p.menu_name_snapshot}
+                      </span>
+                      <span className="font-bold text-emerald-700">
+                        {p.plan_type === "ticket" && p.total_count != null
+                          ? `${p.used_count}/${p.total_count} 消化`
+                          : "サブスク継続中"}
+                      </span>
                     </div>
-                    <div className="mt-1 text-sm font-black text-orange-600">
-                      ¥{plan.price.toLocaleString()}
-                    </div>
-                    <div className="text-[10px] text-gray-400">
-                      /{plan.unit}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-orange-600">
+                  プラン未契約 - プランを提案してください
+                </p>
+              )}
+
+              {planMenus.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {planMenus.map((plan) => (
+                    <button
+                      key={plan.menu_manage_id}
+                      type="button"
+                      onClick={() => setPlanPurchaseTarget(plan)}
+                      className="cursor-pointer rounded-lg border border-gray-200 p-3 text-center transition-colors hover:border-orange-400 hover:bg-orange-50"
+                    >
+                      <div className="text-xs font-bold text-gray-700">
+                        {plan.name}
+                      </div>
+                      <div className="mt-1 text-sm font-black text-orange-600">
+                        ¥{plan.price.toLocaleString()}
+                      </div>
+                      <div className="text-[10px] text-gray-400">
+                        {plan.plan_type === "ticket"
+                          ? `${plan.ticket_count ?? 1} 回券`
+                          : "月額"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-gray-400">
+                  提案可能なプランが未登録です (メニュー管理から追加してください)
+                </p>
+              )}
             </section>
           )}
 
@@ -1682,6 +1895,24 @@ export function AppointmentDetailSheet({
               disabled={saving}
             >
               {saving ? "保存中..." : "一時保存（予約のみ登録）"}
+            </Button>
+          )}
+
+          {/* ===== 更新 button (existing regular appointment) =====
+              来店経路やメニューを付け替えた場合に、会計確定せず
+              編集内容だけ保存する。status=0/1 (待機/施術中) に加え、
+              status=2 (完了) でも来店経路の打ち間違い訂正ができる
+              よう表示する。slot-block (ミーティング/その他) では
+              handleSaveSlotBlock が担当するのでここでは除外。 */}
+          {!isNew && !isExistingSlotBlock && status !== 3 && status !== 4 && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-2 border-blue-500 py-5 text-base font-bold text-blue-600 hover:bg-blue-50"
+              onClick={handleUpdateOnly}
+              disabled={saving}
+            >
+              {saving ? "更新中..." : "更新"}
             </Button>
           )}
 
@@ -1731,6 +1962,39 @@ export function AppointmentDetailSheet({
         )}
         </div>
       </SheetContent>
+      {/* プラン購入ダイアログ (シート内のカード押下で開く)。
+          購入成功時 onPurchased で合計金額に price を上乗せし、
+          カルテの「X/Y 消化」表示を再取得する。 */}
+      <PlanPurchaseDialog
+        open={!!planPurchaseTarget}
+        onClose={() => setPlanPurchaseTarget(null)}
+        plan={planPurchaseTarget}
+        brandId={brandId}
+        shopId={shopId}
+        customerId={activeCustomerId}
+        appointmentId={appointment?.id ?? null}
+        onPurchased={({ plan, consumedToday }) => {
+          // 合計金額にプラン代を加算するフラグ
+          setJustPurchasedPrice((prev) => prev + plan.price);
+          // 入会フラグをセット (UI 側の状態も更新)
+          setIsMemberJoin(true);
+          // アクティブプラン一覧を即時更新 (DB フェッチ待たず反映)
+          setActivePlans((prev) => [
+            {
+              id: Math.max(0, ...prev.map((p) => p.id)) + 1, // 仮 id — 次回 refresh で正式化
+              menu_manage_id: plan.menu_manage_id,
+              menu_name_snapshot: plan.name,
+              plan_type: plan.plan_type,
+              total_count:
+                plan.plan_type === "ticket" ? plan.ticket_count : null,
+              used_count:
+                plan.plan_type === "ticket" && consumedToday ? 1 : 0,
+              price_snapshot: plan.price,
+            },
+            ...prev,
+          ]);
+        }}
+      />
     </Sheet>
   );
 }

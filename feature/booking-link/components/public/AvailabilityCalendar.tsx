@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { StaffFreeDay } from "../../services/getShopStaffFreeSlots";
 
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"] as const;
 
@@ -85,6 +86,20 @@ interface AvailabilityCalendarProps {
    * Defaults to 60 if not provided.
    */
   menuDuration?: number;
+  /**
+   * Per-date map of each on-duty staff's free 30-min slot starts. Passed in
+   * when the public booking link supports staff selection — allows the
+   * calendar to mark a slot as "×" when *every* on-duty staff is already
+   * booked (or off) for the full menu duration, even before the user has
+   * picked a specific staff.
+   */
+  staffFreeByDate?: Record<string, StaffFreeDay[]>;
+  /**
+   * True when the user has already picked a specific staff. In that case
+   * we skip the "shop has any staff free" check and rely on the existing
+   * bookedSlots-based per-staff check.
+   */
+  hasSelectedStaff?: boolean;
 }
 
 function toLocalDateString(d: Date): string {
@@ -116,6 +131,8 @@ export function AvailabilityCalendar({
   availability,
   bookedSlots = [],
   menuDuration = 60,
+  staffFreeByDate,
+  hasSelectedStaff = false,
 }: AvailabilityCalendarProps) {
   const [weekStart, setWeekStart] = useState(() => {
     const today = new Date();
@@ -148,13 +165,35 @@ export function AvailabilityCalendar({
     return map;
   }, [bookedSlots]);
 
+  // Pre-convert freeSlotMins arrays into Sets for O(1) membership tests.
+  const staffFreeSets = useMemo(() => {
+    if (!staffFreeByDate) return null;
+    const out = new Map<
+      string,
+      Array<{ staffId: number; freeSlotMins: Set<number> }>
+    >();
+    for (const [date, perStaff] of Object.entries(staffFreeByDate)) {
+      out.set(
+        date,
+        perStaff.map((s) => ({
+          staffId: s.staffId,
+          freeSlotMins: new Set(s.freeSlotMins),
+        }))
+      );
+    }
+    return out;
+  }, [staffFreeByDate]);
+
   /**
    * Availability resolution priority:
    *  1. Past (date < today, or today's already-passed slot) → "-"
    *  2. `availability` was provided AND date is closed → "-"
    *  3. `availability` was provided AND slot is outside open window → "×"
-   *  4. Staff has an existing booking that overlaps [slotMin, slotMin + menuDuration) → "×"
-   *  5. open
+   *  4. A specific staff is selected AND they have an existing booking that
+   *     overlaps [slotMin, slotMin + menuDuration) → "×"
+   *  5. No staff selected AND `staffFreeByDate` is provided AND no on-duty
+   *     staff is free for the entire [slotMin, slotMin + menuDuration) → "×"
+   *  6. open
    *
    * Falls back to "always open" if the parent didn't pass `availability`.
    */
@@ -169,19 +208,33 @@ export function AvailabilityCalendar({
       if (day == null) return "-"; // closed: no staff scheduled
       if (slotMin < day.startMin || slotMin >= day.endMin) return "x";
     }
+    const effectiveDuration = menuDuration > 0 ? menuDuration : 30;
     // Check if the proposed appointment [slotMin, slotMin + menuDuration)
     // overlaps any existing booking for the selected staff on this date.
-    // Use at least 30 minutes (one calendar slot) so a 0-duration menu
-    // (e.g. membership plan) still properly blocks occupied slots.
     const dayBooked = bookedByDate.get(dateStr);
     if (dayBooked) {
-      const apptEnd = slotMin + (menuDuration > 0 ? menuDuration : 30);
+      const apptEnd = slotMin + effectiveDuration;
       for (const b of dayBooked) {
         // Overlap: A.start < B.end AND B.start < A.end
         if (slotMin < b.endMin && b.startMin < apptEnd) {
           return "x";
         }
       }
+    }
+    // Shop-level check: スタッフ未選択時は「稼働スタッフのうち誰か 1 人が
+    // menuDuration 分すべて空きかどうか」で判定する。全員埋まっていれば ×。
+    // スタッフ選択済みなら上の dayBooked 判定に任せる (per-staff が厳密)。
+    if (!hasSelectedStaff && staffFreeSets) {
+      const perStaff = staffFreeSets.get(dateStr);
+      if (!perStaff || perStaff.length === 0) return "x";
+      const slotsNeeded = Math.ceil(effectiveDuration / 30);
+      const anyStaffFree = perStaff.some((s) => {
+        for (let i = 0; i < slotsNeeded; i++) {
+          if (!s.freeSlotMins.has(slotMin + i * 30)) return false;
+        }
+        return true;
+      });
+      if (!anyStaffFree) return "x";
     }
     return "o";
   }

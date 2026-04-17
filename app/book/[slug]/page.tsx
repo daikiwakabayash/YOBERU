@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getBookingLinkBySlug } from "@/feature/booking-link/services/getBookingLinks";
 import { getShopAvailability } from "@/feature/booking-link/services/getShopAvailability";
+import { getShopStaffFreeSlots } from "@/feature/booking-link/services/getShopStaffFreeSlots";
 import { createClient } from "@/helper/lib/supabase/server";
 import { PublicBookingWizard } from "@/feature/booking-link/components/PublicBookingWizard";
 
@@ -161,6 +162,10 @@ export default async function PublicBookingPage({
     number,
     Awaited<ReturnType<typeof getShopAvailability>>
   > = {};
+  const staffFreeByShop: Record<
+    number,
+    Awaited<ReturnType<typeof getShopStaffFreeSlots>>
+  > = {};
   for (const s of shops) {
     try {
       availabilityByShop[s.id] = await getShopAvailability(
@@ -171,6 +176,16 @@ export default async function PublicBookingPage({
     } catch (e) {
       console.error("[book/[slug]] availability fetch failed", e);
       availabilityByShop[s.id] = {};
+    }
+    try {
+      staffFreeByShop[s.id] = await getShopStaffFreeSlots(
+        s.id,
+        startStr,
+        endStr
+      );
+    } catch (e) {
+      console.error("[book/[slug]] staff free slots fetch failed", e);
+      staffFreeByShop[s.id] = {};
     }
   }
 
@@ -195,6 +210,7 @@ export default async function PublicBookingPage({
         utmSource={utm_source ?? null}
         lang={initialLang}
         availabilityByShop={availabilityByShop}
+        staffFreeByShop={staffFreeByShop}
       />
     </div>
   );

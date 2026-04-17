@@ -24,6 +24,24 @@ export const appointmentSchema = z.object({
   is_couple: z.boolean().default(false),
   sales: z.coerce.number().int().min(0),
   status: z.coerce.number().int().min(0),
+  // 来店経路 (visit_sources.id)。新規予約で選んだ媒体をそのまま
+  // appointments.visit_source_id に保存することで、カード上の
+  // 「Meta広告新規」「TikTok広告新規」のような媒体色付きバッジが
+  // ダッシュボード経由の予約でも表示されるようになる。
+  // zod は未定義フィールドを strip するため、ここに列挙しないと
+  // FormData で送っても createAppointment の insertRow から消える。
+  visit_source_id: z.coerce.number().int().positive().optional(),
+  // 継続決済フラグ: サブスクの月次課金だけ売上計上したい "幽霊予約"。
+  // 来院回数 / チケット消化には入らない (completeAppointment 側で
+  // スキップする)。チェックボックスからの入力は "true" / "false"
+  // 文字列で飛んでくるので z.preprocess で boolean に落とす。
+  is_continued_billing: z
+    .preprocess((v) => {
+      if (typeof v === "boolean") return v;
+      if (typeof v === "string") return v === "true";
+      return false;
+    }, z.boolean())
+    .optional(),
 });
 
 export type AppointmentFormValues = z.infer<typeof appointmentSchema>;

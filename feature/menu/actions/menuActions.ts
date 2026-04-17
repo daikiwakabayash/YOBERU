@@ -98,6 +98,13 @@ export async function createMenu(formData: FormData) {
     available_count: raw.available_count ? Number(raw.available_count) : undefined,
     status: raw.status === "true",
     sort_number: Number(raw.sort_number || 0),
+    // plan_type: "" (未選択) は null 扱い、"ticket" / "subscription" のみ有効値。
+    plan_type: raw.plan_type === "" || raw.plan_type == null ? null : raw.plan_type,
+    // ticket_count: 無ければ null (plan_type='ticket' 以外のとき DB 側は NULL)
+    ticket_count:
+      raw.ticket_count && String(raw.ticket_count).trim() !== ""
+        ? Number(raw.ticket_count)
+        : null,
   });
 
   if (!parsed.success) {
@@ -145,6 +152,13 @@ export async function updateMenu(id: number, formData: FormData) {
     available_count: raw.available_count ? Number(raw.available_count) : undefined,
     status: raw.status === "true",
     sort_number: Number(raw.sort_number || 0),
+    // plan_type: "" (未選択) は null 扱い、"ticket" / "subscription" のみ有効値。
+    plan_type: raw.plan_type === "" || raw.plan_type == null ? null : raw.plan_type,
+    // ticket_count: 無ければ null (plan_type='ticket' 以外のとき DB 側は NULL)
+    ticket_count:
+      raw.ticket_count && String(raw.ticket_count).trim() !== ""
+        ? Number(raw.ticket_count)
+        : null,
   });
 
   if (!parsed.success) {

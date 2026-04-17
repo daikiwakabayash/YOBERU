@@ -31,7 +31,7 @@ export async function getCalendarData(
   // other_label + slot_block_type_code come from migration 00010 / 00012.
   // The SAFE fallback omits them so pre-migration deployments still load.
   const FULL_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, other_label, slot_block_type_code, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, is_continued_billing, consumed_plan_id, other_label, slot_block_type_code, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
   const SAFE_SELECT =
     "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
 
@@ -111,6 +111,8 @@ export async function getCalendarData(
     const msg = String(apptRes.error.message ?? "");
     if (
       msg.includes("is_member_join") ||
+      msg.includes("is_continued_billing") ||
+      msg.includes("consumed_plan_id") ||
       msg.includes("other_label") ||
       msg.includes("slot_block_type_code") ||
       msg.includes("does not exist")
@@ -231,6 +233,8 @@ export async function getCalendarData(
     payment_method: string | null;
     cancelled_at: string | null;
     is_member_join?: boolean | null;
+    is_continued_billing?: boolean | null;
+    consumed_plan_id?: number | null;
     other_label?: string | null;
     slot_block_type_code?: string | null;
     customers:
@@ -430,6 +434,8 @@ export async function getCalendarData(
       paymentMethod: a.payment_method ?? null,
       customerRecord: a.customer_record ?? null,
       isMemberJoin: !!a.is_member_join,
+      isContinuedBilling: !!a.is_continued_billing,
+      consumedPlanId: a.consumed_plan_id ?? null,
       slotBlock: slotBlock
         ? {
             code: slotBlock.code,
@@ -503,11 +509,17 @@ function computeDayRange(
   }
 
   if (minMin == null || maxMin == null) {
-    return [9, 21];
+    // 営業時間外の「継続決済枠」も含めて 9:00 - 23:00 を返す。
+    // デフォルト通常営業は 9-21 で、21 以降の 2h が 継続決済 (サブスク
+    // 月次課金の幽霊予約を置く) フリー枠として使われる。
+    return [9, 23];
   }
-  // Floor start to hour, ceil end to hour
+  // Floor start to hour, ceil end to hour. さらに末尾に 継続決済 枠
+  // として +2h 伸ばして、スタッフが サブスク の月次課金を打ち込める
+  // フリーゾーンを作る。24 時を上限にする。
   const startHour = Math.max(0, Math.floor(minMin / 60));
-  const endHour = Math.min(24, Math.ceil(maxMin / 60));
+  const rawEndHour = Math.min(24, Math.ceil(maxMin / 60));
+  const endHour = Math.min(24, rawEndHour + 2);
   if (endHour <= startHour) return [startHour, Math.min(24, startHour + 1)];
   return [startHour, endHour];
 }
