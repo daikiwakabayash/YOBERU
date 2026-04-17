@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getCustomer } from "@/feature/customer/services/getCustomers";
+import { getActiveCustomerPlans } from "@/feature/customer-plan/services/getCustomerPlans";
 import { createClient } from "@/helper/lib/supabase/server";
 import Link from "next/link";
 import {
@@ -57,14 +58,17 @@ export default async function CustomerDetailPage({
     notFound();
   }
 
-  // Fetch appointment history
+  // Fetch appointment history + active plans in parallel
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let appointments: any[] = [];
+  const activePlans = await getActiveCustomerPlans(id).catch(() => []);
   try {
     const supabase = await createClient();
     const { data } = await supabase
       .from("appointments")
-      .select("id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)")
+      .select(
+        "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, is_continued_billing, consumed_plan_id, staffs(name)"
+      )
       .eq("customer_id", id)
       .is("deleted_at", null)
       .order("start_at", { ascending: false })
@@ -94,10 +98,15 @@ export default async function CustomerDetailPage({
     [customer.last_name_kana, customer.first_name_kana].filter(Boolean).join(" ") || "";
 
   const typeInfo = TYPE_LABELS[(customer.type as number) ?? 0] ?? TYPE_LABELS[0];
+  // 累計売上はサブスク継続決済 (幽霊予約) も含めて計上する (運用は
+  // 「サブスクの継続分も売上としてカウント」したいため)。一方、
+  // 来院回数は実際に来店したケースだけをカウント — 継続決済は除外する。
   const totalSales = appointments
     .filter((a) => a.status === 2)
     .reduce((sum, a) => sum + ((a.sales as number) || 0), 0);
-  const visitCount = appointments.filter((a) => a.status === 2).length;
+  const visitCount = appointments.filter(
+    (a) => a.status === 2 && !a.is_continued_billing
+  ).length;
 
   return (
     <div>
@@ -148,6 +157,61 @@ export default async function CustomerDetailPage({
             </CardContent>
           </Card>
         </div>
+
+        {/* Active plans: 残数 / サブスク継続中の可視化。
+            この顧客の customer_plans (status=0) をカード状に並べ、
+            チケットなら "X/Y 消化" バッジ、サブスクなら次回課金日を表示。 */}
+        {activePlans.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">契約中プラン</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {activePlans.map((p) => {
+                  const isTicket = p.plan_type === "ticket";
+                  const remaining =
+                    isTicket && p.total_count != null
+                      ? p.total_count - p.used_count
+                      : null;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`rounded-lg border p-3 ${
+                        isTicket
+                          ? "border-emerald-200 bg-emerald-50"
+                          : "border-purple-200 bg-purple-50"
+                      }`}
+                    >
+                      <div className="text-xs font-bold text-gray-700">
+                        {p.menu_name_snapshot}
+                      </div>
+                      <div className="mt-1 text-lg font-black text-gray-900">
+                        {isTicket && p.total_count != null
+                          ? `${p.used_count}/${p.total_count} 消化`
+                          : "サブスク継続中"}
+                      </div>
+                      {isTicket && remaining != null && (
+                        <div className="mt-0.5 text-[11px] text-emerald-700">
+                          残り {remaining} 回
+                        </div>
+                      )}
+                      {!isTicket && p.next_billing_date && (
+                        <div className="mt-0.5 text-[11px] text-purple-700">
+                          次回決済: {p.next_billing_date}
+                        </div>
+                      )}
+                      <div className="mt-1 text-[10px] text-gray-400">
+                        購入: {p.purchased_at.slice(0, 10)} / ¥
+                        {p.price_snapshot.toLocaleString()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Left: Customer Info */}
@@ -249,6 +313,13 @@ export default async function CustomerDetailPage({
                     const carte = appt.customer_record as string | null;
                     const menuName = (appt as Record<string, unknown>).menu_name as string ?? "不明";
                     const isCancelled = status === 3 || status === 99;
+                    const isContinuedBilling = !!appt.is_continued_billing;
+                    const consumedPlanId = appt.consumed_plan_id as
+                      | number
+                      | null;
+                    const consumedPlan = consumedPlanId
+                      ? activePlans.find((p) => p.id === consumedPlanId)
+                      : null;
 
                     return (
                       <div
@@ -268,6 +339,16 @@ export default async function CustomerDetailPage({
                               {isCancelled && (
                                 <Badge className="bg-red-100 text-red-600 text-xs">
                                   キャンセル
+                                </Badge>
+                              )}
+                              {isContinuedBilling && (
+                                <Badge className="bg-purple-100 text-purple-700 text-xs">
+                                  継続決済
+                                </Badge>
+                              )}
+                              {consumedPlan && (
+                                <Badge className="bg-emerald-100 text-emerald-700 text-xs">
+                                  {consumedPlan.menu_name_snapshot} 消化
                                 </Badge>
                               )}
                             </div>

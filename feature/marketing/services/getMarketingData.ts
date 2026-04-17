@@ -150,6 +150,9 @@ export async function getMarketingData(params: {
   // reservationActions.createAppointment as the customer's cumulative
   // visit number at the time of booking, so visit_count=1 means "this
   // is the booking that made them a customer".
+  // is_continued_billing=true (サブスク月次課金の "幽霊予約") は
+  // 来院扱いせず、売上にも新規カウントにも含めない (別途の自動継続分で
+  // 売上は計上される想定)。deleted_at と同様に集計から除外する。
   let apptQuery = supabase
     .from("appointments")
     .select(
@@ -157,6 +160,7 @@ export async function getMarketingData(params: {
     )
     .eq("shop_id", shopId)
     .eq("visit_count", 1)
+    .eq("is_continued_billing", false)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null);

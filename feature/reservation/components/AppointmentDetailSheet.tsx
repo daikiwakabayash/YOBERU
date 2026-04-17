@@ -271,6 +271,12 @@ export function AppointmentDetailSheet({
   const [planPurchaseTarget, setPlanPurchaseTarget] =
     useState<LoadedPlanMenu | null>(null);
   const [justPurchasedPrice, setJustPurchasedPrice] = useState(0);
+  // 現在の予約が消化しているチケット (customer_plans.id)。API から読み込む
+  // 初期値は appointment.consumedPlanId、以降はユーザー操作で切り替わる。
+  const [consumedPlanId, setConsumedPlanId] = useState<number | null>(
+    appointment?.consumedPlanId ?? null
+  );
+  const [planConsuming, setPlanConsuming] = useState(false);
 
   // ---- 継続決済 (サブスク月額課金だけ計上する "幽霊予約") ----
   const [isContinuedBilling, setIsContinuedBilling] = useState(
@@ -551,6 +557,62 @@ export function AppointmentDetailSheet({
       toast.success("来店を記録しました");
       setStatus(1);
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // チケット消化のトグル
+  //
+  // アクティブプランの「このチケットで消化」ボタンから呼ばれる:
+  //   - 既に同じ plan を消化中 → 解除 (consumed_plan_id を null にし、
+  //     used_count を -1 する) … これは将来拡張。今は別プランへの
+  //     切替のみサポートする。
+  //   - 未消化 or 別プラン消化中 → consumeCustomerPlan (revert + 新規)
+  //
+  // UI の残数は即時反映するため、応答を待たずに state を先に更新する。
+  // -----------------------------------------------------------------------
+  async function handleConsumePlan(plan: {
+    id: number;
+    plan_type: "ticket" | "subscription";
+    total_count: number | null;
+    used_count: number;
+  }) {
+    if (!appointment) {
+      toast.error("予約が確定していないため消化できません");
+      return;
+    }
+    if (plan.plan_type !== "ticket") {
+      toast.error("サブスクは残数管理の対象外です");
+      return;
+    }
+    if (plan.total_count != null && plan.used_count >= plan.total_count) {
+      toast.error("このチケットは残数がありません");
+      return;
+    }
+    setPlanConsuming(true);
+    const { consumeCustomerPlan } = await import(
+      "@/feature/customer-plan/actions/customerPlanActions"
+    );
+    const result = await consumeCustomerPlan(appointment.id, plan.id);
+    setPlanConsuming(false);
+    if ("error" in result && result.error) {
+      toast.error(result.error);
+      return;
+    }
+    // 旧消化をリセットしつつ、新規を +1 する UI 反映
+    setActivePlans((prev) =>
+      prev.map((p) => {
+        if (p.id === consumedPlanId && p.id !== plan.id) {
+          // 旧消化を元に戻す
+          return { ...p, used_count: Math.max(0, p.used_count - 1) };
+        }
+        if (p.id === plan.id) {
+          return { ...p, used_count: p.used_count + 1 };
+        }
+        return p;
+      })
+    );
+    setConsumedPlanId(plan.id);
+    toast.success("チケットを 1 回消化しました");
   }
 
   async function handleCancel() {
@@ -1805,21 +1867,63 @@ export function AppointmentDetailSheet({
 
               {activePlans.length > 0 ? (
                 <div className="space-y-1">
-                  {activePlans.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs"
-                    >
-                      <span className="font-bold text-emerald-800">
-                        {p.menu_name_snapshot}
-                      </span>
-                      <span className="font-bold text-emerald-700">
-                        {p.plan_type === "ticket" && p.total_count != null
-                          ? `${p.used_count}/${p.total_count} 消化`
-                          : "サブスク継続中"}
-                      </span>
-                    </div>
-                  ))}
+                  {activePlans.map((p) => {
+                    const isConsumedHere = consumedPlanId === p.id;
+                    const exhausted =
+                      p.plan_type === "ticket" &&
+                      p.total_count != null &&
+                      p.used_count >= p.total_count;
+                    const isTicket = p.plan_type === "ticket";
+                    return (
+                      <div
+                        key={p.id}
+                        className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${
+                          isConsumedHere
+                            ? "border-orange-300 bg-orange-50"
+                            : "border-emerald-200 bg-emerald-50"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className={`truncate font-bold ${
+                              isConsumedHere ? "text-orange-800" : "text-emerald-800"
+                            }`}
+                          >
+                            {p.menu_name_snapshot}
+                          </div>
+                          <div
+                            className={`text-[11px] font-bold ${
+                              isConsumedHere ? "text-orange-700" : "text-emerald-700"
+                            }`}
+                          >
+                            {isTicket && p.total_count != null
+                              ? `${p.used_count}/${p.total_count} 消化`
+                              : "サブスク継続中"}
+                          </div>
+                        </div>
+                        {isTicket && !isNew && appointment && (
+                          <button
+                            type="button"
+                            disabled={planConsuming || (exhausted && !isConsumedHere)}
+                            onClick={() => handleConsumePlan(p)}
+                            className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-bold transition-colors ${
+                              isConsumedHere
+                                ? "border-orange-500 bg-orange-500 text-white"
+                                : exhausted
+                                  ? "cursor-not-allowed border-gray-300 bg-gray-100 text-gray-400"
+                                  : "border-emerald-500 bg-white text-emerald-700 hover:bg-emerald-100"
+                            }`}
+                          >
+                            {isConsumedHere
+                              ? "今回消化済"
+                              : exhausted
+                                ? "残数なし"
+                                : "今回で消化"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-xs text-orange-600">
