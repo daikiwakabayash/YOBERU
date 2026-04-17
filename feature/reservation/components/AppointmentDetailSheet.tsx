@@ -147,7 +147,12 @@ export function AppointmentDetailSheet({
     }
     return 30;
   });
-  const [otherLabel, setOtherLabel] = useState(appointment?.otherLabel ?? "");
+  // 「その他」スロットブロックは以前 `内容` フィールド (other_label) を
+  // 必須入力にしていたが、現場運用では「その他」=「その他」で十分で、
+  // 詳細はメモに自由記述する形に統一したいとの要望を受け、UI と保存
+  // からは otherLabel を排除した。サーバ側の other_label カラムは
+  // 旧データ互換のため残してあるが、新規/更新の経路では空文字で
+  // 上書きされるためカード表示は memo にフォールバックする。
   const isSlotBlockMode = bookingMode !== "regular";
 
   // Fallback to built-in list if master data not provided
@@ -681,10 +686,6 @@ export function AppointmentDetailSheet({
   // `type != 0` to exclude them.
   // -----------------------------------------------------------------------
   async function handleSaveSlotBlock() {
-    if (bookingMode === "other" && !otherLabel.trim()) {
-      toast.error("内容を入力してください");
-      return;
-    }
     // Map the current bookingMode to a (type, code) pair. type !== 0
     // flags the row as a slot block so aggregation services exclude
     // it; code drives the label + color via slot_block_types.
@@ -707,11 +708,8 @@ export function AppointmentDetailSheet({
         form.set("start_at", `${date}T${startTime}:00`);
         form.set("end_at", `${date}T${endTime}:00`);
         form.set("memo", customerRecord);
-        if (bookingMode === "other") {
-          form.set("other_label", otherLabel.trim());
-        } else {
-          form.set("other_label", "");
-        }
+        // other_label は廃止。旧データを上書きして空にしておく。
+        form.set("other_label", "");
         form.set("type", String(slotBlockTypeNum));
         form.set("slot_block_type_code", slotBlockCode);
 
@@ -753,9 +751,7 @@ export function AppointmentDetailSheet({
       form.set("sales", "0");
       form.set("is_couple", "false");
       form.set("memo", customerRecord);
-      if (bookingMode === "other") {
-        form.set("other_label", otherLabel.trim());
-      }
+      // other_label は廃止 (送らない)。
 
       const result = await createAppointment(form);
       if ("error" in result && result.error) {
@@ -1210,16 +1206,10 @@ export function AppointmentDetailSheet({
                   ? "ミーティング内容"
                   : bookingMode === "break"
                     ? "休憩メモ"
-                    : "内容"}
+                    : "その他メモ"}
               </div>
-              {bookingMode === "other" && (
-                <Input
-                  placeholder="例: 外出 / 電話対応 / 備品搬入 など"
-                  value={otherLabel}
-                  onChange={(e) => setOtherLabel(e.target.value)}
-                  maxLength={128}
-                />
-              )}
+              {/* 「その他」の `内容` 入力欄は廃止。タイトルは固定で
+                  「その他」とし、詳細は下のメモ欄で記述する。 */}
               <div>
                 <Label className="text-[11px] font-bold text-gray-500">
                   時間

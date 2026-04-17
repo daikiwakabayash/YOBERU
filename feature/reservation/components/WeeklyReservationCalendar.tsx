@@ -445,10 +445,13 @@ export function WeeklyReservationCalendar({
                     if (isSlotBlock && appt.slotBlock) {
                       const sb = appt.slotBlock;
                       const blockColor = sb.color ?? "#9333ea";
+                      // 「その他」も memo を主に表示する。
+                      // 旧データの otherLabel はフォールバック扱い。
                       const subText =
-                        sb.code === "other"
-                          ? appt.otherLabel || appt.customerRecord || ""
-                          : appt.memo || appt.customerRecord || "";
+                        appt.memo ||
+                        (sb.code === "other" ? appt.otherLabel : "") ||
+                        appt.customerRecord ||
+                        "";
                       return (
                         <div
                           key={appt.id}

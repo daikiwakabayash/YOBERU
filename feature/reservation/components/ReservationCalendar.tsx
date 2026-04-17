@@ -553,10 +553,15 @@ export function ReservationCalendar({
                       if (isSlotBlock && appt.slotBlock) {
                         const sb = appt.slotBlock;
                         const blockColor = sb.color ?? "#9333ea";
+                        // 「その他」も meeting / break と同様に memo
+                        // (＝シートの「メモ」欄) を主にし、無ければ
+                        // 旧データの otherLabel / customerRecord を
+                        // フォールバックとして表示する。
                         const subText =
-                          sb.code === "other"
-                            ? appt.otherLabel || appt.customerRecord || ""
-                            : appt.memo || appt.customerRecord || "";
+                          appt.memo ||
+                          (sb.code === "other" ? appt.otherLabel : "") ||
+                          appt.customerRecord ||
+                          "";
                         return (
                           <div
                             key={appt.id}
