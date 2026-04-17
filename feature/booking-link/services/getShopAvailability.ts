@@ -15,6 +15,12 @@ import { getShiftColumnForDate } from "@/helper/utils/weekday";
  * "×" (and entire days with no staff as "−") instead of the previous
  * fake / random availability placeholder.
  *
+ * **重要 (admin との分離契約)**: 返す endMin は staff_shifts の生の終端
+ * の MAX。管理画面の getCalendarData.computeDayRange は表示グリッドを
+ * +2h 拡張して「継続決済枠」を作るが、本関数はその拡張を一切持ち込まず
+ * 公開側カレンダーは営業時間ぴったりで打ち切る。継続決済 (サブスク幽霊
+ * 予約) は管理画面でしか入力できない、という運用ルールを担保する。
+ *
  * Implementation: one batched fetch each for staffs / staff_shifts /
  * work_patterns, then a per-date in-memory computation. Same logic as
  * getEffectiveShifts but loops over many dates from a single dataset.

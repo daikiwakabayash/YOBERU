@@ -512,11 +512,19 @@ function computeDayRange(
     // 営業時間外の「継続決済枠」も含めて 9:00 - 23:00 を返す。
     // デフォルト通常営業は 9-21 で、21 以降の 2h が 継続決済 (サブスク
     // 月次課金の幽霊予約を置く) フリー枠として使われる。
+    //
+    // ★この拡張は管理画面 (この関数を使う ReservationCalendar) 専用★
+    // 公開予約 (/book/<slug>) は getShopAvailability / getShopStaffFreeSlots
+    // を使い、それらは生のスタッフシフト終端を見るため、+2h ゾーンには
+    // 一般客は予約できない (×表示)。
     return [9, 23];
   }
   // Floor start to hour, ceil end to hour. さらに末尾に 継続決済 枠
   // として +2h 伸ばして、スタッフが サブスク の月次課金を打ち込める
   // フリーゾーンを作る。24 時を上限にする。
+  //
+  // 上記同様、この +2h 拡張は管理画面のグリッド表示専用。公開予約には
+  // 影響しない (getShopAvailability の endMin はシフト max のまま)。
   const startHour = Math.max(0, Math.floor(minMin / 60));
   const rawEndHour = Math.min(24, Math.ceil(maxMin / 60));
   const endHour = Math.min(24, rawEndHour + 2);

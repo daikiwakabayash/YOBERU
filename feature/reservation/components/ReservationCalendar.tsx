@@ -387,7 +387,14 @@ export function ReservationCalendar({
                   className="relative"
                   style={{ width: totalWidth, height: STAFF_ROW_HEIGHT }}
                 >
-                  {/* Grid lines (vertical) + clickable cells + off-shift shading */}
+                  {/* Grid lines (vertical) + clickable cells + off-shift shading.
+
+                      シフト範囲外の slot は通常 "off-shift" としてグレーで
+                      クリック不可だが、シフト終了後の枠は computeDayRange で
+                      +2h 拡張された **継続決済枠** として明示的にクリック可能
+                      にしておく。これは管理画面でしか触れず、公開予約 (/book)
+                      側は getShopAvailability の生のシフト終端で打ち切る
+                      ため、お客さん側は "×" 表示のまま予約できない。 */}
                   {timeSlots.map((slot) => {
                     const slotMin = timeToMinutes(slot);
                     const leftPx = (slotMin - startHour) * PX_PER_MIN;
@@ -399,12 +406,24 @@ export function ReservationCalendar({
                       shiftEndMin !== null &&
                       slotMin >= shiftStartMin &&
                       slotMin < shiftEndMin;
+                    // シフト終端 〜 カレンダー終端 (=拡張 +2h) の間を
+                    // 継続決済枠として扱う。シフト未設定 (shiftEndMin null)
+                    // のスタッフでも、今日のカレンダー枠内なら同じ扱い。
+                    const isExtendedZone =
+                      !isInShift &&
+                      (shiftEndMin == null || slotMin >= shiftEndMin);
                     const isOccupied = isMinuteOccupied(slotMin);
-                    const isClickable = isInShift && !isOccupied;
+                    const isClickable =
+                      (isInShift || isExtendedZone) && !isOccupied;
 
                     return (
                       <div
                         key={slot}
+                        title={
+                          isExtendedZone
+                            ? "継続決済枠 (公開予約には表示されません)"
+                            : undefined
+                        }
                         className={`absolute top-0 h-full ${
                           isHour
                             ? "border-l-2 border-gray-300"
@@ -412,11 +431,15 @@ export function ReservationCalendar({
                               ? "border-l border-gray-200"
                               : "border-l border-gray-100"
                         } ${
-                          !isInShift
-                            ? "bg-gray-100"
-                            : isOccupied
-                              ? "bg-gray-50"
-                              : "cursor-pointer hover:bg-blue-50/30"
+                          isExtendedZone
+                            ? isOccupied
+                              ? "bg-purple-50"
+                              : "cursor-pointer bg-purple-50/30 hover:bg-purple-100/50"
+                            : !isInShift
+                              ? "bg-gray-100"
+                              : isOccupied
+                                ? "bg-gray-50"
+                                : "cursor-pointer hover:bg-blue-50/30"
                         }`}
                         style={{ left: leftPx, width: widthPx }}
                         onClick={
