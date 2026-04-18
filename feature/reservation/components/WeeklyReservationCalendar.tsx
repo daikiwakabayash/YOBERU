@@ -24,7 +24,7 @@ interface WeeklyReservationCalendarProps {
 // 幅を詰めて横スクロール量を小さくする:
 //   PX_PER_MIN: 1分あたりの横幅 (以前は4。2.2にして約45%圧縮)
 //     → 30min = 66px, 60min = 132px, 12h = 1584px
-const DAY_ROW_HEIGHT = 100;
+const DAY_ROW_HEIGHT = 72;
 const DAY_LABEL_WIDTH = 100;
 const TIME_HEADER_HEIGHT = 32;
 const PX_PER_MIN = 2.2;
@@ -570,13 +570,27 @@ export function WeeklyReservationCalendar({
                         }}
                         onMouseDown={(e) => handleDragStart(appt, e)}
                       >
-                        {/* 縦積みレイアウト (日ビュー ReservationCalendar
-                            と同じ形式)。バッジ行 → 顧客名 → メニュー名
-                            (最大 2 行 wrap)。カルテ番号はカード本体から
-                            外しホバーのツールチップで確認できる。 */}
-                        <div className="flex h-full flex-col overflow-hidden px-1 py-[2px]">
-                          {/* 1 行目: 来店バッジ + ステータス */}
-                          <div className="flex min-w-0 items-center gap-0.5 leading-none">
+                        {/* 2 行レイアウト (日ビューと同じ形式):
+                              1 行目: 顧客名 + カルテ番号
+                              2 行目: 来店バッジ + ステータス + メニュー名 */}
+                        <div className="overflow-hidden px-1 py-[1px]">
+                          <div className="flex min-w-0 items-baseline gap-0.5 leading-none">
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[11px] font-black ${
+                                appt.customerName
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }`}
+                            >
+                              {appt.customerName || "未設定"}
+                            </span>
+                            {formatCustomerCode(appt.customerCode) && (
+                              <span className="shrink-0 text-[9px] font-bold text-gray-500">
+                                ({formatCustomerCode(appt.customerCode)})
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 flex min-w-0 items-center gap-0.5 leading-none">
                             {isNew && (
                               <span
                                 className="shrink-0 rounded px-1 py-0 text-[10px] font-bold"
@@ -595,22 +609,11 @@ export function WeeklyReservationCalendar({
                                 {statusBadge}
                               </span>
                             )}
-                          </div>
-                          {/* 2 行目: 顧客名 (太字) */}
-                          <div
-                            className={`mt-0.5 truncate text-[12px] font-black leading-tight ${
-                              appt.customerName ? "text-gray-900" : "text-gray-400"
-                            }`}
-                          >
-                            {appt.customerName || "未設定"}
-                          </div>
-                          {/* 3 行目以降: メニュー名 (line-clamp-2 で折返し) */}
-                          {appt.menuName && (
-                            <div className="mt-0.5 line-clamp-2 break-words text-[10px] leading-tight text-gray-600">
+                            <span className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-600">
                               {appt.menuName}
                               {appt.duration > 0 && `（${appt.duration}分）`}
-                            </div>
-                          )}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );

@@ -1120,7 +1120,7 @@ export function AppointmentDetailSheet({
       <SheetContent
         side="left"
         showCloseButton={false}
-        className="overflow-hidden p-0 transition-[max-width] duration-300 ease-out"
+        className="overflow-hidden p-0"
         style={{
           maxWidth: expanded ? "100vw" : "480px",
           width: expanded ? "100vw" : "100%",

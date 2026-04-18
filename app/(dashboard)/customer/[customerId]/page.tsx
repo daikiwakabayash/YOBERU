@@ -207,10 +207,63 @@ export default async function CustomerDetailPage({
                 <>
                   <Separator />
                   <div>
-                    <span className="text-gray-400 text-xs">メモ</span>
-                    <p className="mt-1 whitespace-pre-wrap text-sm">
-                      {customer.description as string}
-                    </p>
+                    <span className="text-gray-400 text-xs">メモ・問診票</span>
+                    <div className="mt-2 space-y-2">
+                      {(customer.description as string)
+                        .split(/\n\n+/)
+                        .map((block, bi) => {
+                          const isQuestionnaire = block.startsWith("[");
+                          return (
+                            <div
+                              key={bi}
+                              className={
+                                isQuestionnaire
+                                  ? "rounded-lg border border-gray-200 bg-gray-50 p-3"
+                                  : "rounded-lg border border-blue-100 bg-blue-50/50 p-3"
+                              }
+                            >
+                              {block.split("\n").map((line, li) => {
+                                if (line.startsWith("[") && line.endsWith("]")) {
+                                  return (
+                                    <div
+                                      key={li}
+                                      className="mb-1 text-[11px] font-bold text-gray-500"
+                                    >
+                                      {line.slice(1, -1)}
+                                    </div>
+                                  );
+                                }
+                                if (line.startsWith("- ")) {
+                                  const colonIdx = line.indexOf(": ", 2);
+                                  if (colonIdx > 0) {
+                                    return (
+                                      <div
+                                        key={li}
+                                        className="flex gap-1 py-0.5 text-[12px]"
+                                      >
+                                        <span className="shrink-0 font-medium text-gray-500">
+                                          {line.slice(2, colonIdx)}:
+                                        </span>
+                                        <span className="text-gray-800">
+                                          {line.slice(colonIdx + 2)}
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+                                }
+                                return (
+                                  <div
+                                    key={li}
+                                    className="text-[12px] text-gray-700"
+                                  >
+                                    {line}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                    </div>
                   </div>
                 </>
               )}

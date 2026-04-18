@@ -72,13 +72,20 @@ export default async function MarketingPage({
   const shopId = await getActiveShopId();
   const brandId = await getActiveBrandId();
 
-  // Default range: last 6 months through current
+  // Default range: 当月のみ (ユーザー要望: 常に「今の月」が起点)。
+  // 月次集計なので endMonth も当月にして、結果は 4/1〜月末までの
+  // データ (未来の日付は実際には appointment / ad_spend が無いので
+  // 自然と「4/1〜今日」相当の集計になる)。
   const now = currentYearMonth();
-  const defaultStart = addMonths(now, -5);
+  const defaultStart = now;
   const defaultEnd = now;
 
-  const startMonth = sp.start ?? defaultStart;
-  const endMonth = sp.end ?? defaultEnd;
+  let startMonth = sp.start ?? defaultStart;
+  let endMonth = sp.end ?? defaultEnd;
+  // 防御: start が end より後なら swap して逆転入力で 0 件にしない。
+  if (startMonth.localeCompare(endMonth) > 0) {
+    [startMonth, endMonth] = [endMonth, startMonth];
+  }
   const visitSourceId = sp.source ? Number(sp.source) : null;
   const staffId = sp.staff ? Number(sp.staff) : null;
   const rawTab = (sp.tab ?? "overview") as MarketingTabKey;
