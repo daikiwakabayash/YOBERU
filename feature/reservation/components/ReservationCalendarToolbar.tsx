@@ -2,10 +2,23 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import DatePicker, { registerLocale } from "react-datepicker";
+import { ja } from "date-fns/locale/ja";
+import "react-datepicker/dist/react-datepicker.css";
+
+// 日本語ロケールを 1 度だけ登録する。Next.js のクライアントバンドルで
+// モジュールが複数回 import されても registerLocale は冪等なので副作用
+// のみの top-level 実行で問題ない。
+registerLocale("ja", ja);
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, BarChart3, RefreshCw } from "lucide-react";
 import { getWeekdayLabel } from "@/helper/utils/weekday";
 import { toLocalDateString } from "@/helper/utils/time";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -85,10 +98,20 @@ export function ReservationCalendarToolbar({
   }
 
   const [aggregateOpen, setAggregateOpen] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   function confirmAggregate() {
     setAggregateOpen(false);
     router.push(`/sales?start=${currentDate}&end=${currentDate}`);
+  }
+
+  // 日付表示をクリックして任意の日付にジャンプする。
+  // 月をまたぐ場合でも前日 / 翌日ボタンを連打しなくて済むように、
+  // カレンダーポップオーバーを開いて直接日付を選択できるようにする。
+  function jumpToDate(d: Date | null) {
+    if (!d) return;
+    setDatePickerOpen(false);
+    router.push(buildUrl({ date: toLocalDateString(d) }));
   }
 
   return (
@@ -180,9 +203,25 @@ export function ReservationCalendarToolbar({
           <Button variant="outline" size="sm" onClick={goToday}>
             今日
           </Button>
-          <span className="min-w-[200px] text-center font-medium">
-            {displayDate}
-          </span>
+          {/* 日付ラベル: クリックでカレンダーポップオーバーを開いて
+              任意の日付にジャンプできる。前日/翌日/今日ボタンでの移動
+              では足りないケース (先の月など) をカバーする。 */}
+          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+            <PopoverTrigger
+              className="min-w-[200px] rounded-md px-2 py-1 text-center font-medium transition-colors hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+              aria-label="カレンダーから日付を選択"
+            >
+              {displayDate}
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-2" align="center">
+              <DatePicker
+                selected={dateObj}
+                onChange={jumpToDate}
+                inline
+                locale="ja"
+              />
+            </PopoverContent>
+          </Popover>
           <Button variant="outline" size="sm" onClick={() => navigateDay(1)}>
             翌日
             <ChevronRight className="h-4 w-4" />
@@ -197,9 +236,25 @@ export function ReservationCalendarToolbar({
           <Button variant="outline" size="sm" onClick={goToday}>
             今日
           </Button>
-          <span className="min-w-[200px] text-center font-medium">
-            {displayDate}
-          </span>
+          {/* 日付ラベル: クリックでカレンダーポップオーバーを開いて
+              任意の日付にジャンプできる。前日/翌日/今日ボタンでの移動
+              では足りないケース (先の月など) をカバーする。 */}
+          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+            <PopoverTrigger
+              className="min-w-[200px] rounded-md px-2 py-1 text-center font-medium transition-colors hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+              aria-label="カレンダーから日付を選択"
+            >
+              {displayDate}
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-2" align="center">
+              <DatePicker
+                selected={dateObj}
+                onChange={jumpToDate}
+                inline
+                locale="ja"
+              />
+            </PopoverContent>
+          </Popover>
           <Button variant="outline" size="sm" onClick={() => navigateWeek(1)}>
             次週
             <ChevronRight className="h-4 w-4" />
