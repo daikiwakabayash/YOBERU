@@ -7,6 +7,7 @@ import {
   MapPin,
   BarChart3,
   Utensils,
+  UserPlus,
   Sparkles,
   Globe,
 } from "lucide-react";
@@ -16,6 +17,7 @@ export type MarketingTabKey =
   | "shop"
   | "media"
   | "menu"
+  | "new-customer"
   | "ai"
   | "market";
 
@@ -29,6 +31,7 @@ const TABS: Array<{
   { key: "shop", label: "店舗別", icon: MapPin },
   { key: "media", label: "媒体別", icon: BarChart3 },
   { key: "menu", label: "メニュー", icon: Utensils },
+  { key: "new-customer", label: "新規管理", icon: UserPlus },
   { key: "ai", label: "AI分析", icon: Sparkles, disabled: true },
   { key: "market", label: "市場", icon: Globe, disabled: true },
 ];

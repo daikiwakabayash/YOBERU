@@ -5,9 +5,11 @@ import { MarketingTabs } from "@/feature/marketing/components/MarketingTabs";
 import type { MarketingTabKey } from "@/feature/marketing/components/MarketingTabs";
 import { MarketingShopBreakdown } from "@/feature/marketing/components/MarketingShopBreakdown";
 import { MarketingMenuBreakdown } from "@/feature/marketing/components/MarketingMenuBreakdown";
+import { MarketingNewCustomer } from "@/feature/marketing/components/MarketingNewCustomer";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
 import { getMarketingByMenu } from "@/feature/marketing/services/getMarketingByMenu";
+import { getNewCustomerAnalytics } from "@/feature/marketing/services/getNewCustomerAnalytics";
 import {
   getActiveBrandId,
   getActiveShopId,
@@ -58,6 +60,7 @@ const VALID_TABS = new Set<MarketingTabKey>([
   "shop",
   "media",
   "menu",
+  "new-customer",
   "ai",
   "market",
 ]);
@@ -123,6 +126,15 @@ export default async function MarketingPage({
       });
       return <MarketingMenuBreakdown menus={menus} />;
     }
+    if (tab === "new-customer") {
+      // 新規管理タブは単月ビュー。?start= をそのまま対象月として使う。
+      // ?end / ?source / ?staff は現状無視 (月内すべての新規客を列挙)。
+      const data = await getNewCustomerAnalytics({
+        shopId,
+        yearMonth: startMonth,
+      });
+      return <MarketingNewCustomer data={data} />;
+    }
     // overview + media share the same aggregation. Media view is the
     // same overview with media table highlighted at the top; for this
     // round we render the same MarketingOverview and let the 媒体別
@@ -148,9 +160,11 @@ export default async function MarketingPage({
     if (v) descriptionBits.push(`媒体: ${v.name}`);
   }
   const description =
-    descriptionBits.length > 0
-      ? `媒体 × 店舗 × 月で集計 (${descriptionBits.join(" / ")})`
-      : "媒体 × 店舗 × 月で予約・来院・入会・キャンセル・広告費・売上を集計します";
+    tab === "new-customer"
+      ? `当月の新規客台帳 (${startMonth.replace("-", "年")}月 起点の来店ベース集計)`
+      : descriptionBits.length > 0
+        ? `媒体 × 店舗 × 月で集計 (${descriptionBits.join(" / ")})`
+        : "媒体 × 店舗 × 月で予約・来院・入会・キャンセル・広告費・売上を集計します";
 
   return (
     <div>
