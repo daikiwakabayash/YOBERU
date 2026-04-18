@@ -2213,6 +2213,110 @@ function SyncQuestionnaireButton({ customerId }: { customerId: number }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// QuestionnaireBlocks
+//
+// customer.description には複数の問診票サマリと自由記述メモが
+// 改行 2 つ区切りで蓄積される。フォーマットは:
+//
+//   [2026-04-11 問診票: 恵比寿院]
+//   - 来院動機: 腰痛
+//   - 症状: ぎっくり腰になりました
+//
+// これまでは flex + shrink-0 の 1 行レイアウトで描画していたため、
+// 狭いサイドパネルでは回答文字列が縦に潰れて 1 文字ずつ改行されて
+// しまう症状が出ていた。本コンポーネントではカード見出し → 問診項目の
+// キー/値を **固定 2 カラムグリッド** で描画し、生年月日など基本情報と
+// 同じ見た目に揃える。主訴 / 副主訴 / 症状 / いつから 等の固定項目も
+// 同じテーブル形式で並ぶ。項目ラベルはそのまま使うが、代表的な
+// ラベルは日本語ショートネームに正規化して見出しを揃える。
+// ---------------------------------------------------------------------------
+function QuestionnaireBlocks({ description }: { description: string }) {
+  // 代表ラベルの別名を吸収して、固定名に寄せる。
+  // 例: "症状はいつ頃から気になりますか？" → "いつから"
+  function normalizeLabel(raw: string): string {
+    const s = raw.trim();
+    if (/いつ頃|いつから|発症|何年/.test(s)) return "いつから";
+    if (/主訴|困って|お困り|どのようなこと/.test(s)) return "主訴";
+    if (/副主訴|他にお悩み|その他.*悩み/.test(s)) return "副主訴";
+    if (/症状.*チェック|気になる症状|症状$/.test(s)) return "症状";
+    if (/期待.*効果|どうなりたい/.test(s)) return "ご希望";
+    if (/運動/.test(s)) return "運動";
+    return s;
+  }
+
+  const blocks = description.split(/\n\n+/).map((raw) => raw.trim()).filter(Boolean);
+
+  return (
+    <div>
+      <div className="text-[11px] font-bold text-gray-400">メモ・問診票</div>
+      <div className="mt-2 space-y-2">
+        {blocks.map((block, bi) => {
+          const lines = block.split("\n");
+          const first = lines[0] ?? "";
+          const isQuestionnaire =
+            first.startsWith("[") && first.endsWith("]");
+          const header = isQuestionnaire ? first.slice(1, -1) : null;
+          const body = isQuestionnaire ? lines.slice(1) : lines;
+
+          // 本文を「Q&A 行」(- ラベル: 値) と「フリー文」に仕分ける。
+          // 空答え (`-` だけ等) は buildQuestionnaireSummary 側で落とす
+          // 想定だが、念のためここでもスキップする。
+          type Row = { label: string; value: string };
+          const rows: Row[] = [];
+          const freeText: string[] = [];
+          for (const line of body) {
+            const m = /^- ([^:]+?):\s*(.*)$/.exec(line);
+            if (m) {
+              const value = m[2].trim();
+              if (value === "") continue;
+              rows.push({ label: normalizeLabel(m[1]), value });
+            } else if (line.trim()) {
+              freeText.push(line);
+            }
+          }
+
+          return (
+            <div
+              key={bi}
+              className={
+                isQuestionnaire
+                  ? "rounded-lg border border-gray-200 bg-gray-50 p-3"
+                  : "rounded-lg border border-blue-100 bg-blue-50/50 p-3"
+              }
+            >
+              {header && (
+                <div className="mb-2 inline-block rounded-md bg-white px-2 py-0.5 text-[11px] font-bold text-gray-600 ring-1 ring-gray-200">
+                  {header}
+                </div>
+              )}
+              {rows.length > 0 && (
+                <dl className="grid grid-cols-[6em_1fr] gap-x-3 gap-y-1.5 text-[12px]">
+                  {rows.map((r, ri) => (
+                    <div key={ri} className="contents">
+                      <dt className="truncate pt-0.5 text-[11px] font-medium text-gray-500">
+                        {r.label}
+                      </dt>
+                      <dd className="whitespace-pre-wrap break-words text-gray-900">
+                        {r.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {freeText.length > 0 && (
+                <div className="mt-2 whitespace-pre-wrap break-words text-[12px] text-gray-700">
+                  {freeText.join("\n")}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CustomerDossierPanel({
   rightPanelCustomer,
   detail,
@@ -2365,84 +2469,17 @@ function CustomerDossierPanel({
                     {customer.birth_date || "-"}
                   </span>
                 </div>
-                <div>
+                <div className="col-span-2">
                   <span className="text-gray-400">職業: </span>
                   <span className="text-gray-800">
                     {customer.occupation || "-"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-400">LINE: </span>
-                  <span className="text-gray-800">
-                    {customer.line_id || "-"}
                   </span>
                 </div>
               </div>
               {customer.description && (
                 <>
                   <Separator />
-                  <div>
-                    <div className="text-[11px] font-bold text-gray-400">
-                      メモ・問診票
-                    </div>
-                    <div className="mt-2 space-y-2">
-                      {customer.description.split(/\n\n+/).map((block, bi) => {
-                        const isQuestionnaire = block.startsWith("[");
-                        return (
-                          <div
-                            key={bi}
-                            className={
-                              isQuestionnaire
-                                ? "rounded-lg border border-gray-200 bg-gray-50 p-3"
-                                : "rounded-lg border border-blue-100 bg-blue-50/50 p-3"
-                            }
-                          >
-                            {block.split("\n").map((line, li) => {
-                              // ヘッダー行: [2026-04-16 問診票: xxx]
-                              if (line.startsWith("[") && line.endsWith("]")) {
-                                return (
-                                  <div
-                                    key={li}
-                                    className="mb-1 text-[11px] font-bold text-gray-500"
-                                  >
-                                    {line.slice(1, -1)}
-                                  </div>
-                                );
-                              }
-                              // 箇条書き行: - ラベル: 値
-                              if (line.startsWith("- ")) {
-                                const colonIdx = line.indexOf(": ", 2);
-                                if (colonIdx > 0) {
-                                  return (
-                                    <div
-                                      key={li}
-                                      className="flex gap-1 py-0.5 text-[12px]"
-                                    >
-                                      <span className="shrink-0 font-medium text-gray-500">
-                                        {line.slice(2, colonIdx)}:
-                                      </span>
-                                      <span className="text-gray-800">
-                                        {line.slice(colonIdx + 2)}
-                                      </span>
-                                    </div>
-                                  );
-                                }
-                              }
-                              // その他のテキスト
-                              return (
-                                <div
-                                  key={li}
-                                  className="text-[12px] text-gray-700"
-                                >
-                                  {line}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <QuestionnaireBlocks description={customer.description} />
                 </>
               )}
             </div>
@@ -2457,7 +2494,13 @@ function CustomerDossierPanel({
             </div>
             {detail && (
               <div className="text-[11px] text-gray-400">
-                直近 {detail.appointments.length} 件
+                直近{" "}
+                {
+                  new Set(
+                    detail.appointments.map((a) => a.startAt.slice(0, 10))
+                  ).size
+                }{" "}
+                日分
               </div>
             )}
           </div>
@@ -2469,52 +2512,106 @@ function CustomerDossierPanel({
             </div>
           ) : (
             <div className="space-y-3">
-              {detail.appointments.map((a) => {
-                const date = a.startAt.slice(0, 10);
-                const time = a.startAt.slice(11, 16);
-                const endTime = a.endAt.slice(11, 16);
-                const isCancelled =
-                  a.status === 3 || a.status === 4 || a.status === 99;
-                return (
-                  <div
-                    key={a.id}
-                    className={`rounded-lg border p-3 ${
-                      isCancelled ? "opacity-60" : ""
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="font-bold text-gray-900">{date}</span>
-                      <span className="text-xs text-gray-500">
-                        {time}-{endTime}
-                      </span>
-                      <Badge variant="outline" className="text-[10px]">
-                        {a.menuName}
-                      </Badge>
-                      {isCancelled && (
-                        <Badge className="bg-red-100 text-[10px] text-red-600">
-                          {a.status === 4 ? "当日キャンセル" : "キャンセル"}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
-                      {a.staffName && <span>担当 {a.staffName}</span>}
-                      {a.sales > 0 && (
-                        <span>¥{a.sales.toLocaleString()}</span>
-                      )}
-                    </div>
-                    {a.customerRecord && (
-                      <div className="mt-2 rounded bg-gray-50 p-2 text-xs">
-                        <div className="mb-0.5 text-[10px] font-bold text-gray-400">
-                          カルテ
-                        </div>
-                        <p className="whitespace-pre-wrap text-gray-700">
-                          {a.customerRecord}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+              {(() => {
+                // カルテは 1 日 1 件ルール (同日の複数予約は代表 1 件に集約)。
+                // 運用上、同じ日に同じ患者が 2 回来院することはないので、
+                // テストデータで偶然複数あっても 1 カードにまとめて表示する。
+                //
+                // 代表の選び方 (優先順位):
+                //   1. 非キャンセル優先 (status が 3/4/99 以外)
+                //   2. 完了 > 施術中 > 待機 (status 2 > 1 > 0)
+                //   3. 同条件なら startAt が早いもの
+                const statusRank = (s: number): number => {
+                  // 大きい方が「代表にふさわしい」
+                  if (s === 2) return 4; // 完了
+                  if (s === 1) return 3; // 施術中
+                  if (s === 0) return 2; // 待機
+                  return 1; // キャンセル / no-show
+                };
+                const byDate = new Map<
+                  string,
+                  {
+                    primary: (typeof detail.appointments)[number];
+                    extras: (typeof detail.appointments)[number][];
+                  }
+                >();
+                for (const a of detail.appointments) {
+                  const d = a.startAt.slice(0, 10);
+                  const cur = byDate.get(d);
+                  if (!cur) {
+                    byDate.set(d, { primary: a, extras: [] });
+                    continue;
+                  }
+                  const rankA = statusRank(a.status);
+                  const rankCur = statusRank(cur.primary.status);
+                  if (
+                    rankA > rankCur ||
+                    (rankA === rankCur && a.startAt < cur.primary.startAt)
+                  ) {
+                    cur.extras.push(cur.primary);
+                    cur.primary = a;
+                  } else {
+                    cur.extras.push(a);
+                  }
+                }
+                const grouped = Array.from(byDate.values()).sort((a, b) =>
+                  a.primary.startAt < b.primary.startAt ? 1 : -1
                 );
-              })}
+                return grouped.map(({ primary: a, extras }) => {
+                  const date = a.startAt.slice(0, 10);
+                  const time = a.startAt.slice(11, 16);
+                  const endTime = a.endAt.slice(11, 16);
+                  const isCancelled =
+                    a.status === 3 || a.status === 4 || a.status === 99;
+                  return (
+                    <div
+                      key={a.id}
+                      className={`rounded-lg border p-3 ${
+                        isCancelled ? "opacity-60" : ""
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-bold text-gray-900">{date}</span>
+                        <span className="text-xs text-gray-500">
+                          {time}-{endTime}
+                        </span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {a.menuName}
+                        </Badge>
+                        {isCancelled && (
+                          <Badge className="bg-red-100 text-[10px] text-red-600">
+                            {a.status === 4 ? "当日キャンセル" : "キャンセル"}
+                          </Badge>
+                        )}
+                        {extras.length > 0 && (
+                          <span
+                            className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-500"
+                            title={`同日に ${extras.length} 件の予約が登録されていますが、カルテは 1 日 1 件にまとめています。`}
+                          >
+                            同日 +{extras.length}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
+                        {a.staffName && <span>担当 {a.staffName}</span>}
+                        {a.sales > 0 && (
+                          <span>¥{a.sales.toLocaleString()}</span>
+                        )}
+                      </div>
+                      {a.customerRecord && (
+                        <div className="mt-2 rounded bg-gray-50 p-2 text-xs">
+                          <div className="mb-0.5 text-[10px] font-bold text-gray-400">
+                            カルテ
+                          </div>
+                          <p className="whitespace-pre-wrap text-gray-700">
+                            {a.customerRecord}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
         </div>
