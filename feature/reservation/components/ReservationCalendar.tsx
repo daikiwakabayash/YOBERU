@@ -486,6 +486,62 @@ export function ReservationCalendar({
                         (c) => c.startMin < e && c.endMin > s
                       );
 
+                    // Lane assignment — 同じスタッフ行で時間が被る予約を
+                    // vertical lane に振り分けて「2 枚が完全に重なって
+                    // 読めない」症状を解消する。キャンセル済みは下部
+                    // narrow strip として別枠で描画されるのでレーン計算
+                    // から除外する。
+                    const laneMap = new Map<number, { lane: number; laneCount: number }>();
+                    {
+                      const active = staffAppts
+                        .filter((a) => !isCancelledStatus(a.status))
+                        .slice()
+                        .sort((a, b) =>
+                          a.startAt.localeCompare(b.startAt) ||
+                          a.endAt.localeCompare(b.endAt)
+                        );
+                      // クラスタ (連続する重なり) ごとに totalLanes を
+                      // 確定する。greedy: 最初に空くレーンを使用。
+                      let cluster: typeof active = [];
+                      let clusterEnd = -1;
+                      const flush = () => {
+                        if (cluster.length === 0) return;
+                        const laneEnds: number[] = [];
+                        const perAppt: Array<{ id: number; lane: number }> = [];
+                        for (const a of cluster) {
+                          const s = timeToMinutes(a.startAt.slice(11, 16));
+                          const e = timeToMinutes(a.endAt.slice(11, 16));
+                          let lane = laneEnds.findIndex((end) => end <= s);
+                          if (lane === -1) {
+                            lane = laneEnds.length;
+                            laneEnds.push(e);
+                          } else {
+                            laneEnds[lane] = e;
+                          }
+                          perAppt.push({ id: a.id, lane });
+                        }
+                        const laneCount = laneEnds.length;
+                        for (const p of perAppt) {
+                          laneMap.set(p.id, { lane: p.lane, laneCount });
+                        }
+                        cluster = [];
+                        clusterEnd = -1;
+                      };
+                      for (const a of active) {
+                        const s = timeToMinutes(a.startAt.slice(11, 16));
+                        const e = timeToMinutes(a.endAt.slice(11, 16));
+                        if (cluster.length === 0 || s < clusterEnd) {
+                          cluster.push(a);
+                          clusterEnd = Math.max(clusterEnd, e);
+                        } else {
+                          flush();
+                          cluster.push(a);
+                          clusterEnd = e;
+                        }
+                      }
+                      flush();
+                    }
+
                     return staffAppts.map((appt) => {
                       const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
                       const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
@@ -645,6 +701,17 @@ export function ReservationCalendar({
                         apptStartMin,
                         apptEndMin
                       );
+                      // このカードのレーン位置。同時間帯に他の予約が
+                      // 無ければ laneCount=1 で従来通り全高を使う。
+                      const laneInfo = laneMap.get(appt.id) ?? {
+                        lane: 0,
+                        laneCount: 1,
+                      };
+                      const availableHeight = STAFF_ROW_HEIGHT - 6; // top/bottom 3px margin 相当
+                      const laneHeight = availableHeight / laneInfo.laneCount;
+                      const laneTop = 3 + laneInfo.lane * laneHeight;
+                      const laneBottom =
+                        3 + (laneInfo.laneCount - 1 - laneInfo.lane) * laneHeight;
 
                       // 30 分枠などカード幅が狭いと顧客名が truncate されて
                       // 数文字しか見えないケースがある。せめてマウスを
@@ -693,8 +760,10 @@ export function ReservationCalendar({
                           style={{
                             left: isBeingDragged ? dragLeft : apptLeft,
                             width: apptWidth,
-                            top: 3,
-                            bottom: narrowForCancelled ? "34%" : 3,
+                            top: laneTop,
+                            bottom: narrowForCancelled
+                              ? "34%"
+                              : Math.max(laneBottom, 3),
                             zIndex: isBeingDragged ? 50 : 5,
                             touchAction: "pan-x",
                           }}

@@ -470,13 +470,71 @@ export function WeeklyReservationCalendar({
                   })}
 
                   {/* Appointment blocks */}
-                  {dayAppts.map((appt) => {
+                  {(() => {
+                    // 同じ日に時間が被る予約を vertical lane に分ける。
+                    // (日ビューのスタッフ行と同じアルゴリズム)
+                    const laneMap = new Map<number, { lane: number; laneCount: number }>();
+                    const active = dayAppts
+                      .slice()
+                      .sort((a, b) =>
+                        a.startAt.localeCompare(b.startAt) ||
+                        a.endAt.localeCompare(b.endAt)
+                      );
+                    let cluster: typeof active = [];
+                    let clusterEnd = -1;
+                    const flush = () => {
+                      if (cluster.length === 0) return;
+                      const laneEnds: number[] = [];
+                      const perAppt: Array<{ id: number; lane: number }> = [];
+                      for (const a of cluster) {
+                        const s = timeToMinutes(a.startAt.slice(11, 16));
+                        const e = timeToMinutes(a.endAt.slice(11, 16));
+                        let lane = laneEnds.findIndex((end) => end <= s);
+                        if (lane === -1) {
+                          lane = laneEnds.length;
+                          laneEnds.push(e);
+                        } else {
+                          laneEnds[lane] = e;
+                        }
+                        perAppt.push({ id: a.id, lane });
+                      }
+                      const laneCount = laneEnds.length;
+                      for (const p of perAppt) {
+                        laneMap.set(p.id, { lane: p.lane, laneCount });
+                      }
+                      cluster = [];
+                      clusterEnd = -1;
+                    };
+                    for (const a of active) {
+                      const s = timeToMinutes(a.startAt.slice(11, 16));
+                      const e = timeToMinutes(a.endAt.slice(11, 16));
+                      if (cluster.length === 0 || s < clusterEnd) {
+                        cluster.push(a);
+                        clusterEnd = Math.max(clusterEnd, e);
+                      } else {
+                        flush();
+                        cluster.push(a);
+                        clusterEnd = e;
+                      }
+                    }
+                    flush();
+
+                    return dayAppts.map((appt) => {
                     const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
                     const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
                     const minutesFromStart = apptStartMin - startHour;
                     const durationMinutes = apptEndMin - apptStartMin;
                     const apptLeft = minutesFromStart * PX_PER_MIN + 1;
                     const apptWidth = durationMinutes * PX_PER_MIN - 2;
+                    const laneInfo = laneMap.get(appt.id) ?? {
+                      lane: 0,
+                      laneCount: 1,
+                    };
+                    const availableHeight = DAY_ROW_HEIGHT - 6;
+                    const laneHeight = availableHeight / laneInfo.laneCount;
+                    const laneTop = 3 + laneInfo.lane * laneHeight;
+                    const laneBottom =
+                      3 + (laneInfo.laneCount - 1 - laneInfo.lane) * laneHeight;
 
                     const isDragging = isDraggingReal && dragAppt?.id === appt.id;
                     const isSlotBlock = !!appt.slotBlock;
@@ -499,8 +557,8 @@ export function WeeklyReservationCalendar({
                           style={{
                             left: isDragging ? dragLeft : apptLeft,
                             width: apptWidth,
-                            top: 3,
-                            bottom: 3,
+                            top: laneTop,
+                            bottom: laneBottom,
                             zIndex: isDragging ? 50 : 5,
                             borderLeftColor: blockColor,
                             backgroundColor: `${blockColor}12`,
@@ -602,8 +660,8 @@ export function WeeklyReservationCalendar({
                         style={{
                           left: isDragging ? dragLeft : apptLeft,
                           width: apptWidth,
-                          top: 3,
-                          bottom: 3,
+                          top: laneTop,
+                          bottom: laneBottom,
                           zIndex: isDragging ? 50 : 5,
                           touchAction: "pan-x",
                         }}
@@ -656,7 +714,8 @@ export function WeeklyReservationCalendar({
                         </div>
                       </div>
                     );
-                  })}
+                  });
+                  })()}
                 </div>
               </div>
             );
