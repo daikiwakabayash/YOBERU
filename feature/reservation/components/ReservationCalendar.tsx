@@ -76,13 +76,19 @@ export function ReservationCalendar({
   const totalWidth = totalMinutes * PX_PER_MIN;
 
   // Drag state — horizontal drag changes time, vertical changes staff.
+  // We keep the "live" values in refs so 60fps mousemove updates don't
+  // trigger React re-renders; only the ghost card's visual position
+  // (dragLeft state) re-renders, which is cheap. `dragAppt` toggles
+  // just once (start/end of drag) so the listener effect is stable.
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [dragStaffId, setDragStaffId] = useState<number | null>(null);
   const [dragLeft, setDragLeft] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
+  const dragOffsetRef = useRef(0);
+  const dragStaffIdRef = useRef<number | null>(null);
+  const dragLeftRef = useRef(0);
   const hasMovedRef = useRef(false);
   const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const rafRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const handleDragStart = useCallback(
@@ -92,75 +98,104 @@ export function ReservationCalendar({
         setSelectedAppt(appt);
         return;
       }
-      const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
+      const rect = (e.target as HTMLElement)
+        .closest("[data-appt]")
+        ?.getBoundingClientRect();
       if (!rect) return;
       hasMovedRef.current = false;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+      dragOffsetRef.current = e.clientX - rect.left;
+      dragStaffIdRef.current = appt.staffId;
+      const initialLeft =
+        rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0);
+      dragLeftRef.current = initialLeft;
+      setDragLeft(initialLeft);
       setDragAppt(appt);
-      setDragStaffId(appt.staffId);
-      setDragOffset(e.clientX - rect.left);
-      setDragLeft(rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0));
     },
     []
   );
 
   useEffect(() => {
     if (!dragAppt || !gridRef.current) return;
-    const gridRect = gridRef.current.getBoundingClientRect();
+    const gridEl = gridRef.current;
     const DRAG_THRESHOLD = 5;
+    // Pre-collect staff rows once per drag to avoid querying the DOM
+    // on every mousemove (previous implementation did querySelectorAll
+    // inside the listener which caused noticeable lag).
+    const staffRowEls = Array.from(
+      gridEl.querySelectorAll<HTMLElement>("[data-staff-id]")
+    );
 
     function handleMouseMove(e: MouseEvent) {
-      const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
-      const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
-      if (!hasMovedRef.current && (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD)) {
-        hasMovedRef.current = true;
-        setIsDraggingReal(true);
-      }
-      if (!hasMovedRef.current) return;
-
-      const newLeft = e.clientX - gridRect.left - dragOffset;
-      setDragLeft(Math.max(0, newLeft));
-
-      // Detect staff row by Y position
-      const staffRows = gridRef.current!.querySelectorAll("[data-staff-id]");
-      staffRows.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
-          setDragStaffId(Number(el.getAttribute("data-staff-id")));
+      if (!hasMovedRef.current) {
+        const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
+        const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
+        if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+          hasMovedRef.current = true;
+          setIsDraggingReal(true);
+        } else {
+          return;
         }
-      });
+      }
+
+      const gridRect = gridEl.getBoundingClientRect();
+      const newLeft = Math.max(0, e.clientX - gridRect.left - dragOffsetRef.current);
+      dragLeftRef.current = newLeft;
+
+      // Vertical: find staff row under cursor (cached rects; fast).
+      for (const el of staffRowEls) {
+        const r = el.getBoundingClientRect();
+        if (e.clientY >= r.top && e.clientY <= r.bottom) {
+          dragStaffIdRef.current = Number(el.getAttribute("data-staff-id"));
+          break;
+        }
+      }
+
+      // Throttle visual ghost update to animation frames.
+      if (rafRef.current == null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          setDragLeft(dragLeftRef.current);
+        });
+      }
     }
 
     async function handleMouseUp() {
-      if (!dragAppt) return;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
 
       if (!hasMovedRef.current) {
         setSelectedAppt(dragAppt);
         setDragAppt(null);
-        setDragStaffId(null);
         setIsDraggingReal(false);
         return;
       }
 
+      const finalLeft = dragLeftRef.current;
       const newMinutes =
-        Math.round(dragLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
+        Math.round(finalLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
       const newStartTime = minutesToTime(newMinutes);
       const durationMin =
-        timeToMinutes(dragAppt.endAt.slice(11, 16)) -
-        timeToMinutes(dragAppt.startAt.slice(11, 16));
+        timeToMinutes(dragAppt!.endAt.slice(11, 16)) -
+        timeToMinutes(dragAppt!.startAt.slice(11, 16));
       const newEndTime = minutesToTime(newMinutes + durationMin);
 
       const newStartAt = `${date}T${newStartTime}:00`;
       const newEndAt = `${date}T${newEndTime}:00`;
+      const nextStaffId = dragStaffIdRef.current;
 
       const form = new FormData();
       form.set("start_at", newStartAt);
       form.set("end_at", newEndAt);
-      if (dragStaffId && dragStaffId !== dragAppt.staffId) {
-        form.set("staff_id", String(dragStaffId));
+      if (nextStaffId && nextStaffId !== dragAppt!.staffId) {
+        form.set("staff_id", String(nextStaffId));
       }
 
-      const result = await updateAppointment(dragAppt.id, form);
+      const result = await updateAppointment(dragAppt!.id, form);
       if ("error" in result && result.error) {
         toast.error(String(result.error));
       } else {
@@ -168,7 +203,6 @@ export function ReservationCalendar({
       }
 
       setDragAppt(null);
-      setDragStaffId(null);
       setIsDraggingReal(false);
     }
 
@@ -177,8 +211,12 @@ export function ReservationCalendar({
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [dragAppt, dragOffset, dragLeft, dragStaffId, date, frameMin, startHour]);
+  }, [dragAppt, date, frameMin, startHour]);
 
   useEffect(() => {
     function updateNow() {

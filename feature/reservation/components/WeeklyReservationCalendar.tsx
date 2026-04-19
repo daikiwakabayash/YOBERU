@@ -82,94 +82,129 @@ export function WeeklyReservationCalendar({
   const today = toLocalDateString(new Date());
 
   // Drag state — horizontal drag changes time, vertical changes day.
+  // Live drag values live in refs (no re-render) and only the ghost's
+  // visual position is mirrored to state, throttled by requestAnimation
+  // Frame. This avoids the mousemove → setState → effect cleanup cycle
+  // that previously made dragging feel laggy.
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [dragDate, setDragDate] = useState<string | null>(null);
   const [dragLeft, setDragLeft] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
+  const dragOffsetRef = useRef(0);
+  const dragDateRef = useRef<string | null>(null);
+  const dragLeftRef = useRef(0);
   const hasMovedRef = useRef(false);
   const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const rafRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const handleDragStart = useCallback(
     (appt: CalendarAppointment, e: React.MouseEvent) => {
       e.stopPropagation();
-      const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
+      const rect = (e.target as HTMLElement)
+        .closest("[data-appt]")
+        ?.getBoundingClientRect();
       if (!rect) return;
       const apptDate = appt.startAt.slice(0, 10);
       hasMovedRef.current = false;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+      dragOffsetRef.current = e.clientX - rect.left;
+      dragDateRef.current = apptDate;
+      const initialLeft =
+        rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0);
+      dragLeftRef.current = initialLeft;
+      setDragLeft(initialLeft);
       setDragAppt(appt);
-      setDragDate(apptDate);
-      setDragOffset(e.clientX - rect.left);
-      setDragLeft(rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0));
     },
     []
   );
 
   useEffect(() => {
     if (!dragAppt || !gridRef.current) return;
-    const gridRect = gridRef.current.getBoundingClientRect();
+    const gridEl = gridRef.current;
     const DRAG_THRESHOLD = 5;
+    const dayRowEls = Array.from(
+      gridEl.querySelectorAll<HTMLElement>("[data-date]")
+    );
 
     function handleMouseMove(e: MouseEvent) {
-      const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
-      const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
-      if (!hasMovedRef.current && (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD)) {
-        hasMovedRef.current = true;
-        setIsDraggingReal(true);
-      }
-      if (!hasMovedRef.current) return;
-
-      const newLeft = e.clientX - gridRect.left - dragOffset;
-      setDragLeft(Math.max(0, newLeft));
-
-      // Detect day row by Y position
-      const dayRows = gridRef.current!.querySelectorAll("[data-date]");
-      dayRows.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
-          setDragDate(el.getAttribute("data-date"));
+      if (!hasMovedRef.current) {
+        const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
+        const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
+        if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+          hasMovedRef.current = true;
+          setIsDraggingReal(true);
+        } else {
+          return;
         }
-      });
+      }
+
+      const gridRect = gridEl.getBoundingClientRect();
+      const newLeft = Math.max(0, e.clientX - gridRect.left - dragOffsetRef.current);
+      dragLeftRef.current = newLeft;
+
+      for (const el of dayRowEls) {
+        const r = el.getBoundingClientRect();
+        if (e.clientY >= r.top && e.clientY <= r.bottom) {
+          dragDateRef.current = el.getAttribute("data-date");
+          break;
+        }
+      }
+
+      if (rafRef.current == null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          setDragLeft(dragLeftRef.current);
+        });
+      }
     }
 
     async function handleMouseUp() {
-      if (!dragAppt || !dragDate) return;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
 
       if (!hasMovedRef.current) {
         setSelectedAppt(dragAppt);
         setDragAppt(null);
-        setDragDate(null);
         setIsDraggingReal(false);
         return;
       }
 
+      const dropDate = dragDateRef.current;
+      if (!dropDate) {
+        setDragAppt(null);
+        setIsDraggingReal(false);
+        return;
+      }
+
+      const finalLeft = dragLeftRef.current;
       const newMinutes =
-        Math.round(dragLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
+        Math.round(finalLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
       const newStartTime = minutesToTime(newMinutes);
       const durationMin =
-        timeToMinutes(dragAppt.endAt.slice(11, 16)) -
-        timeToMinutes(dragAppt.startAt.slice(11, 16));
+        timeToMinutes(dragAppt!.endAt.slice(11, 16)) -
+        timeToMinutes(dragAppt!.startAt.slice(11, 16));
       const newEndTime = minutesToTime(newMinutes + durationMin);
 
-      const newStartAt = `${dragDate}T${newStartTime}:00`;
-      const newEndAt = `${dragDate}T${newEndTime}:00`;
+      const newStartAt = `${dropDate}T${newStartTime}:00`;
+      const newEndAt = `${dropDate}T${newEndTime}:00`;
 
       const form = new FormData();
       form.set("start_at", newStartAt);
       form.set("end_at", newEndAt);
 
-      const result = await updateAppointment(dragAppt.id, form);
+      const result = await updateAppointment(dragAppt!.id, form);
       if ("error" in result && result.error) {
         toast.error(String(result.error));
       } else {
-        const dateLabel = `${Number(dragDate.split("-")[1])}/${Number(dragDate.split("-")[2])}`;
+        const dateLabel = `${Number(dropDate.split("-")[1])}/${Number(dropDate.split("-")[2])}`;
         toast.success(`予約を ${dateLabel} ${newStartTime} に移動しました`);
       }
 
       setDragAppt(null);
-      setDragDate(null);
       setIsDraggingReal(false);
     }
 
@@ -178,8 +213,12 @@ export function WeeklyReservationCalendar({
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [dragAppt, dragOffset, dragLeft, dragDate, frameMin, startHour]);
+  }, [dragAppt, frameMin, startHour]);
 
   useEffect(() => {
     function updateNow() {
