@@ -105,12 +105,16 @@ export function WeeklyReservationCalendar({
         ?.getBoundingClientRect();
       if (!rect) return;
       const apptDate = appt.startAt.slice(0, 10);
+      // タイムライン領域の左端 (曜日名列 DAY_LABEL_WIDTH を除いた
+      // 位置) を基準にする。
+      const timelineOriginX =
+        (gridRef.current?.getBoundingClientRect().left ?? 0) +
+        DAY_LABEL_WIDTH;
       hasMovedRef.current = false;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
       dragOffsetRef.current = e.clientX - rect.left;
       dragDateRef.current = apptDate;
-      const initialLeft =
-        rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0);
+      const initialLeft = rect.left - timelineOriginX;
       dragLeftRef.current = initialLeft;
       setDragLeft(initialLeft);
       setDragAppt(appt);
@@ -139,7 +143,9 @@ export function WeeklyReservationCalendar({
       }
 
       const gridRect = gridEl.getBoundingClientRect();
-      const newLeft = Math.max(0, e.clientX - gridRect.left - dragOffsetRef.current);
+      const timelineOriginX = gridRect.left + DAY_LABEL_WIDTH;
+      const rawLeft = e.clientX - timelineOriginX - dragOffsetRef.current;
+      const newLeft = Math.max(0, Math.min(rawLeft, totalWidth));
       dragLeftRef.current = newLeft;
 
       for (const el of dayRowEls) {
@@ -218,7 +224,7 @@ export function WeeklyReservationCalendar({
         rafRef.current = null;
       }
     };
-  }, [dragAppt, frameMin, startHour]);
+  }, [dragAppt, frameMin, startHour, totalWidth]);
 
   useEffect(() => {
     function updateNow() {

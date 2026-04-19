@@ -102,12 +102,18 @@ export function ReservationCalendar({
         .closest("[data-appt]")
         ?.getBoundingClientRect();
       if (!rect) return;
+      // タイムライン領域の左端 (スタッフ名列 STAFF_LABEL_WIDTH を
+      // 除いた位置) を基準にする。apptLeft / ドラッグ中の left は
+      // すべてタイムライン内座標で扱うため、ここからの差分で計算
+      // しないとカードがスタッフ列幅分だけズレて表示される。
+      const timelineOriginX =
+        (gridRef.current?.getBoundingClientRect().left ?? 0) +
+        STAFF_LABEL_WIDTH;
       hasMovedRef.current = false;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
       dragOffsetRef.current = e.clientX - rect.left;
       dragStaffIdRef.current = appt.staffId;
-      const initialLeft =
-        rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0);
+      const initialLeft = rect.left - timelineOriginX;
       dragLeftRef.current = initialLeft;
       setDragLeft(initialLeft);
       setDragAppt(appt);
@@ -139,7 +145,10 @@ export function ReservationCalendar({
       }
 
       const gridRect = gridEl.getBoundingClientRect();
-      const newLeft = Math.max(0, e.clientX - gridRect.left - dragOffsetRef.current);
+      const timelineOriginX = gridRect.left + STAFF_LABEL_WIDTH;
+      // 右端で totalWidth を超えないようクリップ (負値も 0 に)
+      const rawLeft = e.clientX - timelineOriginX - dragOffsetRef.current;
+      const newLeft = Math.max(0, Math.min(rawLeft, totalWidth));
       dragLeftRef.current = newLeft;
 
       // Vertical: find staff row under cursor (cached rects; fast).
@@ -216,7 +225,7 @@ export function ReservationCalendar({
         rafRef.current = null;
       }
     };
-  }, [dragAppt, date, frameMin, startHour]);
+  }, [dragAppt, date, frameMin, startHour, totalWidth]);
 
   useEffect(() => {
     function updateNow() {
