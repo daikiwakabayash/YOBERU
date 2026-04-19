@@ -2312,12 +2312,15 @@ function CustomerDossierPanel({
                                   return (
                                     <div
                                       key={li}
-                                      className="flex gap-1 py-0.5 text-[12px]"
+                                      className="flex gap-2 py-0.5 text-[12px]"
                                     >
-                                      <span className="shrink-0 font-medium text-gray-500">
-                                        {line.slice(2, colonIdx)}:
+                                      <span
+                                        className="w-28 shrink-0 truncate font-medium text-gray-500"
+                                        title={line.slice(2, colonIdx)}
+                                      >
+                                        {line.slice(2, colonIdx)}
                                       </span>
-                                      <span className="text-gray-800">
+                                      <span className="min-w-0 flex-1 break-words text-gray-800">
                                         {line.slice(colonIdx + 2)}
                                       </span>
                                     </div>
