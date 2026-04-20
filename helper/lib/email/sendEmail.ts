@@ -1,7 +1,6 @@
-import { Resend } from "resend";
-
 /**
- * Email sender built on top of Resend.
+ * Email sender built on top of the Resend REST API (fetch-based; no SDK
+ * dependency so we don't need to update package-lock.json).
  *
  * 迷惑メール対策 (Gmail / Yahoo 2024 新基準) の前提:
  *   - 送信元ドメイン (yurumu8.net) が Resend ダッシュボードで Verify 済
@@ -15,10 +14,8 @@ import { Resend } from "resend";
  * (開発環境 / ローカルで API キーなしでもアプリがクラッシュしないように)。
  */
 
-const apiKey = process.env.RESEND_API_KEY;
-const resend = apiKey ? new Resend(apiKey) : null;
-
 const DEFAULT_FROM = process.env.YOBERU_MAIL_FROM ?? "noreply@yurumu8.net";
+const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
 export interface SendEmailInput {
   to: string;
@@ -66,7 +63,10 @@ function plainTextToHtml(text: string): string {
 }
 
 /** RFC 5322 の quoted-string で From の表示名を安全にエンコードする。 */
-function buildFromHeader(fromName: string | undefined, fromAddress: string): string {
+function buildFromHeader(
+  fromName: string | undefined,
+  fromAddress: string
+): string {
   if (!fromName) return fromAddress;
   const escaped = fromName.replace(/["\\]/g, "\\$&");
   return `"${escaped}" <${fromAddress}>`;
@@ -80,7 +80,9 @@ export async function sendEmail({
   replyTo,
 }: SendEmailInput): Promise<SendEmailResult> {
   if (!to) return { success: false, error: "宛先メールアドレスなし" };
-  if (!resend) {
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
     console.warn("[sendEmail] RESEND_API_KEY 未設定のため送信をスキップ", {
       to,
       subject: subject.slice(0, 60),
@@ -91,19 +93,40 @@ export async function sendEmail({
   const from = buildFromHeader(fromName, DEFAULT_FROM);
   const html = plainTextToHtml(body);
 
+  const payload: Record<string, unknown> = {
+    from,
+    to,
+    subject,
+    text: body,
+    html,
+  };
+  if (replyTo) payload.reply_to = replyTo;
+
   try {
-    const { data, error } = await resend.emails.send({
-      from,
-      to,
-      subject,
-      text: body,
-      html,
-      replyTo: replyTo ?? undefined,
+    const res = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
     });
-    if (error) {
-      return { success: false, error: error.message ?? String(error) };
+
+    if (!res.ok) {
+      // Resend は失敗時 { name, message } を返す
+      let errorMessage = `HTTP ${res.status}`;
+      try {
+        const err = (await res.json()) as { message?: string; name?: string };
+        errorMessage = err.message ?? err.name ?? errorMessage;
+      } catch {
+        /* body 無し or 非 JSON: デフォルトメッセージで返す */
+      }
+      return { success: false, error: errorMessage };
     }
-    return { success: true, messageId: data?.id };
+
+    const data = (await res.json()) as { id?: string };
+    return { success: true, messageId: data.id };
   } catch (e) {
     return {
       success: false,
