@@ -26,6 +26,9 @@ export interface BookingLink {
   line_button_text: string | null;
   line_button_url: string | null;
   visit_source_id: number | null;
+  /** Tag templates (GTM 等) to inject into document.head / body. (00023) */
+  head_tag_template_id: number | null;
+  body_tag_template_id: number | null;
   reminder_settings: ReminderSetting[];
   created_at: string;
   updated_at: string;

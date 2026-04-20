@@ -5,8 +5,6 @@ import { useCallback } from "react";
 import {
   LayoutDashboard,
   MapPin,
-  BarChart3,
-  Utensils,
   UserPlus,
   MapPinned,
   Sparkles,
@@ -16,8 +14,6 @@ import {
 export type MarketingTabKey =
   | "overview"
   | "shop"
-  | "media"
-  | "menu"
   | "new-customer"
   | "catchment"
   | "ai"
@@ -30,13 +26,11 @@ const TABS: Array<{
   disabled?: boolean;
 }> = [
   { key: "overview", label: "概要", icon: LayoutDashboard },
-  { key: "shop", label: "店舗別", icon: MapPin },
-  { key: "media", label: "媒体別", icon: BarChart3 },
-  { key: "menu", label: "メニュー", icon: Utensils },
   { key: "new-customer", label: "新規管理", icon: UserPlus },
   { key: "catchment", label: "商圏", icon: MapPinned },
   { key: "ai", label: "AI分析", icon: Sparkles, disabled: true },
   { key: "market", label: "市場", icon: Globe, disabled: true },
+  { key: "shop", label: "店舗別", icon: MapPin },
 ];
 
 interface MarketingTabsProps {

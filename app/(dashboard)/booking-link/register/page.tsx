@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { BookingLinkForm } from "@/feature/booking-link/components/BookingLinkForm";
+import { getTagTemplates } from "@/feature/tag-template/services/getTagTemplates";
 import { createClient } from "@/helper/lib/supabase/server";
 import {
   getActiveShopId,
@@ -82,6 +83,8 @@ export default async function BookingLinkRegisterPage() {
       : null,
   }));
 
+  const { data: tagTemplates } = await getTagTemplates(brandId);
+
   return (
     <div>
       <PageHeader title="強制リンク作成" description="新規予約リンクを発行" />
@@ -91,6 +94,7 @@ export default async function BookingLinkRegisterPage() {
           shops={shopsData}
           menus={menus}
           visitSources={sourceData}
+          tagTemplates={tagTemplates.map((t) => ({ id: t.id, title: t.title }))}
         />
       </div>
     </div>
