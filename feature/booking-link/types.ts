@@ -29,6 +29,10 @@ export interface BookingLink {
   /** Tag templates (GTM 等) to inject into document.head / body. (00023) */
   head_tag_template_id: number | null;
   body_tag_template_id: number | null;
+  /** 予約完了直後の即時メール設定 (00024)。NULL = デフォルト使用。 */
+  immediate_email_enabled: boolean;
+  immediate_email_subject: string | null;
+  immediate_email_template: string | null;
   reminder_settings: ReminderSetting[];
   created_at: string;
   updated_at: string;

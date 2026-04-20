@@ -1,22 +1,25 @@
 "use client";
 
 import { Check } from "lucide-react";
-import type { PublicLink } from "./types";
 import { useT } from "../../i18n/useT";
 import type { Lang } from "../../i18n/dictionary";
 
-interface Step4Props {
-  link: PublicLink;
-  /** If set, the confirmed date/time text like "2026.01.21 13:30" */
+interface BookingCompleteViewProps {
+  /** "YYYY.MM.DD HH:MM" (already formatted) or null */
   confirmedDateTime: string | null;
+  showLineButton: boolean;
+  lineButtonText: string | null;
+  lineButtonUrl: string | null;
   lang?: Lang;
 }
 
-export function Step4Complete({
-  link,
+export function BookingCompleteView({
   confirmedDateTime,
+  showLineButton,
+  lineButtonText,
+  lineButtonUrl,
   lang = "ja",
-}: Step4Props) {
+}: BookingCompleteViewProps) {
   const { t } = useT(lang);
   return (
     <div className="flex h-full flex-col">
@@ -48,9 +51,9 @@ export function Step4Complete({
         </p>
 
         {/* LINE button */}
-        {link.show_line_button && link.line_button_url && (
+        {showLineButton && lineButtonUrl && (
           <a
-            href={link.line_button_url}
+            href={lineButtonUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex w-full max-w-xs items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-600"
@@ -58,7 +61,7 @@ export function Step4Complete({
             <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[10px]">
               L
             </span>
-            {link.line_button_text || t("contactLine")}
+            {lineButtonText || t("contactLine")}
           </a>
         )}
       </div>

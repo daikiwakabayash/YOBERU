@@ -68,12 +68,15 @@ export default async function ReservationPage({
         name: string;
         price: number;
         duration: number;
+        plan_type: string | null;
       }>(
         // status = TRUE → 「公開」のみ。非公開に設定したメニューは予約
         // 入力パネルにも出さない (マスター側の表示トグルを尊重)。
+        // plan_type も引いて、予約パネルの「メニュー選択」では plan_type が
+        // NULL のものだけ表示する (会員プランは下の「プラン提案」カード側)。
         supabase
           .from("menus")
-          .select("menu_manage_id, name, price, duration")
+          .select("menu_manage_id, name, price, duration, plan_type")
           .eq("brand_id", brandId)
           .eq("status", true)
           .or(`shop_id.is.null,shop_id.eq.${shopId}`)

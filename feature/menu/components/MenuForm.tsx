@@ -296,19 +296,32 @@ export function MenuForm({ brandId, categories, initialData }: MenuFormProps) {
             </p>
           </div>
 
-          {/* チケット回数 (plan_type='ticket' のときのみ意味あり) */}
+          {/* 回数入力: ticket / subscription の両方で表示する。
+              - ticket    → 購入時点の総回数 (customer_plans.total_count)
+              - subscription → 1 ヶ月あたりの利用可能回数 (空欄なら無制限)
+              どちらも menus.ticket_count に保存する (DB CHECK は 00020 で
+              "ticket のとき必須 / それ以外は任意" を許容している)。 */}
           <Controller
             control={control}
             name="plan_type"
             render={({ field: planTypeField }) =>
-              planTypeField.value === "ticket" ? (
+              planTypeField.value === "ticket" ||
+              planTypeField.value === "subscription" ? (
                 <div className="space-y-1.5">
-                  <Label htmlFor="ticket_count">チケット回数</Label>
+                  <Label htmlFor="ticket_count">
+                    {planTypeField.value === "ticket"
+                      ? "回数 (回数券の総回数)"
+                      : "月あたりの回数 (空欄で無制限)"}
+                  </Label>
                   <Input
                     id="ticket_count"
                     type="number"
                     min={1}
-                    placeholder="例: 4 (4 回券)"
+                    placeholder={
+                      planTypeField.value === "ticket"
+                        ? "例: 4 (4 回券)"
+                        : "例: 4 (月 4 回まで)"
+                    }
                     {...register("ticket_count", { valueAsNumber: true })}
                   />
                   {errors.ticket_count && (
