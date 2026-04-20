@@ -6,10 +6,12 @@ import type { MarketingTabKey } from "@/feature/marketing/components/MarketingTa
 import { MarketingShopBreakdown } from "@/feature/marketing/components/MarketingShopBreakdown";
 import { MarketingMenuBreakdown } from "@/feature/marketing/components/MarketingMenuBreakdown";
 import { MarketingNewCustomer } from "@/feature/marketing/components/MarketingNewCustomer";
+import { CatchmentMapWrapper } from "@/feature/catchment/components/CatchmentMapWrapper";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
 import { getMarketingByMenu } from "@/feature/marketing/services/getMarketingByMenu";
 import { getNewCustomerAnalytics } from "@/feature/marketing/services/getNewCustomerAnalytics";
+import { getCatchmentCustomers } from "@/feature/catchment/services/getCatchmentCustomers";
 import {
   getActiveBrandId,
   getActiveShopId,
@@ -61,6 +63,7 @@ const VALID_TABS = new Set<MarketingTabKey>([
   "media",
   "menu",
   "new-customer",
+  "catchment",
   "ai",
   "market",
 ]);
@@ -141,6 +144,35 @@ export default async function MarketingPage({
         yearMonth: startMonth,
       });
       return <MarketingNewCustomer data={data} />;
+    }
+    if (tab === "catchment") {
+      // 商圏タブ: 顧客住所 geocode → 地図ピン表示。期間フィルタは
+      // start/end の月 → 日付に展開 (末日)。
+      const startDate = `${startMonth}-01`;
+      const [ey, em] = endMonth.split("-").map(Number);
+      const lastDay = new Date(ey, em, 0).getDate();
+      const endDate = `${endMonth}-${String(lastDay).padStart(2, "0")}`;
+      const [catchmentData, sourcesForMap] = await Promise.all([
+        getCatchmentCustomers({ shopId, startDate, endDate }),
+        (async () => {
+          const sRes = await supabase
+            .from("visit_sources")
+            .select("id, name")
+            .eq("shop_id", shopId)
+            .is("deleted_at", null)
+            .order("sort_number", { ascending: true, nullsFirst: false });
+          return (sRes.data ?? []).map((s) => ({
+            id: s.id as number,
+            name: s.name as string,
+          }));
+        })(),
+      ]);
+      return (
+        <CatchmentMapWrapper
+          data={catchmentData}
+          visitSources={sourcesForMap}
+        />
+      );
     }
     // overview + media share the same aggregation. Media view is the
     // same overview with media table highlighted at the top; for this
