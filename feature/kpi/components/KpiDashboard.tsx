@@ -42,9 +42,9 @@ export function KpiDashboard({ data }: KpiDashboardProps) {
   return (
     <div className="space-y-5">
       {/* Primary hero row — 4 sales/acquisition cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <HeroCard
-          icon={<DollarSign className="h-5 w-5 text-emerald-600" />}
+          icon={<DollarSign className="h-4 w-4 text-emerald-600" />}
           iconBg="bg-emerald-100"
           label="総売上 (税込)"
           topRightLabel="合計実績"
@@ -52,7 +52,7 @@ export function KpiDashboard({ data }: KpiDashboardProps) {
           subtext={`完了 ${num(t.completedCount)} 件`}
         />
         <HeroCard
-          icon={<Sparkles className="h-5 w-5 text-orange-500" />}
+          icon={<Sparkles className="h-4 w-4 text-orange-500" />}
           iconBg="bg-orange-100"
           label="新規売上"
           topRightLabel="新規獲得"
@@ -60,7 +60,7 @@ export function KpiDashboard({ data }: KpiDashboardProps) {
           subtext={`${num(t.totalAcquired)} 名を新規獲得`}
         />
         <HeroCard
-          icon={<RefreshCcw className="h-5 w-5 text-blue-600" />}
+          icon={<RefreshCcw className="h-4 w-4 text-blue-600" />}
           iconBg="bg-blue-100"
           label="継続売上"
           topRightLabel="LTV"
@@ -68,7 +68,7 @@ export function KpiDashboard({ data }: KpiDashboardProps) {
           subtext={`リピーター構成`}
         />
         <HeroCard
-          icon={<UserMinus className="h-5 w-5 text-red-500" />}
+          icon={<UserMinus className="h-4 w-4 text-red-500" />}
           iconBg="bg-red-100"
           label="退会率"
           topRightLabel="維持率"
@@ -78,9 +78,9 @@ export function KpiDashboard({ data }: KpiDashboardProps) {
       </div>
 
       {/* Secondary hero row — acquisition + engagement + reviews */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <HeroCard
-          icon={<Users className="h-5 w-5 text-orange-500" />}
+          icon={<Users className="h-4 w-4 text-orange-500" />}
           iconBg="bg-orange-100"
           label="総新規数"
           topRightLabel="集客数"
@@ -88,7 +88,7 @@ export function KpiDashboard({ data }: KpiDashboardProps) {
           subtext={`予約 ${num(t.reservationCount)} 件`}
         />
         <HeroCard
-          icon={<Target className="h-5 w-5 text-amber-500" />}
+          icon={<Target className="h-4 w-4 text-amber-500" />}
           iconBg="bg-amber-100"
           label="入会率"
           topRightLabel="成約率"
@@ -96,7 +96,7 @@ export function KpiDashboard({ data }: KpiDashboardProps) {
           subtext={`${num(t.joinCount)} 名入会`}
         />
         <HeroCard
-          icon={<MessageSquare className="h-5 w-5 text-slate-600" />}
+          icon={<MessageSquare className="h-4 w-4 text-slate-600" />}
           iconBg="bg-slate-100"
           label="G口コミ (合計)"
           topRightLabel="GOOGLE"
@@ -104,7 +104,7 @@ export function KpiDashboard({ data }: KpiDashboardProps) {
           subtext="外部連携 準備中"
         />
         <HeroCard
-          icon={<MessageSquare className="h-5 w-5 text-pink-600" />}
+          icon={<MessageSquare className="h-4 w-4 text-pink-600" />}
           iconBg="bg-pink-100"
           label="H口コミ (合計)"
           topRightLabel="HOTPEPPER"
@@ -179,18 +179,20 @@ function HeroCard({
   subtext: string;
 }) {
   return (
-    <Card className="relative overflow-hidden p-5">
-      <div className="absolute right-4 top-4 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+    <Card className="relative overflow-hidden p-3">
+      <div className="absolute right-3 top-2.5 text-[9px] font-bold uppercase tracking-wider text-gray-400">
         {topRightLabel}
       </div>
       <div
-        className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl ${iconBg}`}
+        className={`mb-1.5 inline-flex h-7 w-7 items-center justify-center rounded-lg ${iconBg}`}
       >
         {icon}
       </div>
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="mt-1 text-2xl font-black text-gray-900">{value}</div>
-      <div className="mt-1 text-[11px] text-gray-400">{subtext}</div>
+      <div className="text-[11px] text-gray-500">{label}</div>
+      <div className="mt-0.5 text-lg font-black leading-tight text-gray-900">
+        {value}
+      </div>
+      <div className="mt-0.5 text-[10px] text-gray-400">{subtext}</div>
     </Card>
   );
 }
