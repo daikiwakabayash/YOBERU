@@ -82,6 +82,15 @@ export interface CustomerFullDetail {
     memo: string | null;
     menuName: string;
     staffName: string | null;
+    /** この予約がどのプランを何回目として消化したか。未消化は null。
+     *  LINE 問い合わせ対応時に「来院履歴カードから直接この日何回目か
+     *  分かる」UX のため。ordinal は顧客の該当プラン全消化の中での
+     *  start_at ASC 順位 (1-indexed)。 */
+    planConsumption: {
+      planName: string;
+      ordinal: number;
+      total: number | null;
+    } | null;
   }>;
 }
 
@@ -106,7 +115,7 @@ export async function getCustomerFullDetail(
   const { data: apptRaw } = await supabase
     .from("appointments")
     .select(
-      "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)"
+      "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, consumed_plan_id, staffs(name)"
     )
     .eq("customer_id", customerId)
     .is("deleted_at", null)
@@ -122,6 +131,7 @@ export async function getCustomerFullDetail(
     memo: string | null;
     customer_record: string | null;
     menu_manage_id: string;
+    consumed_plan_id: number | null;
     staffs:
       | { name: string | null }
       | Array<{ name: string | null }>
@@ -143,8 +153,67 @@ export async function getCustomerFullDetail(
     );
   }
 
+  // ---- プラン消化 ordinal の計算 ----------------------------------------
+  // "50 件の history に対して ordinal を振る" のではなく、顧客の全消化履歴
+  // を start_at ASC で拾って「この予約は 3 回目の消化」を出す。direct lookup。
+  const consumedPlanIdsInHistory = Array.from(
+    new Set(
+      raw
+        .map((a) => a.consumed_plan_id)
+        .filter((id): id is number => id != null)
+    )
+  );
+  const planOrdinalByApptId = new Map<number, number>();
+  const planMeta = new Map<number, { name: string; total: number | null }>();
+  if (consumedPlanIdsInHistory.length > 0) {
+    const [allConsumptionsRes, planRowsRes] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("id, start_at, consumed_plan_id")
+        .eq("customer_id", customerId)
+        .in("consumed_plan_id", consumedPlanIdsInHistory)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: true }),
+      supabase
+        .from("customer_plans")
+        .select("id, menu_name_snapshot, total_count")
+        .in("id", consumedPlanIdsInHistory),
+    ]);
+    const consumptionsByPlan = new Map<number, number[]>();
+    for (const row of (allConsumptionsRes.data ?? []) as Array<{
+      id: number;
+      consumed_plan_id: number;
+    }>) {
+      const list = consumptionsByPlan.get(row.consumed_plan_id) ?? [];
+      list.push(row.id);
+      consumptionsByPlan.set(row.consumed_plan_id, list);
+    }
+    for (const [, apptIds] of consumptionsByPlan) {
+      apptIds.forEach((aid, i) => planOrdinalByApptId.set(aid, i + 1));
+    }
+    for (const p of (planRowsRes.data ?? []) as Array<{
+      id: number;
+      menu_name_snapshot: string;
+      total_count: number | null;
+    }>) {
+      planMeta.set(p.id, {
+        name: p.menu_name_snapshot,
+        total: p.total_count ?? null,
+      });
+    }
+  }
+
   const appointments = raw.map((a) => {
     const staff = Array.isArray(a.staffs) ? a.staffs[0] ?? null : a.staffs;
+    const planConsumption =
+      a.consumed_plan_id != null && planMeta.has(a.consumed_plan_id)
+        ? {
+            planName:
+              planMeta.get(a.consumed_plan_id)?.name ?? "プラン",
+            ordinal: planOrdinalByApptId.get(a.id) ?? 0,
+            total: planMeta.get(a.consumed_plan_id)?.total ?? null,
+          }
+        : null;
     return {
       id: a.id,
       startAt: a.start_at,
@@ -155,6 +224,7 @@ export async function getCustomerFullDetail(
       memo: a.memo,
       menuName: menuNameMap.get(a.menu_manage_id) ?? a.menu_manage_id,
       staffName: staff?.name ?? null,
+      planConsumption,
     };
   });
 
