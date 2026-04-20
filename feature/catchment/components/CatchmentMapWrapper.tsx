@@ -24,8 +24,9 @@ const CatchmentMap = dynamic(
 interface Props {
   data: CatchmentData;
   visitSources: Array<{ id: number; name: string }>;
+  shopId: number;
 }
 
-export function CatchmentMapWrapper({ data, visitSources }: Props) {
-  return <CatchmentMap data={data} visitSources={visitSources} />;
+export function CatchmentMapWrapper({ data, visitSources, shopId }: Props) {
+  return <CatchmentMap data={data} visitSources={visitSources} shopId={shopId} />;
 }

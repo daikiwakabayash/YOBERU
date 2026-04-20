@@ -279,8 +279,9 @@ export async function getDailyReport(
   }
 
   // 6. Sort rows newest first (matching how reports are usually read)
+  // 日付は昇順 (1 日 → 31 日)。UI 側でヘッダに 合計行 → 日付行 と並べる。
   const rows = Array.from(byDay.values()).sort((a, b) =>
-    b.date.localeCompare(a.date)
+    a.date.localeCompare(b.date)
   );
 
   const totals = rows.reduce(

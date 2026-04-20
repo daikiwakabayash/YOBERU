@@ -258,6 +258,24 @@ export async function createAppointment(formData: FormData) {
     return { error: conflictMessage(check.conflict) };
   }
 
+  // 継続決済枠 (営業時間後の +2h ゾーン) のバリデーション。
+  // - 通常予約 (type=0) は 営業時間内 のみ。
+  // - スロットブロック (type=1/2) も extension 内には入れない (運用ルール:
+  //   この時間帯は継続決済の幽霊予約専用)。
+  // - is_continued_billing=true なら通る。
+  const isContBilling = String(raw.is_continued_billing ?? "") === "true";
+  const { isInExtensionZone } = await import("../services/isInExtensionZone");
+  const ext = await isInExtensionZone(
+    parsed.data.shop_id,
+    parsed.data.start_at
+  );
+  if (ext.inExtension && !isContBilling) {
+    return {
+      error:
+        "営業時間後の枠は『継続決済』の打ち込み専用です。通常予約はこの時間に入れられません。継続決済をチェックしてから保存してください。",
+    };
+  }
+
   // Generate unique appointment code
   const code = `APT-${parsed.data.shop_id}-${Date.now()}`;
 
@@ -348,12 +366,12 @@ export async function updateAppointment(id: number, formData: FormData) {
   if (raw.other_label !== undefined)
     updateData.other_label = raw.other_label || null;
 
-  // If time or staff changed, verify no overlap
+  // If time or staff changed, verify no overlap + extension-zone rule
   if (updateData.staff_id || updateData.start_at || updateData.end_at) {
-    // Look up current row to know current shop/staff/time
+    // Look up current row to know current shop/staff/time/billing-flag
     const { data: current } = await supabase
       .from("appointments")
-      .select("shop_id, staff_id, start_at, end_at")
+      .select("shop_id, staff_id, start_at, end_at, is_continued_billing")
       .eq("id", id)
       .single();
     if (current) {
@@ -366,6 +384,26 @@ export async function updateAppointment(id: number, formData: FormData) {
       });
       if (!check.available && check.conflict) {
         return { error: conflictMessage(check.conflict) };
+      }
+      // 継続決済枠 (営業時間後の +2h) チェック
+      const effectiveStart =
+        (updateData.start_at as string) ?? (current.start_at as string);
+      const effectiveBilling =
+        updateData.is_continued_billing !== undefined
+          ? (updateData.is_continued_billing as boolean)
+          : (current.is_continued_billing as boolean);
+      const { isInExtensionZone } = await import(
+        "../services/isInExtensionZone"
+      );
+      const ext = await isInExtensionZone(
+        current.shop_id as number,
+        effectiveStart
+      );
+      if (ext.inExtension && !effectiveBilling) {
+        return {
+          error:
+            "営業時間後の枠は『継続決済』専用です。通常予約はこの時間に移動できません。継続決済をチェックしてから保存してください。",
+        };
       }
     }
   }

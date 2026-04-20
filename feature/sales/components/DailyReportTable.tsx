@@ -13,13 +13,14 @@ function yen(n: number): string {
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 const WEEKDAY_COLORS = [
-  "text-red-500",   // Sun
-  "text-gray-700",  // Mon
-  "text-gray-700",  // Tue
-  "text-gray-700",  // Wed
-  "text-gray-700",  // Thu
-  "text-gray-700",  // Fri
-  "text-blue-500",  // Sat
+  "text-red-500",
+  "text-gray-700",
+  "text-gray-700",
+  "text-gray-700",
+  "text-gray-700",
+  "text-gray-700",
+  "text-gray-700",
+  "text-blue-500",
 ];
 
 function formatDate(dateStr: string): { md: string; weekday: string; weekdayCls: string } {
@@ -33,12 +34,12 @@ function formatDate(dateStr: string): { md: string; weekday: string; weekdayCls:
 }
 
 /**
- * Daily sales report — 1 row per day with visit/cancel counts, new vs
- * continuing sales split, payment-method breakdown, and per-source new
- * customer counts.
+ * Daily sales report.
  *
- * Wide table with horizontal scroll on small screens. Designed to be
- * readable on tablet (the iPad screenshots in the spec).
+ * レイアウト仕様:
+ *  - 期間合計行を **1 行目** (tbody の先頭) に置く
+ *  - 日次行は **昇順** (1 日 → 31 日)
+ *  - 売上系列 (合計売上 / 新規売上 / 継続売上) は 日付のすぐ右に寄せる
  */
 export function DailyReportTable({ data }: DailyReportTableProps) {
   const t = data.totals;
@@ -60,13 +61,13 @@ export function DailyReportTable({ data }: DailyReportTableProps) {
               <th className="sticky left-0 z-10 bg-gray-50 px-4 py-2 text-left font-medium">
                 日付
               </th>
+              <th className="px-3 py-2 text-right font-medium">合計売上</th>
+              <th className="px-3 py-2 text-right font-medium">新規売上</th>
+              <th className="px-3 py-2 text-right font-medium">継続売上</th>
               <th className="px-3 py-2 text-right font-medium">来店</th>
               <th className="px-3 py-2 text-right font-medium">C</th>
               <th className="px-3 py-2 text-right font-medium">新規数</th>
               <th className="px-3 py-2 text-right font-medium">継続数</th>
-              <th className="px-3 py-2 text-right font-medium">新規売上</th>
-              <th className="px-3 py-2 text-right font-medium">継続売上</th>
-              <th className="px-3 py-2 text-right font-medium">合計売上</th>
               <th className="px-4 py-2 text-left font-medium">決済内訳</th>
               <th className="px-4 py-2 text-left font-medium">媒体別 新規</th>
             </tr>
@@ -82,118 +83,118 @@ export function DailyReportTable({ data }: DailyReportTableProps) {
                 </td>
               </tr>
             ) : (
-              data.rows.map((r) => {
-                const dt = formatDate(r.date);
-                return (
-                  <tr key={r.date} className="hover:bg-gray-50/60">
-                    <td className="sticky left-0 z-10 bg-white px-4 py-2.5 text-left">
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-bold text-gray-900">
-                          {dt.md}
-                        </span>
-                        <span className={`text-[10px] font-bold ${dt.weekdayCls}`}>
-                          ({dt.weekday})
-                        </span>
-                      </div>
-                      <div className="mt-0.5 font-mono text-[10px] text-gray-400">
-                        {r.date}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-gray-700">
-                      {r.visitCount}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-red-500">
-                      {r.cancelCount || ""}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-orange-600">
-                      {r.newCount || ""}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-blue-600">
-                      {r.continuingCount || ""}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-orange-600">
-                      {r.newSales > 0 ? yen(r.newSales) : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-blue-600">
-                      {r.continuingSales > 0 ? yen(r.continuingSales) : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-emerald-700">
-                      {r.totalSales > 0 ? yen(r.totalSales) : "-"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {r.payments.length === 0 ? (
-                        <span className="text-gray-300">-</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {r.payments.map((p) => (
-                            <span
-                              key={p.code}
-                              className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700"
-                            >
-                              <span className="font-medium">{p.label}</span>
-                              <span className="font-bold">{yen(p.amount)}</span>
-                            </span>
-                          ))}
+              <>
+                {/* 1 行目: 期間合計 */}
+                <tr className="border-b-2 border-gray-200 bg-gray-50 font-bold">
+                  <td className="sticky left-0 z-10 bg-gray-50 px-4 py-2.5 text-left text-gray-700">
+                    期間合計
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-emerald-800">
+                    {yen(t.totalSales)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-orange-700">
+                    {yen(t.newSales)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-blue-700">
+                    {yen(t.continuingSales)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-gray-900">
+                    {t.visitCount}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-red-500">
+                    {t.cancelCount}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-orange-600">
+                    {t.newCount}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-blue-600">
+                    {t.continuingCount}
+                  </td>
+                  <td className="px-4 py-2.5" colSpan={2}>
+                    <span className="text-[11px] font-normal text-gray-400">
+                      決済 / 媒体は日次のみ
+                    </span>
+                  </td>
+                </tr>
+                {/* 2 行目以降: 日次 (1 日 → 31 日の昇順) */}
+                {data.rows.map((r) => {
+                  const dt = formatDate(r.date);
+                  return (
+                    <tr key={r.date} className="hover:bg-gray-50/60">
+                      <td className="sticky left-0 z-10 bg-white px-4 py-2.5 text-left">
+                        <div className="flex items-baseline gap-2">
+                          <span className="font-bold text-gray-900">
+                            {dt.md}
+                          </span>
+                          <span className={`text-[10px] font-bold ${dt.weekdayCls}`}>
+                            ({dt.weekday})
+                          </span>
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {r.newBySource.length === 0 ? (
-                        <span className="text-gray-300">-</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {r.newBySource.map((s) => (
-                            <span
-                              key={s.visitSourceId}
-                              className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] text-orange-700"
-                            >
-                              <span className="font-medium">{s.sourceName}</span>
-                              <span className="font-bold">{s.newCount}</span>
-                            </span>
-                          ))}
+                        <div className="mt-0.5 font-mono text-[10px] text-gray-400">
+                          {r.date}
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-bold text-emerald-700">
+                        {r.totalSales > 0 ? yen(r.totalSales) : "-"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-orange-600">
+                        {r.newSales > 0 ? yen(r.newSales) : "-"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-blue-600">
+                        {r.continuingSales > 0 ? yen(r.continuingSales) : "-"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-gray-700">
+                        {r.visitCount}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-red-500">
+                        {r.cancelCount || ""}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-orange-600">
+                        {r.newCount || ""}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-blue-600">
+                        {r.continuingCount || ""}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {r.payments.length === 0 ? (
+                          <span className="text-gray-300">-</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {r.payments.map((p) => (
+                              <span
+                                key={p.code}
+                                className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700"
+                              >
+                                <span className="font-medium">{p.label}</span>
+                                <span className="font-bold">{yen(p.amount)}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {r.newBySource.length === 0 ? (
+                          <span className="text-gray-300">-</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {r.newBySource.map((s) => (
+                              <span
+                                key={s.visitSourceId}
+                                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] text-orange-700"
+                              >
+                                <span className="font-medium">{s.sourceName}</span>
+                                <span className="font-bold">{s.newCount}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </>
             )}
           </tbody>
-          {data.rows.length > 0 && (
-            <tfoot className="border-t-2 border-gray-200 bg-gray-50 font-bold">
-              <tr>
-                <td className="sticky left-0 z-10 bg-gray-50 px-4 py-2.5 text-left text-gray-700">
-                  期間合計
-                </td>
-                <td className="px-3 py-2.5 text-right text-gray-900">
-                  {t.visitCount}
-                </td>
-                <td className="px-3 py-2.5 text-right text-red-500">
-                  {t.cancelCount}
-                </td>
-                <td className="px-3 py-2.5 text-right text-orange-600">
-                  {t.newCount}
-                </td>
-                <td className="px-3 py-2.5 text-right text-blue-600">
-                  {t.continuingCount}
-                </td>
-                <td className="px-3 py-2.5 text-right text-orange-700">
-                  {yen(t.newSales)}
-                </td>
-                <td className="px-3 py-2.5 text-right text-blue-700">
-                  {yen(t.continuingSales)}
-                </td>
-                <td className="px-3 py-2.5 text-right text-emerald-800">
-                  {yen(t.totalSales)}
-                </td>
-                <td className="px-4 py-2.5" colSpan={2}>
-                  <span className="text-[11px] font-normal text-gray-400">
-                    決済 / 媒体は日次のみ
-                  </span>
-                </td>
-              </tr>
-            </tfoot>
-          )}
         </table>
       </div>
     </Card>

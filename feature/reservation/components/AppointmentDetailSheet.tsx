@@ -72,6 +72,13 @@ interface AppointmentDetailSheetProps {
    * see the classic single-mode flow.
    */
   enableMeetingBooking?: boolean;
+  /**
+   * 当日の営業時間 終了分 (= 全スタッフの effective shift end の最大値)
+   * を分単位 (0-1440) で渡す。これ以降 +2h のスロットは「継続決済 only」
+   * 扱いとなり、通常予約は禁止 / 継続決済が自動 ON / Notice を表示する。
+   * 0 ならチェックを行わない (フォールバック)。
+   */
+  shopBusinessEndMin?: number;
 }
 
 /**
@@ -106,6 +113,7 @@ export function AppointmentDetailSheet({
   shopId,
   brandId,
   enableMeetingBooking = true,
+  shopBusinessEndMin = 0,
 }: AppointmentDetailSheetProps) {
   const isNew = !appointment;
 
@@ -273,8 +281,20 @@ export function AppointmentDetailSheet({
   const [justPurchasedPrice, setJustPurchasedPrice] = useState(0);
 
   // ---- 継続決済 (サブスク月額課金だけ計上する "幽霊予約") ----
+  // 開いたスロットが「営業時間後の +2h ゾーン」にある場合、自動で
+  // チェック ON にする (継続決済以外は保存できないため、手作業を省く)。
+  const slotStartHHMM =
+    appointment?.startAt?.slice(11, 16) ?? newBooking?.time ?? null;
+  const slotMin = slotStartHHMM
+    ? Number(slotStartHHMM.slice(0, 2)) * 60 + Number(slotStartHHMM.slice(3, 5))
+    : null;
+  const isExtensionZoneSlot =
+    shopBusinessEndMin > 0 &&
+    slotMin != null &&
+    slotMin >= shopBusinessEndMin &&
+    slotMin < shopBusinessEndMin + 120;
   const [isContinuedBilling, setIsContinuedBilling] = useState(
-    appointment?.isContinuedBilling ?? false
+    appointment?.isContinuedBilling ?? isExtensionZoneSlot
   );
 
   // ---- Payment ----
@@ -1215,6 +1235,22 @@ export function AppointmentDetailSheet({
               : "flex-1"
           }`}
         >
+          {/* 継続決済枠 (営業時間後の +2h) のお知らせ */}
+          {isExtensionZoneSlot && (
+            <div className="flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 p-3 text-xs text-purple-900">
+              <span className="mt-0.5">💳</span>
+              <div>
+                <div className="font-bold">継続決済 専用枠です</div>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-purple-800">
+                  この時間帯は営業時間後のため通常予約は入れられません。
+                  <br />
+                  サブスクの月次課金など「継続決済」のみ打ち込み可能です
+                  (下の「継続決済」が自動 ON になっています)。
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* ------- Status action buttons (existing) ------- */}
           {!isNew && status === 0 && (
             <div className="flex gap-2">

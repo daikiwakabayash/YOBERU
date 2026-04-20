@@ -24,7 +24,7 @@ export interface CatchmentPoint {
   hasTicket: boolean;        // 回数券を購入したか
   visitSourceId: number | null;
   visitSourceName: string | null;
-  firstVisitDate: string | null;
+  lastVisitDate: string | null; // YYYY-MM-DD (クライアント側の期間フィルタで使用)
   visitCount: number;
 }
 
@@ -36,26 +36,32 @@ export interface CatchmentShopCenter {
 
 export interface CatchmentData {
   shop: CatchmentShopCenter | null;
+  shopAddress: string | null; // 失敗時の表示用
   points: CatchmentPoint[];
   stats: {
     totalCustomers: number;
     geocodedCustomers: number;
     pending: number;
+    failedSamples: Array<{
+      id: number;
+      name: string | null;
+      zip: string | null;
+      address: string | null;
+    }>;
   };
 }
 
-const BACKFILL_LIMIT = 25; // 1 リクエスト最大件数 (GSI API 負荷配慮)
+const BACKFILL_LIMIT = 100; // 1 リクエスト最大件数 (GSI API 負荷配慮)
 
 export async function getCatchmentCustomers(params: {
   shopId: number;
-  startDate?: string | null;
-  endDate?: string | null;
 }): Promise<CatchmentData> {
   const supabase = await createClient();
-  const { shopId, startDate, endDate } = params;
+  const { shopId } = params;
 
   // ---- 1. 店舗中心を取得 (未設定なら住所から geocode) ----
   let shopCenter: CatchmentShopCenter | null = null;
+  let shopAddress: string | null = null;
   {
     const { data: shop } = await supabase
       .from("shops")
@@ -64,6 +70,7 @@ export async function getCatchmentCustomers(params: {
       .maybeSingle();
     if (shop) {
       const name = (shop.name as string) || "店舗";
+      shopAddress = (shop.address as string | null) ?? null;
       let lat = shop.latitude as number | null;
       let lng = shop.longitude as number | null;
       if ((lat == null || lng == null) && shop.address) {
@@ -85,23 +92,22 @@ export async function getCatchmentCustomers(params: {
         }
       }
       if (lat != null && lng != null) {
-        shopCenter = { lat, lng, name };
+        shopCenter = { lat: Number(lat), lng: Number(lng), name };
       }
     }
   }
 
-  // ---- 2. 顧客取得 (期間フィルタがあれば最終来院日で絞る) ----
-  let customerQuery = supabase
+  // ---- 2. 顧客取得 (全件) ----
+  // 期間フィルタはクライアント側 (lastVisitDate を per-point に渡す) で
+  // 行うため、ここでは全顧客を返す。max 1000 件 (それ以上は将来 pagination)。
+  const customerRes = await supabase
     .from("customers")
     .select(
       "id, code, last_name, first_name, birth_date, gender, zip_code, address, latitude, longitude, first_visit_source_id, visit_count, last_visit_date"
     )
     .eq("shop_id", shopId)
-    .is("deleted_at", null);
-  if (startDate) customerQuery = customerQuery.gte("last_visit_date", startDate);
-  if (endDate) customerQuery = customerQuery.lte("last_visit_date", endDate);
-
-  const customerRes = await customerQuery.limit(1000);
+    .is("deleted_at", null)
+    .limit(1000);
   const allCustomers = customerRes.data ?? [];
 
   // ---- 3. 未 geocode 分を最大 BACKFILL_LIMIT 件まで backfill ----
@@ -187,18 +193,34 @@ export async function getCatchmentCustomers(params: {
       hasTicket: ticketSet.has(c.id as number),
       visitSourceId: sourceId,
       visitSourceName: sourceId ? sourceMap.get(sourceId) ?? null : null,
-      firstVisitDate: null,
+      lastVisitDate: (c.last_visit_date as string | null) ?? null,
       visitCount: (c.visit_count as number | null) ?? 0,
     };
   });
 
+  // 失敗サンプル: 住所はあるのに lat/lng が NULL のままのもの (最大 5)
+  const stillFailed = allCustomers.filter(
+    (c) =>
+      (c.latitude == null || c.longitude == null) &&
+      ((c.address as string | null)?.trim() ?? "") !== ""
+  );
+  const failedSamples = stillFailed.slice(0, 5).map((c) => ({
+    id: c.id as number,
+    name:
+      [c.last_name, c.first_name].filter(Boolean).join(" ").trim() || null,
+    zip: (c.zip_code as string | null) ?? null,
+    address: (c.address as string | null) ?? null,
+  }));
+
   return {
     shop: shopCenter,
+    shopAddress,
     points,
     stats: {
       totalCustomers: allCustomers.length,
       geocodedCustomers: geocodedCustomers.length,
       pending: Math.max(0, pending.length - toBackfill.length),
+      failedSamples,
     },
   };
 }

@@ -67,6 +67,18 @@ export function ReservationCalendar({
     (s) => s.isWorking || staffHasAppt.has(s.id)
   );
 
+  // 全 working staff の shiftEnd 最大値 = 営業時間の終了。これ以降 +2h
+  // が「継続決済 only」枠 (AppointmentDetailSheet が判定に使う)。
+  const shopBusinessEndMin = useMemo(() => {
+    let max = 0;
+    for (const s of workingStaffs) {
+      if (!s.shiftEnd) continue;
+      const v = timeToMinutes(s.shiftEnd.slice(0, 5));
+      if (Number.isFinite(v) && v > max) max = v;
+    }
+    return max;
+  }, [workingStaffs]);
+
   const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
   const endMinute =
     timeSlots.length > 0
@@ -445,25 +457,41 @@ export function ReservationCalendar({
                       shiftEndMin !== null &&
                       slotMin >= shiftStartMin &&
                       slotMin < shiftEndMin;
+                    // 営業時間後の +2h = 継続決済 only ゾーン。
+                    // クリックで新規予約シートが開くが、自動で
+                    // is_continued_billing=true が ON になり、サーバ側でも
+                    // 通常予約は拒否される。
+                    const isExtensionZone =
+                      shopBusinessEndMin > 0 &&
+                      slotMin >= shopBusinessEndMin &&
+                      slotMin < shopBusinessEndMin + 120;
                     const isOccupied = isMinuteOccupied(slotMin);
-                    const isClickable = isInShift && !isOccupied;
+                    const isClickable =
+                      (isInShift || isExtensionZone) && !isOccupied;
+
+                    let bgClass: string;
+                    if (isOccupied) bgClass = "bg-gray-50";
+                    else if (isInShift) bgClass = "cursor-pointer hover:bg-blue-50/30";
+                    else if (isExtensionZone)
+                      bgClass =
+                        "cursor-pointer bg-purple-50/40 hover:bg-purple-100/60";
+                    else bgClass = "bg-gray-100";
 
                     return (
                       <div
                         key={slot}
+                        title={
+                          isExtensionZone
+                            ? "継続決済 専用枠 (通常予約は不可)"
+                            : undefined
+                        }
                         className={`absolute top-0 h-full ${
                           isHour
                             ? "border-l-2 border-gray-300"
                             : isHalf
                               ? "border-l border-gray-200"
                               : "border-l border-gray-100"
-                        } ${
-                          !isInShift
-                            ? "bg-gray-100"
-                            : isOccupied
-                              ? "bg-gray-50"
-                              : "cursor-pointer hover:bg-blue-50/30"
-                        }`}
+                        } ${bgClass}`}
                         style={{ left: leftPx, width: widthPx }}
                         onClick={
                           isClickable
@@ -884,6 +912,7 @@ export function ReservationCalendar({
         shopId={shopId}
         brandId={brandId}
         enableMeetingBooking={enableMeetingBooking}
+        shopBusinessEndMin={shopBusinessEndMin}
       />
     </>
   );

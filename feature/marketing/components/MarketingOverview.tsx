@@ -31,7 +31,7 @@ export function MarketingOverview({ data }: MarketingOverviewProps) {
       {/* Primary hero row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <HeroCard
-          icon={<Users className="h-5 w-5 text-orange-600" />}
+          icon={<Users className="h-3 w-3 text-orange-600" />}
           iconBg="bg-orange-100"
           label="実来院数"
           topRightLabel="集客"
@@ -39,7 +39,7 @@ export function MarketingOverview({ data }: MarketingOverviewProps) {
           subtext={`予約 ${num(t.reservationCount)}名`}
         />
         <HeroCard
-          icon={<DollarSign className="h-5 w-5 text-green-600" />}
+          icon={<DollarSign className="h-3 w-3 text-green-600" />}
           iconBg="bg-green-100"
           label="平均CPA"
           topRightLabel="CPA"
@@ -47,7 +47,7 @@ export function MarketingOverview({ data }: MarketingOverviewProps) {
           subtext={`広告費 ${yen(t.adSpend)}`}
         />
         <HeroCard
-          icon={<Target className="h-5 w-5 text-blue-600" />}
+          icon={<Target className="h-3 w-3 text-blue-600" />}
           iconBg="bg-blue-100"
           label="入会率"
           topRightLabel="成約"
@@ -55,7 +55,7 @@ export function MarketingOverview({ data }: MarketingOverviewProps) {
           subtext={`${num(t.joinCount)}名入会`}
         />
         <HeroCard
-          icon={<AlertTriangle className="h-5 w-5 text-red-500" />}
+          icon={<AlertTriangle className="h-3 w-3 text-red-500" />}
           iconBg="bg-red-100"
           label="キャンセル率"
           topRightLabel="注意"
@@ -313,19 +313,25 @@ function HeroCard({
   value: string;
   subtext: string;
 }) {
+  // MiniCard と同じくらいの寸法にまで圧縮。縦横どちらも占有が半分
+  // 以下になるので、概要タブ上部のカード行がタイトに並ぶ。
   return (
-    <Card className="relative overflow-hidden p-5">
-      <div className="absolute right-4 top-4 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+    <Card className="relative overflow-hidden p-2.5">
+      <div className="absolute right-2 top-2 text-[9px] font-bold uppercase tracking-wider text-gray-400">
         {topRightLabel}
       </div>
-      <div
-        className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl ${iconBg}`}
-      >
-        {icon}
+      <div className="flex items-center gap-1.5">
+        <span
+          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${iconBg}`}
+        >
+          {icon}
+        </span>
+        <span className="text-[11px] text-gray-500">{label}</span>
       </div>
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="mt-1 text-2xl font-black text-gray-900">{value}</div>
-      <div className="mt-1 text-[11px] text-gray-400">{subtext}</div>
+      <div className="mt-1 text-base font-black leading-tight text-gray-900">
+        {value}
+      </div>
+      <div className="mt-0.5 text-[10px] text-gray-400">{subtext}</div>
     </Card>
   );
 }
