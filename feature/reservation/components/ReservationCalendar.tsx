@@ -565,8 +565,15 @@ export function ReservationCalendar({
                       // デフォルト 0 になる) または 1 の場合を新規とみなす。
                       // isNewCustomer は「顧客の created_at が今日」で判定
                       // するため、前日に作成した顧客の翌日予約は false になる。
+                      //
+                      // ただし継続決済 (is_continued_billing=TRUE) は
+                      // 「実来院せずサブスク月次課金だけを売上計上する幽霊
+                      // 予約」なので、visit_count が 1 でも新規扱いには
+                      // しない (この予約は顧客の来店回数にカウントされない
+                      // 運用 = 既存顧客確定)。
                       const isNew =
                         !isSlotBlock &&
+                        !appt.isContinuedBilling &&
                         (appt.isNewCustomer || appt.visitCount <= 1);
                       const isPast = appt.status === 2;
                       const isInProgress = appt.status === 1;

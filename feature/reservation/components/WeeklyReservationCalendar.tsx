@@ -592,7 +592,10 @@ export function WeeklyReservationCalendar({
                       );
                     }
 
-                    const isNew = appt.isNewCustomer || appt.visitCount <= 1;
+                    // 継続決済 (サブスク月次課金の幽霊予約) は新規扱いにしない
+                    const isNew =
+                      !appt.isContinuedBilling &&
+                      (appt.isNewCustomer || appt.visitCount <= 1);
                     const isPast = appt.status === 2;
                     const isInProgress = appt.status === 1;
                     const isCancelled = appt.status === 3 || appt.status === 99;
