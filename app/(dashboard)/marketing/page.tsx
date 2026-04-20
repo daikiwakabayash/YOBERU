@@ -4,12 +4,10 @@ import { MarketingOverview } from "@/feature/marketing/components/MarketingOverv
 import { MarketingTabs } from "@/feature/marketing/components/MarketingTabs";
 import type { MarketingTabKey } from "@/feature/marketing/components/MarketingTabs";
 import { MarketingShopBreakdown } from "@/feature/marketing/components/MarketingShopBreakdown";
-import { MarketingMenuBreakdown } from "@/feature/marketing/components/MarketingMenuBreakdown";
 import { MarketingNewCustomer } from "@/feature/marketing/components/MarketingNewCustomer";
 import { CatchmentMapWrapper } from "@/feature/catchment/components/CatchmentMapWrapper";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
-import { getMarketingByMenu } from "@/feature/marketing/services/getMarketingByMenu";
 import { getNewCustomerAnalytics } from "@/feature/marketing/services/getNewCustomerAnalytics";
 import { getCatchmentCustomers } from "@/feature/catchment/services/getCatchmentCustomers";
 import {
@@ -60,8 +58,6 @@ function monthOptions(): string[] {
 const VALID_TABS = new Set<MarketingTabKey>([
   "overview",
   "shop",
-  "media",
-  "menu",
   "new-customer",
   "catchment",
   "ai",
@@ -126,16 +122,6 @@ export default async function MarketingPage({
       });
       return <MarketingShopBreakdown shops={shops} grandTotal={grandTotal} />;
     }
-    if (tab === "menu") {
-      const menus = await getMarketingByMenu({
-        shopId,
-        startMonth,
-        endMonth,
-        visitSourceId,
-        staffId,
-      });
-      return <MarketingMenuBreakdown menus={menus} />;
-    }
     if (tab === "new-customer") {
       // 新規管理タブは単月ビュー。?start= をそのまま対象月として使う。
       // ?end / ?source / ?staff は現状無視 (月内すべての新規客を列挙)。
@@ -174,10 +160,8 @@ export default async function MarketingPage({
         />
       );
     }
-    // overview + media share the same aggregation. Media view is the
-    // same overview with media table highlighted at the top; for this
-    // round we render the same MarketingOverview and let the 媒体別
-    // section stand out visually within it.
+    // overview: default fallback. 媒体別 section is rendered within
+    // MarketingOverview itself.
     const data = await getMarketingData({
       brandId,
       shopId,
