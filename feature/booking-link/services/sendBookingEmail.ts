@@ -7,11 +7,14 @@ import { sendEmail } from "@/helper/lib/email/sendEmail";
  * 予約確認 (即時) メールのデフォルト件名・本文。
  * booking_links.immediate_email_subject / immediate_email_template が
  * NULL のときはこれが使われる。
+ *
+ * "use server" ファイルでは async 関数以外の export が禁止されている
+ * ので、モジュール内 const として保持 (外部利用も現状ないため)。
  */
-export const DEFAULT_IMMEDIATE_SUBJECT =
+const DEFAULT_IMMEDIATE_SUBJECT =
   "【{shop_name}】ご予約ありがとうございます";
 
-export const DEFAULT_IMMEDIATE_TEMPLATE = `{customer_name} 様
+const DEFAULT_IMMEDIATE_TEMPLATE = `{customer_name} 様
 
 この度は {shop_name} をご予約いただき、誠にありがとうございます。
 以下の内容でご予約を承りました。
