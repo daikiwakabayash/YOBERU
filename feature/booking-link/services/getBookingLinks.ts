@@ -28,6 +28,9 @@ function normalizeLink(row: Record<string, unknown>): BookingLink {
   if (!Array.isArray(r.shop_ids)) {
     r.shop_ids = [] as number[];
   }
+  // Pre-migration rows (before 00023) won't have these keys at all.
+  if (!("head_tag_template_id" in r)) r.head_tag_template_id = null;
+  if (!("body_tag_template_id" in r)) r.body_tag_template_id = null;
   return r as unknown as BookingLink;
 }
 

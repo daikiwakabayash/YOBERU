@@ -28,6 +28,7 @@ interface BookingLinkFormProps {
     category_name?: string | null;
   }>;
   visitSources: Array<{ id: number; name: string }>;
+  tagTemplates: Array<{ id: number; title: string }>;
   initialData?: BookingLink;
 }
 
@@ -36,6 +37,7 @@ export function BookingLinkForm({
   shops,
   menus,
   visitSources,
+  tagTemplates,
   initialData,
 }: BookingLinkFormProps) {
   const router = useRouter();
@@ -76,6 +78,12 @@ export function BookingLinkForm({
   );
   const [visitSourceId, setVisitSourceId] = useState<number | null>(
     initialData?.visit_source_id ?? null
+  );
+  const [headTagTemplateId, setHeadTagTemplateId] = useState<number | null>(
+    initialData?.head_tag_template_id ?? null
+  );
+  const [bodyTagTemplateId, setBodyTagTemplateId] = useState<number | null>(
+    initialData?.body_tag_template_id ?? null
   );
   const [reminderSettings, setReminderSettings] = useState<
     import("../types").ReminderSetting[]
@@ -131,6 +139,10 @@ export function BookingLinkForm({
     form.set("line_button_text", lineButtonText);
     form.set("line_button_url", lineButtonUrl);
     if (visitSourceId) form.set("visit_source_id", String(visitSourceId));
+    if (headTagTemplateId)
+      form.set("head_tag_template_id", String(headTagTemplateId));
+    if (bodyTagTemplateId)
+      form.set("body_tag_template_id", String(bodyTagTemplateId));
     form.set("reminder_settings", JSON.stringify(reminderSettings));
 
     const result = isEdit
@@ -436,6 +448,67 @@ export function BookingLinkForm({
           <p className="mt-2 text-xs text-muted-foreground">
             このリンクから予約した顧客はこの媒体で自動タグ付けされます。
           </p>
+        </CardContent>
+      </Card>
+
+      {/* Tag templates (GTM 等) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">タグテンプレート</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            このリンクの公開ページ (/book/&lt;slug&gt;) に Google タグマネージャー等を
+            埋め込む場合、事前に作成した「タグテンプレート」を選択してください。
+            新規作成・編集は
+            <a
+              href="/tag-template"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mx-1 text-blue-600 underline"
+            >
+              タグテンプレート
+            </a>
+            ページから行えます。
+          </p>
+          <div className="space-y-2">
+            <Label>head に埋め込むタグ</Label>
+            <select
+              value={headTagTemplateId ?? ""}
+              onChange={(e) =>
+                setHeadTagTemplateId(
+                  e.target.value ? Number(e.target.value) : null
+                )
+              }
+              className="h-9 w-full max-w-md rounded-md border px-2 text-sm"
+            >
+              <option value="">— なし —</option>
+              {tagTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label>body 直下に埋め込むタグ</Label>
+            <select
+              value={bodyTagTemplateId ?? ""}
+              onChange={(e) =>
+                setBodyTagTemplateId(
+                  e.target.value ? Number(e.target.value) : null
+                )
+              }
+              className="h-9 w-full max-w-md rounded-md border px-2 text-sm"
+            >
+              <option value="">— なし —</option>
+              {tagTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title}
+                </option>
+              ))}
+            </select>
+          </div>
         </CardContent>
       </Card>
 

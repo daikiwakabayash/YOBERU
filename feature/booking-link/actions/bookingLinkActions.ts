@@ -25,6 +25,12 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
     line_button_text: raw.line_button_text || null,
     line_button_url: raw.line_button_url || null,
     visit_source_id: raw.visit_source_id ? Number(raw.visit_source_id) : null,
+    head_tag_template_id: raw.head_tag_template_id
+      ? Number(raw.head_tag_template_id)
+      : null,
+    body_tag_template_id: raw.body_tag_template_id
+      ? Number(raw.body_tag_template_id)
+      : null,
     reminder_settings: raw.reminder_settings
       ? JSON.parse(String(raw.reminder_settings))
       : [],
@@ -33,6 +39,21 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
 
 function isMissingShopIdsColumn(msg: string): boolean {
   return msg.includes("shop_ids") && msg.includes("column");
+}
+
+// 00023 で追加した head/body タグ template FK カラムが未適用のときの
+// フォールバック用判定。
+function isMissingTagTemplateColumn(msg: string): boolean {
+  return (
+    (msg.includes("head_tag_template_id") ||
+      msg.includes("body_tag_template_id")) &&
+    msg.includes("column")
+  );
+}
+
+function stripMigrationOnlyColumns(data: Record<string, unknown>): void {
+  delete data.head_tag_template_id;
+  delete data.body_tag_template_id;
 }
 
 export async function createBookingLink(formData: FormData) {
@@ -55,6 +76,13 @@ export async function createBookingLink(formData: FormData) {
     if (error && isMissingShopIdsColumn(error.message ?? "")) {
       const fallback = { ...insertData };
       delete fallback.shop_ids;
+      const retry = await supabase.from("booking_links").insert(fallback);
+      error = retry.error;
+    }
+    // Same pattern for the 00023 tag template columns.
+    if (error && isMissingTagTemplateColumn(error.message ?? "")) {
+      const fallback = { ...insertData };
+      stripMigrationOnlyColumns(fallback);
       const retry = await supabase.from("booking_links").insert(fallback);
       error = retry.error;
     }
@@ -87,6 +115,15 @@ export async function updateBookingLink(id: number, formData: FormData) {
   if (error && isMissingShopIdsColumn(error.message ?? "")) {
     const fallback = { ...updateData };
     delete fallback.shop_ids;
+    const retry = await supabase
+      .from("booking_links")
+      .update(fallback)
+      .eq("id", id);
+    error = retry.error;
+  }
+  if (error && isMissingTagTemplateColumn(error.message ?? "")) {
+    const fallback = { ...updateData };
+    stripMigrationOnlyColumns(fallback);
     const retry = await supabase
       .from("booking_links")
       .update(fallback)

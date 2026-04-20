@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { getBookingLinkBySlug } from "@/feature/booking-link/services/getBookingLinks";
 import { getShopAvailability } from "@/feature/booking-link/services/getShopAvailability";
 import { getShopStaffFreeSlots } from "@/feature/booking-link/services/getShopStaffFreeSlots";
+import { getTagTemplatesByIds } from "@/feature/tag-template/services/getTagTemplates";
+import { TagInjector } from "@/feature/tag-template/components/TagInjector";
 import { createClient } from "@/helper/lib/supabase/server";
 import { PublicBookingWizard } from "@/feature/booking-link/components/PublicBookingWizard";
 
@@ -189,8 +191,29 @@ export default async function PublicBookingPage({
     }
   }
 
+  // Resolve tag templates (GTM etc.) attached to this booking link, if any.
+  // Both head/body columns are nullable (00023). Pre-migration rows have
+  // them normalized to null in getBookingLinkBySlug.
+  const tagTemplateIds = [
+    link.head_tag_template_id,
+    link.body_tag_template_id,
+  ].filter((id): id is number => typeof id === "number" && id > 0);
+  const tagTemplates =
+    tagTemplateIds.length > 0
+      ? await getTagTemplatesByIds(tagTemplateIds)
+      : [];
+  const tagById = new Map(tagTemplates.map((t) => [t.id, t.content]));
+  const headTagHtml = link.head_tag_template_id
+    ? tagById.get(link.head_tag_template_id) ?? ""
+    : "";
+  const bodyTagHtml = link.body_tag_template_id
+    ? tagById.get(link.body_tag_template_id) ?? ""
+    : "";
+
   return (
     <div className="min-h-screen bg-white">
+      {headTagHtml && <TagInjector target="head" html={headTagHtml} />}
+      {bodyTagHtml && <TagInjector target="body" html={bodyTagHtml} />}
       <PublicBookingWizard
         link={{
           slug: link.slug,

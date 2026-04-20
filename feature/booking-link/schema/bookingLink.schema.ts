@@ -34,6 +34,8 @@ export const bookingLinkSchema = z.object({
   line_button_text: z.string().optional().nullable(),
   line_button_url: z.string().url().optional().nullable().or(z.literal("")),
   visit_source_id: z.number().int().optional().nullable(),
+  head_tag_template_id: z.number().int().positive().optional().nullable(),
+  body_tag_template_id: z.number().int().positive().optional().nullable(),
   reminder_settings: z.array(reminderSettingSchema).default([]),
 });
 

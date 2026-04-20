@@ -16,6 +16,7 @@ import {
   Layers,
   Grid3X3,
   Link2,
+  Code2,
   CreditCard,
   Megaphone,
   ClipboardList,
@@ -33,6 +34,7 @@ const navigation = [
     items: [
       { name: "予約表", href: "/reservation", icon: CalendarDays },
       { name: "強制リンク作成", href: "/booking-link", icon: Link2 },
+      { name: "タグテンプレート", href: "/tag-template", icon: Code2 },
     ],
   },
   {

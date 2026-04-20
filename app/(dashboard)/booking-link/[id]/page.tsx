@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { BookingLinkForm } from "@/feature/booking-link/components/BookingLinkForm";
 import { getBookingLinkById } from "@/feature/booking-link/services/getBookingLinks";
+import { getTagTemplates } from "@/feature/tag-template/services/getTagTemplates";
 import { createClient } from "@/helper/lib/supabase/server";
 import {
   getActiveShopId,
@@ -98,6 +99,8 @@ export default async function BookingLinkEditPage({
       : null,
   }));
 
+  const { data: tagTemplates } = await getTagTemplates(brandId);
+
   return (
     <div>
       <PageHeader title="強制リンク編集" description={link.title} />
@@ -107,6 +110,7 @@ export default async function BookingLinkEditPage({
           shops={shopsData}
           menus={menus}
           visitSources={sourceData}
+          tagTemplates={tagTemplates.map((t) => ({ id: t.id, title: t.title }))}
           initialData={link}
         />
       </div>
