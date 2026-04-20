@@ -1701,6 +1701,83 @@ export function AppointmentDetailSheet({
             </label>
           </section>
 
+          {/* ===== Section: Plan suggestion =====
+              DB 駆動のプランメニュー (menus.plan_type IS NOT NULL) を
+              カード化する。カードクリックで PlanPurchaseDialog を開き、
+              「今日を 1 回目」「次回を 1 回目」を必ず選んでから購入する
+              フローへ進む。購入すると customer_plans に 1 行作り、
+              appointments.is_member_join=true を立てるのでマーケティング
+              ダッシュボードの入会率分子にもカウントされる。
+
+              既に保有中のプラン (activePlans) があれば、提案カードの上に
+              「X/Y 消化」の残数付きでバッジ表示する。
+
+              表示条件: 顧客が紐付いていれば出す (新規予約で既存顧客を
+              選んだケース / 既存予約 どちらでも)。 */}
+          {activeCustomerId && (
+            <>
+              <Separator />
+              <section className="space-y-2">
+                <Label className="text-xs font-bold text-gray-500">
+                  プラン提案
+                </Label>
+
+                {activePlans.length > 0 ? (
+                  <div className="space-y-1">
+                    {activePlans.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs"
+                      >
+                        <span className="font-bold text-emerald-800">
+                          {p.menu_name_snapshot}
+                        </span>
+                        <span className="font-bold text-emerald-700">
+                          {p.plan_type === "ticket" && p.total_count != null
+                            ? `${p.used_count}/${p.total_count} 消化`
+                            : "サブスク継続中"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-orange-600">
+                    プラン未契約 - プランを提案してください
+                  </p>
+                )}
+
+                {planMenus.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    {planMenus.map((plan) => (
+                      <button
+                        key={plan.menu_manage_id}
+                        type="button"
+                        onClick={() => setPlanPurchaseTarget(plan)}
+                        className="cursor-pointer rounded-lg border border-gray-200 p-3 text-center transition-colors hover:border-orange-400 hover:bg-orange-50"
+                      >
+                        <div className="text-xs font-bold text-gray-700">
+                          {plan.name}
+                        </div>
+                        <div className="mt-1 text-sm font-black text-orange-600">
+                          ¥{plan.price.toLocaleString()}
+                        </div>
+                        <div className="text-[10px] text-gray-400">
+                          {plan.plan_type === "ticket"
+                            ? `${plan.ticket_count ?? 1} 回券`
+                            : "月額"}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-400">
+                    提案可能なプランが未登録です (メニュー管理から追加してください)
+                  </p>
+                )}
+              </section>
+            </>
+          )}
+
           <Separator />
 
           {/* ===== Section: Billing (お会計) ===== */}
@@ -1791,79 +1868,6 @@ export function AppointmentDetailSheet({
           </section>
 
           <Separator />
-
-          {/* ===== Section: Plan suggestion =====
-              DB 駆動のプランメニュー (menus.plan_type IS NOT NULL) を
-              カード化する。カードクリックで PlanPurchaseDialog を開き、
-              「今日を 1 回目」「次回を 1 回目」を必ず選んでから購入する
-              フローへ進む。購入すると customer_plans に 1 行作り、
-              appointments.is_member_join=true を立てるのでマーケティング
-              ダッシュボードの入会率分子にもカウントされる。
-
-              既に保有中のプラン (activePlans) があれば、提案カードの上に
-              「X/Y 消化」の残数付きでバッジ表示する。 */}
-          {!isNew && appointment && activeCustomerId && (
-            <section className="space-y-2">
-              <Label className="text-xs font-bold text-gray-500">
-                プラン提案
-              </Label>
-
-              {activePlans.length > 0 ? (
-                <div className="space-y-1">
-                  {activePlans.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs"
-                    >
-                      <span className="font-bold text-emerald-800">
-                        {p.menu_name_snapshot}
-                      </span>
-                      <span className="font-bold text-emerald-700">
-                        {p.plan_type === "ticket" && p.total_count != null
-                          ? `${p.used_count}/${p.total_count} 消化`
-                          : "サブスク継続中"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-orange-600">
-                  プラン未契約 - プランを提案してください
-                </p>
-              )}
-
-              {planMenus.length > 0 ? (
-                <div className="grid grid-cols-3 gap-2">
-                  {planMenus.map((plan) => (
-                    <button
-                      key={plan.menu_manage_id}
-                      type="button"
-                      onClick={() => setPlanPurchaseTarget(plan)}
-                      className="cursor-pointer rounded-lg border border-gray-200 p-3 text-center transition-colors hover:border-orange-400 hover:bg-orange-50"
-                    >
-                      <div className="text-xs font-bold text-gray-700">
-                        {plan.name}
-                      </div>
-                      <div className="mt-1 text-sm font-black text-orange-600">
-                        ¥{plan.price.toLocaleString()}
-                      </div>
-                      <div className="text-[10px] text-gray-400">
-                        {plan.plan_type === "ticket"
-                          ? `${plan.ticket_count ?? 1} 回券`
-                          : "月額"}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-gray-400">
-                  提案可能なプランが未登録です (メニュー管理から追加してください)
-                </p>
-              )}
-            </section>
-          )}
-
-          {!isNew && appointment && <Separator />}
 
           {/* ===== Section: Payment Method ===== */}
           <section className="space-y-2">
@@ -2061,9 +2065,9 @@ type DossierDetail = {
 };
 
 const GENDER_LABELS: Record<number, string> = {
-  0: "男性",
-  1: "女性",
-  2: "その他",
+  0: "未設定",
+  1: "男性",
+  2: "女性",
 };
 const TYPE_LABELS: Record<number, { label: string; cls: string }> = {
   0: { label: "一般", cls: "bg-gray-100 text-gray-700" },

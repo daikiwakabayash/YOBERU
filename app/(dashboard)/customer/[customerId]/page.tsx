@@ -33,9 +33,9 @@ const TYPE_LABELS: Record<number, { label: string; color: string }> = {
 };
 
 const GENDER_LABELS: Record<number, string> = {
-  0: "男性",
-  1: "女性",
-  2: "その他",
+  0: "未設定",
+  1: "男性",
+  2: "女性",
 };
 
 interface CustomerDetailPageProps {
