@@ -30,7 +30,6 @@ import {
 } from "@/feature/reception/actions/receptionActions";
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
 import { PlanPurchaseDialog } from "@/feature/customer-plan/components/PlanPurchaseDialog";
-import { PlanCountEditor } from "@/feature/customer-plan/components/PlanCountEditor";
 import { getLastVisitForCustomer } from "@/feature/reservation/services/getAppointments";
 import type { CustomerSummary } from "@/feature/customer/types";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
@@ -1967,7 +1966,6 @@ export function AppointmentDetailSheet({
               detail={customerDetail}
               loading={customerDetailLoading}
               stripZeros={stripZeros}
-              activePlans={activePlans}
             />
           </div>
         )}
@@ -2130,19 +2128,11 @@ function CustomerDossierPanel({
   detail,
   loading,
   stripZeros,
-  activePlans,
 }: {
   rightPanelCustomer: DossierCustomer;
   detail: DossierDetail | null;
   loading: boolean;
   stripZeros: (code: string | null | undefined) => string | null;
-  activePlans: Array<{
-    id: number;
-    menu_name_snapshot: string;
-    plan_type: "ticket" | "subscription";
-    total_count: number | null;
-    used_count: number;
-  }>;
 }) {
   // Until the dossier arrives, fall back to the sparse data we already
   // have from the calendar / search (so the header doesn't flicker).
@@ -2228,41 +2218,6 @@ function CustomerDossierPanel({
           </div>
         </div>
       </div>
-
-      {/* ===== Active plans (加入中の会員プラン) =====
-          LINE 等で「残り何回ですか？」と問い合わせが来る最優先情報。
-          KPI カードの直下に目立つバナーで置き、スタッフが一瞬で把握
-          できるようにする。ボタンで +/- 調整 + 直接入力の修正も可。 */}
-      {activePlans.length > 0 && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm">
-          <div className="mb-2 text-xs font-bold text-emerald-700">
-            加入中の会員プラン
-          </div>
-          <ul className="divide-y divide-emerald-100">
-            {activePlans.map((p) => (
-              <li
-                key={p.id}
-                className="flex items-center justify-between gap-3 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-gray-900">
-                    {p.menu_name_snapshot}
-                  </div>
-                  <div className="text-[11px] text-gray-500">
-                    {p.plan_type === "ticket" ? "回数券" : "月額サブスク"}
-                  </div>
-                </div>
-                <PlanCountEditor
-                  planId={p.id}
-                  planType={p.plan_type}
-                  totalCount={p.total_count}
-                  usedCount={p.used_count ?? 0}
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* ===== Main grid — 基本情報 (1/3) + 来院履歴 (2/3) ===== */}
       <div className="grid gap-5 lg:grid-cols-3">
