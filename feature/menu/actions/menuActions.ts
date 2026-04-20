@@ -191,6 +191,26 @@ export async function deleteMenu(id: number) {
 }
 
 /**
+ * Drag-and-drop 並び替え用。orderedIds の順番で sort_number を 1, 2, 3...
+ * と振り直す (先頭 = 最上位 = sort_number 1)。
+ */
+export async function reorderMenus(orderedIds: number[]) {
+  const supabase = await createClient();
+  const results = await Promise.all(
+    orderedIds.map((id, idx) =>
+      supabase
+        .from("menus")
+        .update({ sort_number: idx + 1 })
+        .eq("id", id)
+    )
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) return { error: failed.error.message };
+  revalidatePath("/menu");
+  return { success: true };
+}
+
+/**
  * 既存メニューを複製する。料金・施術時間・カテゴリ等はそのまま引き継ぎ、
  * 名前に「（コピー）」を付けて新しい menu_manage_id を採番する。
  * 採番方式は createMenu と同じ (BRD-{id} / STR-{id}、id は最大 + 1)。

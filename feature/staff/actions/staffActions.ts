@@ -150,3 +150,26 @@ export async function updateStaffAllocateOrder(
   revalidatePath("/reservation");
   return { success: true };
 }
+
+/**
+ * Drag-and-drop 並び替え用。orderedIds の順番で allocate_order を 1, 2, 3...
+ * と振り直す (先頭 = 優先度最高 = allocate_order 1)。
+ */
+export async function reorderStaffs(orderedIds: number[]) {
+  const supabase = await createClient();
+  // Supabase は一括 update を直接サポートしないので 1 件ずつ発行
+  // (スタッフは店舗あたり 10-20 件程度のため問題なし)。
+  const results = await Promise.all(
+    orderedIds.map((id, idx) =>
+      supabase
+        .from("staffs")
+        .update({ allocate_order: idx + 1 })
+        .eq("id", id)
+    )
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) return { error: failed.error.message };
+  revalidatePath("/staff");
+  revalidatePath("/reservation");
+  return { success: true };
+}
