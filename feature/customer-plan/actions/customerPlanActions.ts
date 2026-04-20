@@ -160,6 +160,60 @@ export async function consumeCustomerPlan(
   return { success: true };
 }
 
+/**
+ * used_count を直接書き換える (手動修正用)。
+ * 入力ミスの訂正や、過去予約分の反映漏れを手動で直すときに使う。
+ *
+ * - ticket で total_count != null のときは 0 <= value <= total_count にクランプ
+ * - サブスクは 0 以上で自由
+ * - 残 0 の ticket は status=1 に、残 >0 なら status=0 に自動遷移
+ */
+export async function setPlanUsedCount(planId: number, nextValue: number) {
+  const supabase = await createClient();
+
+  const { data: plan, error: fetchErr } = await supabase
+    .from("customer_plans")
+    .select("plan_type, total_count, used_count")
+    .eq("id", planId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (fetchErr) return { error: fetchErr.message };
+  if (!plan) return { error: "プランが見つかりません" };
+
+  let v = Math.max(0, Math.floor(nextValue));
+  if (plan.plan_type === "ticket" && plan.total_count != null) {
+    v = Math.min(v, plan.total_count as number);
+  }
+
+  const exhausted =
+    plan.plan_type === "ticket" &&
+    plan.total_count != null &&
+    v >= (plan.total_count as number);
+
+  const { error } = await supabase
+    .from("customer_plans")
+    .update({ used_count: v, status: exhausted ? 1 : 0 })
+    .eq("id", planId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/customer");
+  revalidatePath("/reservation");
+  return { success: true, usedCount: v };
+}
+
+/** used_count を +/- delta で増減させる (ボタン操作用の薄いラッパ) */
+export async function adjustPlanUsedCount(planId: number, delta: number) {
+  const supabase = await createClient();
+  const { data: plan } = await supabase
+    .from("customer_plans")
+    .select("used_count")
+    .eq("id", planId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!plan) return { error: "プランが見つかりません" };
+  return setPlanUsedCount(planId, (plan.used_count ?? 0) + delta);
+}
+
 function oneMonthLater(): string {
   const d = new Date();
   d.setMonth(d.getMonth() + 1);
