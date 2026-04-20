@@ -101,6 +101,10 @@ export function StoreForm({
       line_channel_id: "",
       line_channel_secret: "",
       line_channel_access_token: "",
+      meta_ad_account_id: "",
+      meta_access_token: "",
+      tiktok_advertiser_id: "",
+      tiktok_access_token: "",
     },
   });
 
@@ -517,6 +521,73 @@ export function StoreForm({
                 )}
               </FormField>
             </div>
+          </div>
+
+          {/* 広告 API 連携 (Meta / TikTok) */}
+          <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/30 p-4 md:col-span-2">
+            <div className="text-sm font-bold text-blue-800">
+              広告 API 連携 (Meta / TikTok)
+            </div>
+            <p className="text-xs text-muted-foreground">
+              入力すると 30 分ごとに広告費・Impression・CTR・CVR・CPM・クリック数を
+              自動取得し、マーケティングダッシュボードに反映します。詳しい取得手順は{" "}
+              <code className="rounded bg-gray-100 px-1 text-[11px]">
+                docs/ad-api-integration.md
+              </code>{" "}
+              を参照してください。
+            </p>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FormField form={form} name="meta_ad_account_id" label="Meta 広告アカウント ID">
+                {(field) => (
+                  <Input
+                    id="meta_ad_account_id"
+                    placeholder="act_1234567890"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="meta_access_token" label="Meta アクセストークン (長期)">
+                {(field) => (
+                  <Input
+                    id="meta_access_token"
+                    type="password"
+                    placeholder="EAA... (システムユーザートークン)"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="tiktok_advertiser_id" label="TikTok 広告主 ID (advertiser_id)">
+                {(field) => (
+                  <Input
+                    id="tiktok_advertiser_id"
+                    placeholder="例: 6925..."
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="tiktok_access_token" label="TikTok アクセストークン (長期)">
+                {(field) => (
+                  <Input
+                    id="tiktok_access_token"
+                    type="password"
+                    placeholder="長期トークンをここに貼り付け"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+            </div>
+            <p className="text-[11px] text-blue-700">
+              ※ 入力したトークンは平文で DB に保存されます。本番運用では Supabase Vault や
+              Vercel 環境変数経由での管理を推奨。
+            </p>
           </div>
 
           {/* Server error */}

@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/sync-ads",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/send-reminders",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
