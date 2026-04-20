@@ -146,14 +146,10 @@ export default async function MarketingPage({
       return <MarketingNewCustomer data={data} />;
     }
     if (tab === "catchment") {
-      // 商圏タブ: 顧客住所 geocode → 地図ピン表示。期間フィルタは
-      // start/end の月 → 日付に展開 (末日)。
-      const startDate = `${startMonth}-01`;
-      const [ey, em] = endMonth.split("-").map(Number);
-      const lastDay = new Date(ey, em, 0).getDate();
-      const endDate = `${endMonth}-${String(lastDay).padStart(2, "0")}`;
+      // 商圏タブ: 顧客住所 geocode → 地図ピン表示。
+      // 期間フィルタはクライアント側で行うので、サーバは全顧客を返す。
       const [catchmentData, sourcesForMap] = await Promise.all([
-        getCatchmentCustomers({ shopId, startDate, endDate }),
+        getCatchmentCustomers({ shopId }),
         (async () => {
           const sRes = await supabase
             .from("visit_sources")

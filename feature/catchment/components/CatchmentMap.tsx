@@ -58,6 +58,16 @@ export function CatchmentMap({ data, visitSources }: Props) {
   const [ageFilter, setAgeFilter] = useState<Set<number>>(
     new Set(AGE_BUCKETS.map((_, i) => i))
   );
+  // 期間フィルタ (last_visit_date 基準)。空 = 全期間。
+  const [periodEnabled, setPeriodEnabled] = useState(false);
+  const todayISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const monthAgoISO = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const [periodStart, setPeriodStart] = useState<string>(monthAgoISO);
+  const [periodEnd, setPeriodEnd] = useState<string>(todayISO);
 
   const filteredPoints = useMemo(() => {
     return data.points.filter((p) => {
@@ -70,9 +80,22 @@ export function CatchmentMap({ data, visitSources }: Props) {
         );
         if (bucketIdx >= 0 && !ageFilter.has(bucketIdx)) return false;
       }
+      if (periodEnabled) {
+        if (!p.lastVisitDate) return false;
+        if (p.lastVisitDate < periodStart) return false;
+        if (p.lastVisitDate > periodEnd) return false;
+      }
       return true;
     });
-  }, [data.points, filterMember, selectedSources, ageFilter]);
+  }, [
+    data.points,
+    filterMember,
+    selectedSources,
+    ageFilter,
+    periodEnabled,
+    periodStart,
+    periodEnd,
+  ]);
 
   const center: [number, number] = data.shop
     ? [data.shop.lat, data.shop.lng]
@@ -116,6 +139,13 @@ export function CatchmentMap({ data, visitSources }: Props) {
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
       {/* ---- Filter Panel ---- */}
       <div className="space-y-4 rounded-lg border bg-white p-4">
+        {!data.shop && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800">
+            店舗住所から座標を取得できませんでした。
+            <br />
+            店舗設定の住所と郵便番号を確認してください。
+          </div>
+        )}
         <div>
           <div className="mb-2 text-xs font-bold text-gray-700">対象</div>
           <div className="flex flex-col gap-1 text-xs">
@@ -146,6 +176,40 @@ export function CatchmentMap({ data, visitSources }: Props) {
               />
               会員登録済み
             </label>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-bold text-gray-700">期間で絞り込み</span>
+            <label className="flex items-center gap-1 text-[11px] text-gray-500">
+              <input
+                type="checkbox"
+                checked={periodEnabled}
+                onChange={(e) => setPeriodEnabled(e.target.checked)}
+              />
+              有効
+            </label>
+          </div>
+          {periodEnabled && (
+            <div className="flex items-center gap-1">
+              <input
+                type="date"
+                value={periodStart}
+                onChange={(e) => setPeriodStart(e.target.value)}
+                className="h-7 w-full rounded-md border px-1 text-[11px]"
+              />
+              <span className="text-[10px] text-gray-400">〜</span>
+              <input
+                type="date"
+                value={periodEnd}
+                onChange={(e) => setPeriodEnd(e.target.value)}
+                className="h-7 w-full rounded-md border px-1 text-[11px]"
+              />
+            </div>
+          )}
+          <div className="mt-1 text-[10px] text-gray-400">
+            最終来院日が範囲内の顧客のみ表示
           </div>
         </div>
 
