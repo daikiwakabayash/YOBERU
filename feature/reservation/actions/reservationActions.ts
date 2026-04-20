@@ -306,9 +306,27 @@ export async function createAppointment(formData: FormData) {
     insertRow.slot_block_type_code = raw.slot_block_type_code;
   }
 
-  const { error } = await supabase.from("appointments").insert(insertRow);
+  const { data: inserted, error } = await supabase
+    .from("appointments")
+    .insert(insertRow)
+    .select("id")
+    .single();
 
   if (error) return { error: error.message };
+
+  // 通常予約 (type=0) かつ実顧客が紐付いているときのみ確認メール送信。
+  // ミーティング / その他のブロック予約は顧客ではないのでスキップ。
+  // 送信失敗は例外を投げず、予約作成は成功扱いにする。
+  if (!isSlotBlock && inserted?.id) {
+    try {
+      const { sendBookingConfirmationEmail } = await import(
+        "@/feature/booking-link/services/sendBookingEmail"
+      );
+      await sendBookingConfirmationEmail(inserted.id as number, null);
+    } catch (e) {
+      console.error("[createAppointment] 確認メール送信失敗", e);
+    }
+  }
 
   revalidatePath("/reservation");
   return { success: true };

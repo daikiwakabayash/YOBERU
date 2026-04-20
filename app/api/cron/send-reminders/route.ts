@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/helper/lib/supabase/server";
+import { sendEmail } from "@/helper/lib/email/sendEmail";
 import type { ReminderSetting } from "@/feature/booking-link/types";
 
 /**
@@ -20,10 +21,9 @@ import type { ReminderSetting } from "@/feature/booking-link/types";
  *   5. Sends the reminder via the configured channel
  *   6. Inserts a row into reminder_logs with the result
  *
- * NOTE: Actual email delivery requires configuring an SMTP provider. This
- * endpoint currently LOGS what would be sent. See sendEmail() below — wire
- * up your transactional email provider (Resend, SendGrid, Nodemailer, etc.)
- * inside that function.
+ * メール送信は helper/lib/email/sendEmail.ts 経由で Resend が担当する。
+ * RESEND_API_KEY 未設定なら送信をスキップ (ログのみ)。ドメイン認証
+ * (SPF/DKIM/DMARC) 手順は .env.example のコメント参照。
  */
 
 function requireCronAuth(request: NextRequest): boolean {
@@ -48,6 +48,7 @@ interface ReminderContext {
   customer_email: string | null;
   customer_phone: string | null;
   shop_name: string;
+  shop_email: string | null;
   staff_name: string;
   menu_name: string;
   date: string;
@@ -64,32 +65,6 @@ function renderTemplate(template: string, ctx: ReminderContext): string {
     .replace(/\{date\}/g, ctx.date)
     .replace(/\{time\}/g, ctx.time)
     .replace(/\{offset_days\}/g, String(ctx.offset_days));
-}
-
-/**
- * Placeholder email sender. Replace with a real provider in production.
- * Example (Resend):
- *
- *   import { Resend } from 'resend';
- *   const resend = new Resend(process.env.RESEND_API_KEY);
- *   await resend.emails.send({
- *     from: 'reservation@yoberu.app',
- *     to,
- *     subject,
- *     text: body,
- *   });
- */
-async function sendEmail(
-  to: string,
-  subject: string,
-  body: string
-): Promise<{ success: boolean; error?: string }> {
-  if (!to) return { success: false, error: "宛先メールアドレスなし" };
-
-  // TODO: Wire up your email provider here.
-  // For now, log the intended send so the flow can be verified.
-  console.log("[REMINDER EMAIL]", { to, subject, bodyPreview: body.slice(0, 100) });
-  return { success: true };
 }
 
 function addDays(dateStr: string, days: number): string {
@@ -219,7 +194,7 @@ export async function GET(request: NextRequest) {
             .maybeSingle(),
           supabase
             .from("shops")
-            .select("name")
+            .select("name, email1")
             .eq("id", appt.shop_id)
             .single(),
         ]);
@@ -229,6 +204,7 @@ export async function GET(request: NextRequest) {
           customer_email: customer.data?.email ?? null,
           customer_phone: customer.data?.phone_number_1 ?? null,
           shop_name: shop.data?.name ?? "店舗",
+          shop_email: shop.data?.email1 ?? null,
           staff_name: staff.data?.name ?? "担当",
           menu_name: menu.data?.name ?? "メニュー",
           date: appt.start_at.slice(0, 10),
@@ -244,7 +220,13 @@ export async function GET(request: NextRequest) {
           } else {
             const subject = renderTemplate(setting.subject ?? "", ctx);
             const body = renderTemplate(setting.template, ctx);
-            sendResult = await sendEmail(ctx.customer_email, subject, body);
+            sendResult = await sendEmail({
+              to: ctx.customer_email,
+              subject,
+              body,
+              fromName: ctx.shop_name,
+              replyTo: ctx.shop_email,
+            });
           }
         } else if (setting.type === "sms") {
           // TODO: wire up Twilio or similar

@@ -31,6 +31,12 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
     body_tag_template_id: raw.body_tag_template_id
       ? Number(raw.body_tag_template_id)
       : null,
+    immediate_email_enabled:
+      raw.immediate_email_enabled === undefined
+        ? true
+        : raw.immediate_email_enabled === "true",
+    immediate_email_subject: raw.immediate_email_subject || null,
+    immediate_email_template: raw.immediate_email_template || null,
     reminder_settings: raw.reminder_settings
       ? JSON.parse(String(raw.reminder_settings))
       : [],
@@ -41,8 +47,7 @@ function isMissingShopIdsColumn(msg: string): boolean {
   return msg.includes("shop_ids") && msg.includes("column");
 }
 
-// 00023 で追加した head/body タグ template FK カラムが未適用のときの
-// フォールバック用判定。
+// 00023 / 00024 で追加したカラムが未適用のときのフォールバック判定。
 function isMissingTagTemplateColumn(msg: string): boolean {
   return (
     (msg.includes("head_tag_template_id") ||
@@ -51,9 +56,16 @@ function isMissingTagTemplateColumn(msg: string): boolean {
   );
 }
 
+function isMissingImmediateEmailColumn(msg: string): boolean {
+  return msg.includes("immediate_email_") && msg.includes("column");
+}
+
 function stripMigrationOnlyColumns(data: Record<string, unknown>): void {
   delete data.head_tag_template_id;
   delete data.body_tag_template_id;
+  delete data.immediate_email_enabled;
+  delete data.immediate_email_subject;
+  delete data.immediate_email_template;
 }
 
 export async function createBookingLink(formData: FormData) {
@@ -79,8 +91,13 @@ export async function createBookingLink(formData: FormData) {
       const retry = await supabase.from("booking_links").insert(fallback);
       error = retry.error;
     }
-    // Same pattern for the 00023 tag template columns.
-    if (error && isMissingTagTemplateColumn(error.message ?? "")) {
+    // Same pattern for the 00023 tag template / 00024 immediate email
+    // columns — strip both sets and retry.
+    if (
+      error &&
+      (isMissingTagTemplateColumn(error.message ?? "") ||
+        isMissingImmediateEmailColumn(error.message ?? ""))
+    ) {
       const fallback = { ...insertData };
       stripMigrationOnlyColumns(fallback);
       const retry = await supabase.from("booking_links").insert(fallback);
@@ -121,7 +138,11 @@ export async function updateBookingLink(id: number, formData: FormData) {
       .eq("id", id);
     error = retry.error;
   }
-  if (error && isMissingTagTemplateColumn(error.message ?? "")) {
+  if (
+    error &&
+    (isMissingTagTemplateColumn(error.message ?? "") ||
+      isMissingImmediateEmailColumn(error.message ?? ""))
+  ) {
     const fallback = { ...updateData };
     stripMigrationOnlyColumns(fallback);
     const retry = await supabase
@@ -424,26 +445,46 @@ export async function submitPublicBooking(formData: FormData) {
 
   // 3. Create appointment
   const code = `APT-${shopId}-${Date.now()}`;
-  const apptInsert = await supabase.from("appointments").insert({
-    brand_id: brandId,
-    shop_id: shopId,
-    customer_id: customerId,
-    staff_id: finalStaffId,
-    menu_manage_id: menuManageId,
-    code,
-    type: 0,
-    start_at: startAt,
-    end_at: endAt,
-    is_couple: false,
-    sales: 0,
-    status: 0,
-    visit_count: 1,
-    visit_source_id: link.data.visit_source_id ?? null,
-    memo: utmSource ? `流入元: ${utmSource}` : null,
-  });
+  const apptInsert = await supabase
+    .from("appointments")
+    .insert({
+      brand_id: brandId,
+      shop_id: shopId,
+      customer_id: customerId,
+      staff_id: finalStaffId,
+      menu_manage_id: menuManageId,
+      code,
+      type: 0,
+      start_at: startAt,
+      end_at: endAt,
+      is_couple: false,
+      sales: 0,
+      status: 0,
+      visit_count: 1,
+      visit_source_id: link.data.visit_source_id ?? null,
+      memo: utmSource ? `流入元: ${utmSource}` : null,
+    })
+    .select("id")
+    .single();
 
-  if (apptInsert.error) {
-    return { error: "予約作成に失敗しました: " + apptInsert.error.message };
+  if (apptInsert.error || !apptInsert.data) {
+    return {
+      error:
+        "予約作成に失敗しました: " + (apptInsert.error?.message ?? "unknown"),
+    };
+  }
+
+  // 4. 予約確認 (即時) メール送信。失敗しても予約は成功扱い。
+  try {
+    const { sendBookingConfirmationEmail } = await import(
+      "@/feature/booking-link/services/sendBookingEmail"
+    );
+    await sendBookingConfirmationEmail(
+      apptInsert.data.id as number,
+      link.data.id as number
+    );
+  } catch (e) {
+    console.error("[submitPublicBooking] 確認メール送信失敗", e);
   }
 
   revalidatePath("/reservation");

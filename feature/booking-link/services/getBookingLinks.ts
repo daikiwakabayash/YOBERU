@@ -31,6 +31,11 @@ function normalizeLink(row: Record<string, unknown>): BookingLink {
   // Pre-migration rows (before 00023) won't have these keys at all.
   if (!("head_tag_template_id" in r)) r.head_tag_template_id = null;
   if (!("body_tag_template_id" in r)) r.body_tag_template_id = null;
+  // Pre-migration rows (before 00024): default immediate email ON so
+  // confirmation mails go out by default after the migration is applied.
+  if (!("immediate_email_enabled" in r)) r.immediate_email_enabled = true;
+  if (!("immediate_email_subject" in r)) r.immediate_email_subject = null;
+  if (!("immediate_email_template" in r)) r.immediate_email_template = null;
   return r as unknown as BookingLink;
 }
 

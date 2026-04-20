@@ -85,6 +85,15 @@ export function BookingLinkForm({
   const [bodyTagTemplateId, setBodyTagTemplateId] = useState<number | null>(
     initialData?.body_tag_template_id ?? null
   );
+  const [immediateEmailEnabled, setImmediateEmailEnabled] = useState<boolean>(
+    initialData?.immediate_email_enabled ?? true
+  );
+  const [immediateEmailSubject, setImmediateEmailSubject] = useState<string>(
+    initialData?.immediate_email_subject ?? ""
+  );
+  const [immediateEmailTemplate, setImmediateEmailTemplate] = useState<string>(
+    initialData?.immediate_email_template ?? ""
+  );
   const [reminderSettings, setReminderSettings] = useState<
     import("../types").ReminderSetting[]
   >(initialData?.reminder_settings ?? []);
@@ -143,6 +152,12 @@ export function BookingLinkForm({
       form.set("head_tag_template_id", String(headTagTemplateId));
     if (bodyTagTemplateId)
       form.set("body_tag_template_id", String(bodyTagTemplateId));
+    form.set(
+      "immediate_email_enabled",
+      immediateEmailEnabled ? "true" : "false"
+    );
+    form.set("immediate_email_subject", immediateEmailSubject);
+    form.set("immediate_email_template", immediateEmailTemplate);
     form.set("reminder_settings", JSON.stringify(reminderSettings));
 
     const result = isEdit
@@ -509,6 +524,55 @@ export function BookingLinkForm({
               ))}
             </select>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Immediate confirmation email (sent right after booking) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">予約完了時の即時メール</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            予約が入った瞬間に、お客様のメールアドレスへ確認メールを送ります。
+            件名と本文を空欄にすると、既定のテンプレート (店舗名・日時・
+            メニュー・担当 を含む丁寧な日本語文) が使われます。
+            使用可能な差し込み変数:{" "}
+            <code className="text-[11px]">
+              {"{customer_name} {shop_name} {date} {time} {menu} {staff}"}
+            </code>
+          </p>
+          <label className="flex items-center gap-2">
+            <Switch
+              checked={immediateEmailEnabled}
+              onCheckedChange={setImmediateEmailEnabled}
+            />
+            <span className="text-sm">
+              {immediateEmailEnabled ? "送信する" : "送信しない"}
+            </span>
+          </label>
+          {immediateEmailEnabled && (
+            <>
+              <div className="space-y-2">
+                <Label>件名 (空欄でデフォルト)</Label>
+                <Input
+                  value={immediateEmailSubject}
+                  onChange={(e) => setImmediateEmailSubject(e.target.value)}
+                  placeholder="【{shop_name}】ご予約ありがとうございます"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>本文 (空欄でデフォルト)</Label>
+                <Textarea
+                  value={immediateEmailTemplate}
+                  onChange={(e) => setImmediateEmailTemplate(e.target.value)}
+                  rows={8}
+                  placeholder={`{customer_name} 様\n\nこの度は {shop_name} をご予約いただき...`}
+                  className="font-mono text-xs"
+                />
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
