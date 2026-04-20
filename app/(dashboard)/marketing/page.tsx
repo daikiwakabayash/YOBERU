@@ -5,9 +5,13 @@ import { MarketingTabs } from "@/feature/marketing/components/MarketingTabs";
 import type { MarketingTabKey } from "@/feature/marketing/components/MarketingTabs";
 import { MarketingShopBreakdown } from "@/feature/marketing/components/MarketingShopBreakdown";
 import { MarketingMenuBreakdown } from "@/feature/marketing/components/MarketingMenuBreakdown";
+import { MarketingNewCustomer } from "@/feature/marketing/components/MarketingNewCustomer";
+import { CatchmentMapWrapper } from "@/feature/catchment/components/CatchmentMapWrapper";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
 import { getMarketingByMenu } from "@/feature/marketing/services/getMarketingByMenu";
+import { getNewCustomerAnalytics } from "@/feature/marketing/services/getNewCustomerAnalytics";
+import { getCatchmentCustomers } from "@/feature/catchment/services/getCatchmentCustomers";
 import {
   getActiveBrandId,
   getActiveShopId,
@@ -58,6 +62,8 @@ const VALID_TABS = new Set<MarketingTabKey>([
   "shop",
   "media",
   "menu",
+  "new-customer",
+  "catchment",
   "ai",
   "market",
 ]);
@@ -69,13 +75,20 @@ export default async function MarketingPage({
   const shopId = await getActiveShopId();
   const brandId = await getActiveBrandId();
 
-  // Default range: last 6 months through current
+  // Default range: 当月のみ (ユーザー要望: 常に「今の月」が起点)。
+  // 月次集計なので endMonth も当月にして、結果は 4/1〜月末までの
+  // データ (未来の日付は実際には appointment / ad_spend が無いので
+  // 自然と「4/1〜今日」相当の集計になる)。
   const now = currentYearMonth();
-  const defaultStart = addMonths(now, -5);
+  const defaultStart = now;
   const defaultEnd = now;
 
-  const startMonth = sp.start ?? defaultStart;
-  const endMonth = sp.end ?? defaultEnd;
+  let startMonth = sp.start ?? defaultStart;
+  let endMonth = sp.end ?? defaultEnd;
+  // 防御: start が end より後なら swap して逆転入力で 0 件にしない。
+  if (startMonth.localeCompare(endMonth) > 0) {
+    [startMonth, endMonth] = [endMonth, startMonth];
+  }
   const visitSourceId = sp.source ? Number(sp.source) : null;
   const staffId = sp.staff ? Number(sp.staff) : null;
   const rawTab = (sp.tab ?? "overview") as MarketingTabKey;
@@ -123,6 +136,44 @@ export default async function MarketingPage({
       });
       return <MarketingMenuBreakdown menus={menus} />;
     }
+    if (tab === "new-customer") {
+      // 新規管理タブは単月ビュー。?start= をそのまま対象月として使う。
+      // ?end / ?source / ?staff は現状無視 (月内すべての新規客を列挙)。
+      const data = await getNewCustomerAnalytics({
+        shopId,
+        yearMonth: startMonth,
+      });
+      return <MarketingNewCustomer data={data} />;
+    }
+    if (tab === "catchment") {
+      // 商圏タブ: 顧客住所 geocode → 地図ピン表示。期間フィルタは
+      // start/end の月 → 日付に展開 (末日)。
+      const startDate = `${startMonth}-01`;
+      const [ey, em] = endMonth.split("-").map(Number);
+      const lastDay = new Date(ey, em, 0).getDate();
+      const endDate = `${endMonth}-${String(lastDay).padStart(2, "0")}`;
+      const [catchmentData, sourcesForMap] = await Promise.all([
+        getCatchmentCustomers({ shopId, startDate, endDate }),
+        (async () => {
+          const sRes = await supabase
+            .from("visit_sources")
+            .select("id, name")
+            .eq("shop_id", shopId)
+            .is("deleted_at", null)
+            .order("sort_number", { ascending: true, nullsFirst: false });
+          return (sRes.data ?? []).map((s) => ({
+            id: s.id as number,
+            name: s.name as string,
+          }));
+        })(),
+      ]);
+      return (
+        <CatchmentMapWrapper
+          data={catchmentData}
+          visitSources={sourcesForMap}
+        />
+      );
+    }
     // overview + media share the same aggregation. Media view is the
     // same overview with media table highlighted at the top; for this
     // round we render the same MarketingOverview and let the 媒体別
@@ -148,9 +199,11 @@ export default async function MarketingPage({
     if (v) descriptionBits.push(`媒体: ${v.name}`);
   }
   const description =
-    descriptionBits.length > 0
-      ? `媒体 × 店舗 × 月で集計 (${descriptionBits.join(" / ")})`
-      : "媒体 × 店舗 × 月で予約・来院・入会・キャンセル・広告費・売上を集計します";
+    tab === "new-customer"
+      ? `当月の新規客台帳 (${startMonth.replace("-", "年")}月 起点の来店ベース集計)`
+      : descriptionBits.length > 0
+        ? `媒体 × 店舗 × 月で集計 (${descriptionBits.join(" / ")})`
+        : "媒体 × 店舗 × 月で予約・来院・入会・キャンセル・広告費・売上を集計します";
 
   return (
     <div>

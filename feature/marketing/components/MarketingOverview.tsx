@@ -93,6 +93,35 @@ export function MarketingOverview({ data }: MarketingOverviewProps) {
         />
       </div>
 
+      {/* 広告 API 連携指標 (Impressions / Clicks / CTR / CVR / CPM) */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <MiniCard
+          label="Impression"
+          value={t.impressions > 0 ? num(t.impressions) : "-"}
+          tone="bg-purple-50 border-purple-100"
+        />
+        <MiniCard
+          label="クリック数"
+          value={t.clicks > 0 ? num(t.clicks) : "-"}
+          tone="bg-indigo-50 border-indigo-100"
+        />
+        <MiniCard
+          label="CTR"
+          value={t.ctr > 0 ? `${t.ctr.toFixed(2)}%` : "-"}
+          tone="bg-cyan-50 border-cyan-100"
+        />
+        <MiniCard
+          label="CVR"
+          value={t.cvr > 0 ? `${t.cvr.toFixed(2)}%` : "-"}
+          tone="bg-teal-50 border-teal-100"
+        />
+        <MiniCard
+          label="CPM"
+          value={t.cpm > 0 ? `¥${Math.round(t.cpm).toLocaleString()}` : "-"}
+          tone="bg-fuchsia-50 border-fuchsia-100"
+        />
+      </div>
+
       {/* Monthly trend table */}
       <Card className="overflow-hidden">
         <div className="border-b bg-gradient-to-r from-orange-50 to-white px-5 py-3 text-sm font-bold text-gray-800">

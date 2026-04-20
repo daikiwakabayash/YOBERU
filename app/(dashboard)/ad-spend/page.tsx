@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AdSpendForm } from "@/feature/marketing/components/AdSpendForm";
+import { AdSyncButton } from "@/feature/ad-spend/components/AdSyncButton";
 import { getAdSpendRows } from "@/feature/marketing/services/getAdSpend";
 import {
   getActiveBrandId,
@@ -64,6 +65,7 @@ export default async function AdSpendPage() {
       <PageHeader
         title="広告費"
         description="媒体 × 月で広告費を管理し、マーケティングダッシュボードの CPA / ROAS 計算に使用します"
+        actions={<AdSyncButton shopId={shopId} />}
       />
       <div className="space-y-4 p-6">
         {adSpendResult.setupRequired && (

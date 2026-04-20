@@ -69,83 +69,83 @@ export function SalesDashboardContent({
 }: SalesDashboardContentProps) {
   return (
     <div className="space-y-6">
-      {/* Summary KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+      {/* Summary KPI Cards (compact) */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Card data-size="sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-1">
+            <CardTitle className="text-xs font-medium text-muted-foreground">
               総売上
             </CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-lg font-bold leading-tight">
               ¥{data.totalSales.toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {data.totalCount}件完了
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+        <Card data-size="sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-1">
+            <CardTitle className="text-xs font-medium text-muted-foreground">
               新規顧客
             </CardTitle>
-            <UserPlus className="h-4 w-4 text-green-500" />
+            <UserPlus className="h-3.5 w-3.5 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-lg font-bold leading-tight">
               ¥{data.newCustomerSales.toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {data.newCustomerCount}件
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+        <Card data-size="sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-1">
+            <CardTitle className="text-xs font-medium text-muted-foreground">
               既存顧客
             </CardTitle>
-            <UserCheck className="h-4 w-4 text-blue-500" />
+            <UserCheck className="h-3.5 w-3.5 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-lg font-bold leading-tight">
               ¥{data.existingCustomerSales.toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {data.existingCustomerCount}件
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+        <Card data-size="sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-1">
+            <CardTitle className="text-xs font-medium text-muted-foreground">
               キャンセル/無断
             </CardTitle>
-            <AlertTriangle className="h-4 w-4 text-red-500" />
+            <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-3">
               <div>
                 <div className="flex items-center gap-1">
                   <XCircle className="h-3 w-3 text-red-400" />
-                  <span className="text-lg font-bold">
+                  <span className="text-base font-bold">
                     {data.cancelledCount}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">キャンセル</p>
+                <p className="text-[11px] text-muted-foreground">キャンセル</p>
               </div>
               <div>
                 <div className="flex items-center gap-1">
                   <Users className="h-3 w-3 text-orange-400" />
-                  <span className="text-lg font-bold">{data.noShowCount}</span>
+                  <span className="text-base font-bold">{data.noShowCount}</span>
                 </div>
-                <p className="text-xs text-muted-foreground">無断</p>
+                <p className="text-[11px] text-muted-foreground">無断</p>
               </div>
             </div>
           </CardContent>

@@ -20,13 +20,13 @@ interface ReservationCalendarProps {
 
 // Horizontal layout constants — staff rows on Y, time on X.
 // 幅を詰めて横スクロール量を小さくする:
-//   STAFF_ROW_HEIGHT: スタッフ行の高さ。30 分枠 (幅 66px) でも顧客名
-//     + バッジ + メニュー名を縦積みで読めるように高めに確保する。
+//   STAFF_ROW_HEIGHT: スタッフ行の高さ。2 行 (名前 / バッジ+メニュー)
+//     で収まる 72px に抑え、予約表全体が縦長にならないようにする。
 //   STAFF_LABEL_WIDTH: 左のスタッフ名列の幅
 //   TIME_HEADER_HEIGHT: 上部の時間ヘッダーの高さ
 //   PX_PER_MIN: 1分あたりの横幅 (以前は4。2.2にして約45%圧縮)
 //     → 30min = 66px, 60min = 132px, 12h = 1584px
-const STAFF_ROW_HEIGHT = 100;
+const STAFF_ROW_HEIGHT = 72;
 const STAFF_LABEL_WIDTH = 120;
 const TIME_HEADER_HEIGHT = 32;
 const PX_PER_MIN = 2.2;
@@ -76,13 +76,19 @@ export function ReservationCalendar({
   const totalWidth = totalMinutes * PX_PER_MIN;
 
   // Drag state — horizontal drag changes time, vertical changes staff.
+  // We keep the "live" values in refs so 60fps mousemove updates don't
+  // trigger React re-renders; only the ghost card's visual position
+  // (dragLeft state) re-renders, which is cheap. `dragAppt` toggles
+  // just once (start/end of drag) so the listener effect is stable.
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [dragStaffId, setDragStaffId] = useState<number | null>(null);
   const [dragLeft, setDragLeft] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
+  const dragOffsetRef = useRef(0);
+  const dragStaffIdRef = useRef<number | null>(null);
+  const dragLeftRef = useRef(0);
   const hasMovedRef = useRef(false);
   const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const rafRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const handleDragStart = useCallback(
@@ -92,75 +98,113 @@ export function ReservationCalendar({
         setSelectedAppt(appt);
         return;
       }
-      const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
+      const rect = (e.target as HTMLElement)
+        .closest("[data-appt]")
+        ?.getBoundingClientRect();
       if (!rect) return;
+      // タイムライン領域の左端 (スタッフ名列 STAFF_LABEL_WIDTH を
+      // 除いた位置) を基準にする。apptLeft / ドラッグ中の left は
+      // すべてタイムライン内座標で扱うため、ここからの差分で計算
+      // しないとカードがスタッフ列幅分だけズレて表示される。
+      const timelineOriginX =
+        (gridRef.current?.getBoundingClientRect().left ?? 0) +
+        STAFF_LABEL_WIDTH;
       hasMovedRef.current = false;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+      dragOffsetRef.current = e.clientX - rect.left;
+      dragStaffIdRef.current = appt.staffId;
+      const initialLeft = rect.left - timelineOriginX;
+      dragLeftRef.current = initialLeft;
+      setDragLeft(initialLeft);
       setDragAppt(appt);
-      setDragStaffId(appt.staffId);
-      setDragOffset(e.clientX - rect.left);
-      setDragLeft(rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0));
     },
     []
   );
 
   useEffect(() => {
     if (!dragAppt || !gridRef.current) return;
-    const gridRect = gridRef.current.getBoundingClientRect();
+    const gridEl = gridRef.current;
     const DRAG_THRESHOLD = 5;
+    // Pre-collect staff rows once per drag to avoid querying the DOM
+    // on every mousemove (previous implementation did querySelectorAll
+    // inside the listener which caused noticeable lag).
+    const staffRowEls = Array.from(
+      gridEl.querySelectorAll<HTMLElement>("[data-staff-id]")
+    );
 
     function handleMouseMove(e: MouseEvent) {
-      const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
-      const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
-      if (!hasMovedRef.current && (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD)) {
-        hasMovedRef.current = true;
-        setIsDraggingReal(true);
-      }
-      if (!hasMovedRef.current) return;
-
-      const newLeft = e.clientX - gridRect.left - dragOffset;
-      setDragLeft(Math.max(0, newLeft));
-
-      // Detect staff row by Y position
-      const staffRows = gridRef.current!.querySelectorAll("[data-staff-id]");
-      staffRows.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
-          setDragStaffId(Number(el.getAttribute("data-staff-id")));
+      if (!hasMovedRef.current) {
+        const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
+        const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
+        if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+          hasMovedRef.current = true;
+          setIsDraggingReal(true);
+        } else {
+          return;
         }
-      });
+      }
+
+      const gridRect = gridEl.getBoundingClientRect();
+      const timelineOriginX = gridRect.left + STAFF_LABEL_WIDTH;
+      // 右端で totalWidth を超えないようクリップ (負値も 0 に)
+      const rawLeft = e.clientX - timelineOriginX - dragOffsetRef.current;
+      const newLeft = Math.max(0, Math.min(rawLeft, totalWidth));
+      dragLeftRef.current = newLeft;
+
+      // Vertical: find staff row under cursor (cached rects; fast).
+      for (const el of staffRowEls) {
+        const r = el.getBoundingClientRect();
+        if (e.clientY >= r.top && e.clientY <= r.bottom) {
+          dragStaffIdRef.current = Number(el.getAttribute("data-staff-id"));
+          break;
+        }
+      }
+
+      // Throttle visual ghost update to animation frames.
+      if (rafRef.current == null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          setDragLeft(dragLeftRef.current);
+        });
+      }
     }
 
     async function handleMouseUp() {
-      if (!dragAppt) return;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
 
       if (!hasMovedRef.current) {
         setSelectedAppt(dragAppt);
         setDragAppt(null);
-        setDragStaffId(null);
         setIsDraggingReal(false);
         return;
       }
 
+      const finalLeft = dragLeftRef.current;
       const newMinutes =
-        Math.round(dragLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
+        Math.round(finalLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
       const newStartTime = minutesToTime(newMinutes);
       const durationMin =
-        timeToMinutes(dragAppt.endAt.slice(11, 16)) -
-        timeToMinutes(dragAppt.startAt.slice(11, 16));
+        timeToMinutes(dragAppt!.endAt.slice(11, 16)) -
+        timeToMinutes(dragAppt!.startAt.slice(11, 16));
       const newEndTime = minutesToTime(newMinutes + durationMin);
 
       const newStartAt = `${date}T${newStartTime}:00`;
       const newEndAt = `${date}T${newEndTime}:00`;
+      const nextStaffId = dragStaffIdRef.current;
 
       const form = new FormData();
       form.set("start_at", newStartAt);
       form.set("end_at", newEndAt);
-      if (dragStaffId && dragStaffId !== dragAppt.staffId) {
-        form.set("staff_id", String(dragStaffId));
+      if (nextStaffId && nextStaffId !== dragAppt!.staffId) {
+        form.set("staff_id", String(nextStaffId));
       }
 
-      const result = await updateAppointment(dragAppt.id, form);
+      const result = await updateAppointment(dragAppt!.id, form);
       if ("error" in result && result.error) {
         toast.error(String(result.error));
       } else {
@@ -168,7 +212,6 @@ export function ReservationCalendar({
       }
 
       setDragAppt(null);
-      setDragStaffId(null);
       setIsDraggingReal(false);
     }
 
@@ -177,8 +220,12 @@ export function ReservationCalendar({
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [dragAppt, dragOffset, dragLeft, dragStaffId, date, frameMin, startHour]);
+  }, [dragAppt, date, frameMin, startHour, totalWidth]);
 
   useEffect(() => {
     function updateNow() {
@@ -448,6 +495,62 @@ export function ReservationCalendar({
                         (c) => c.startMin < e && c.endMin > s
                       );
 
+                    // Lane assignment — 同じスタッフ行で時間が被る予約を
+                    // vertical lane に振り分けて「2 枚が完全に重なって
+                    // 読めない」症状を解消する。キャンセル済みは下部
+                    // narrow strip として別枠で描画されるのでレーン計算
+                    // から除外する。
+                    const laneMap = new Map<number, { lane: number; laneCount: number }>();
+                    {
+                      const active = staffAppts
+                        .filter((a) => !isCancelledStatus(a.status))
+                        .slice()
+                        .sort((a, b) =>
+                          a.startAt.localeCompare(b.startAt) ||
+                          a.endAt.localeCompare(b.endAt)
+                        );
+                      // クラスタ (連続する重なり) ごとに totalLanes を
+                      // 確定する。greedy: 最初に空くレーンを使用。
+                      let cluster: typeof active = [];
+                      let clusterEnd = -1;
+                      const flush = () => {
+                        if (cluster.length === 0) return;
+                        const laneEnds: number[] = [];
+                        const perAppt: Array<{ id: number; lane: number }> = [];
+                        for (const a of cluster) {
+                          const s = timeToMinutes(a.startAt.slice(11, 16));
+                          const e = timeToMinutes(a.endAt.slice(11, 16));
+                          let lane = laneEnds.findIndex((end) => end <= s);
+                          if (lane === -1) {
+                            lane = laneEnds.length;
+                            laneEnds.push(e);
+                          } else {
+                            laneEnds[lane] = e;
+                          }
+                          perAppt.push({ id: a.id, lane });
+                        }
+                        const laneCount = laneEnds.length;
+                        for (const p of perAppt) {
+                          laneMap.set(p.id, { lane: p.lane, laneCount });
+                        }
+                        cluster = [];
+                        clusterEnd = -1;
+                      };
+                      for (const a of active) {
+                        const s = timeToMinutes(a.startAt.slice(11, 16));
+                        const e = timeToMinutes(a.endAt.slice(11, 16));
+                        if (cluster.length === 0 || s < clusterEnd) {
+                          cluster.push(a);
+                          clusterEnd = Math.max(clusterEnd, e);
+                        } else {
+                          flush();
+                          cluster.push(a);
+                          clusterEnd = e;
+                        }
+                      }
+                      flush();
+                    }
+
                     return staffAppts.map((appt) => {
                       const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
                       const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
@@ -607,6 +710,17 @@ export function ReservationCalendar({
                         apptStartMin,
                         apptEndMin
                       );
+                      // このカードのレーン位置。同時間帯に他の予約が
+                      // 無ければ laneCount=1 で従来通り全高を使う。
+                      const laneInfo = laneMap.get(appt.id) ?? {
+                        lane: 0,
+                        laneCount: 1,
+                      };
+                      const availableHeight = STAFF_ROW_HEIGHT - 6; // top/bottom 3px margin 相当
+                      const laneHeight = availableHeight / laneInfo.laneCount;
+                      const laneTop = 3 + laneInfo.lane * laneHeight;
+                      const laneBottom =
+                        3 + (laneInfo.laneCount - 1 - laneInfo.lane) * laneHeight;
 
                       // 30 分枠などカード幅が狭いと顧客名が truncate されて
                       // 数文字しか見えないケースがある。せめてマウスを
@@ -655,27 +769,41 @@ export function ReservationCalendar({
                           style={{
                             left: isBeingDragged ? dragLeft : apptLeft,
                             width: apptWidth,
-                            top: 3,
-                            bottom: narrowForCancelled ? "34%" : 3,
+                            top: laneTop,
+                            bottom: narrowForCancelled
+                              ? "34%"
+                              : Math.max(laneBottom, 3),
                             zIndex: isBeingDragged ? 50 : 5,
                             touchAction: "pan-x",
                           }}
                           onMouseDown={(e) => handleDragStart(appt, e)}
                         >
-                          {/* 内側で overflow-hidden して長いテキストを
-                              カード外にはみ出させない。外側はツールチップが
-                              カードの外に出られるよう overflow を切らない。
-                              30 分枠 (幅 66px) でも読めるよう、情報を縦に
-                              積む: バッジ行 → 顧客名 → メニュー名 (wrap)。
-                              カルテ番号は横幅を食うのでカード本体からは
-                              外し、ホバー時ツールチップで確認できるように
-                              してある。 */}
-                          <div className="flex h-full flex-col overflow-hidden px-1 py-[2px]">
-                            {/* 1 行目 (上): 来店バッジ + ステータス */}
-                            <div className="flex min-w-0 items-center gap-0.5 leading-none">
+                          {/* 内側で overflow-hidden して truncate を効かせる。
+                              外側はカードからツールチップが飛び出せるように
+                              overflow を切らない。2 行構成:
+                                1 行目: 顧客名 + カルテ番号
+                                2 行目: 来店バッジ + ステータス + メニュー名 */}
+                          <div className="overflow-hidden px-1 py-[1px]">
+                            <div className="flex min-w-0 items-baseline gap-0.5 leading-none">
+                              <span
+                                className={`min-w-0 flex-1 truncate text-[11px] font-black ${
+                                  appt.customerName
+                                    ? "text-gray-900"
+                                    : "text-gray-400"
+                                }`}
+                              >
+                                {appt.customerName || "未設定"}
+                              </span>
+                              {formatCustomerCode(appt.customerCode) && (
+                                <span className="shrink-0 text-[9px] font-bold text-gray-500">
+                                  ({formatCustomerCode(appt.customerCode)})
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 flex min-w-0 items-center gap-0.5 leading-none">
                               {isNew ? (
                                 <span
-                                  className="shrink-0 truncate rounded px-1 py-0 text-[10px] font-bold"
+                                  className="shrink-0 rounded px-1 py-0 text-[10px] font-bold"
                                   style={{
                                     backgroundColor: appt.sourceColor ?? "#ef4444",
                                     color: appt.sourceTextColor ?? "#ffffff",
@@ -697,25 +825,11 @@ export function ReservationCalendar({
                                   {statusBadge}
                                 </span>
                               )}
-                            </div>
-                            {/* 2 行目: 顧客名 (太字・最優先)。1 行で
-                                truncate させて、長い名前は "…" で省略。 */}
-                            <div
-                              className={`mt-0.5 truncate text-[12px] font-black leading-tight ${
-                                appt.customerName ? "text-gray-900" : "text-gray-400"
-                              }`}
-                            >
-                              {appt.customerName || "未設定"}
-                            </div>
-                            {/* 3 行目以降: メニュー名。30 分枠でも読める
-                                よう line-clamp-2 で最大 2 行まで折り返し
-                                て表示する。 */}
-                            {appt.menuName && (
-                              <div className="mt-0.5 line-clamp-2 break-words text-[10px] leading-tight text-gray-600">
+                              <span className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-600">
                                 {appt.menuName}
                                 {appt.duration > 0 && `（${appt.duration}分）`}
-                              </div>
-                            )}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       );

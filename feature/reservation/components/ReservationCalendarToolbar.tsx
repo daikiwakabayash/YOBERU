@@ -1,9 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, BarChart3, RefreshCw } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  BarChart3,
+  RefreshCw,
+  CalendarDays,
+} from "lucide-react";
 import { getWeekdayLabel } from "@/helper/utils/weekday";
 import { toLocalDateString } from "@/helper/utils/time";
 import {
@@ -85,6 +93,24 @@ export function ReservationCalendarToolbar({
   }
 
   const [aggregateOpen, setAggregateOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!pickerRef.current) return;
+      if (!pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [pickerOpen]);
+
+  function onPickDate(d: Date | null) {
+    if (!d) return;
+    setPickerOpen(false);
+    router.push(buildUrl({ date: toLocalDateString(d) }));
+  }
 
   function confirmAggregate() {
     setAggregateOpen(false);
@@ -180,9 +206,26 @@ export function ReservationCalendarToolbar({
           <Button variant="outline" size="sm" onClick={goToday}>
             今日
           </Button>
-          <span className="min-w-[200px] text-center font-medium">
-            {displayDate}
-          </span>
+          <div className="relative" ref={pickerRef}>
+            <button
+              type="button"
+              onClick={() => setPickerOpen((v) => !v)}
+              className="inline-flex min-w-[200px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-center text-sm font-medium text-gray-900 hover:bg-gray-100"
+              aria-label="日付を選択"
+            >
+              <CalendarDays className="h-4 w-4 text-gray-500" />
+              {displayDate}
+            </button>
+            {pickerOpen && (
+              <div className="absolute left-1/2 top-[calc(100%+4px)] z-50 -translate-x-1/2 rounded-md border bg-white p-2 shadow-lg">
+                <DatePicker
+                  selected={dateObj}
+                  onChange={onPickDate}
+                  inline
+                />
+              </div>
+            )}
+          </div>
           <Button variant="outline" size="sm" onClick={() => navigateDay(1)}>
             翌日
             <ChevronRight className="h-4 w-4" />
@@ -197,9 +240,26 @@ export function ReservationCalendarToolbar({
           <Button variant="outline" size="sm" onClick={goToday}>
             今日
           </Button>
-          <span className="min-w-[200px] text-center font-medium">
-            {displayDate}
-          </span>
+          <div className="relative" ref={pickerRef}>
+            <button
+              type="button"
+              onClick={() => setPickerOpen((v) => !v)}
+              className="inline-flex min-w-[200px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-center text-sm font-medium text-gray-900 hover:bg-gray-100"
+              aria-label="日付を選択"
+            >
+              <CalendarDays className="h-4 w-4 text-gray-500" />
+              {displayDate}
+            </button>
+            {pickerOpen && (
+              <div className="absolute left-1/2 top-[calc(100%+4px)] z-50 -translate-x-1/2 rounded-md border bg-white p-2 shadow-lg">
+                <DatePicker
+                  selected={dateObj}
+                  onChange={onPickDate}
+                  inline
+                />
+              </div>
+            )}
+          </div>
           <Button variant="outline" size="sm" onClick={() => navigateWeek(1)}>
             次週
             <ChevronRight className="h-4 w-4" />

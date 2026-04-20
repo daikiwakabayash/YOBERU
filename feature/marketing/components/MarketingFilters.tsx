@@ -38,9 +38,19 @@ export function MarketingFilters({
       } else {
         next.set(key, value);
       }
+      // 期間の整合性担保: start > end や end < start になったら
+      // もう一方を自動追従させる (逆転すると 0 件になる不具合防止)。
+      if (key === "start" && value) {
+        const currentEnd = next.get("end") ?? endMonth;
+        if (currentEnd.localeCompare(value) < 0) next.set("end", value);
+      }
+      if (key === "end" && value) {
+        const currentStart = next.get("start") ?? startMonth;
+        if (value.localeCompare(currentStart) < 0) next.set("start", value);
+      }
       router.replace(`?${next.toString()}`, { scroll: false });
     },
-    [router, params]
+    [router, params, startMonth, endMonth]
   );
 
   return (

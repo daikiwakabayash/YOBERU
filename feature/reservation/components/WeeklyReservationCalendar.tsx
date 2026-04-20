@@ -24,7 +24,7 @@ interface WeeklyReservationCalendarProps {
 // 幅を詰めて横スクロール量を小さくする:
 //   PX_PER_MIN: 1分あたりの横幅 (以前は4。2.2にして約45%圧縮)
 //     → 30min = 66px, 60min = 132px, 12h = 1584px
-const DAY_ROW_HEIGHT = 100;
+const DAY_ROW_HEIGHT = 72;
 const DAY_LABEL_WIDTH = 100;
 const TIME_HEADER_HEIGHT = 32;
 const PX_PER_MIN = 2.2;
@@ -82,94 +82,135 @@ export function WeeklyReservationCalendar({
   const today = toLocalDateString(new Date());
 
   // Drag state — horizontal drag changes time, vertical changes day.
+  // Live drag values live in refs (no re-render) and only the ghost's
+  // visual position is mirrored to state, throttled by requestAnimation
+  // Frame. This avoids the mousemove → setState → effect cleanup cycle
+  // that previously made dragging feel laggy.
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [dragDate, setDragDate] = useState<string | null>(null);
   const [dragLeft, setDragLeft] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
+  const dragOffsetRef = useRef(0);
+  const dragDateRef = useRef<string | null>(null);
+  const dragLeftRef = useRef(0);
   const hasMovedRef = useRef(false);
   const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const rafRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const handleDragStart = useCallback(
     (appt: CalendarAppointment, e: React.MouseEvent) => {
       e.stopPropagation();
-      const rect = (e.target as HTMLElement).closest("[data-appt]")?.getBoundingClientRect();
+      const rect = (e.target as HTMLElement)
+        .closest("[data-appt]")
+        ?.getBoundingClientRect();
       if (!rect) return;
       const apptDate = appt.startAt.slice(0, 10);
+      // タイムライン領域の左端 (曜日名列 DAY_LABEL_WIDTH を除いた
+      // 位置) を基準にする。
+      const timelineOriginX =
+        (gridRef.current?.getBoundingClientRect().left ?? 0) +
+        DAY_LABEL_WIDTH;
       hasMovedRef.current = false;
       dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+      dragOffsetRef.current = e.clientX - rect.left;
+      dragDateRef.current = apptDate;
+      const initialLeft = rect.left - timelineOriginX;
+      dragLeftRef.current = initialLeft;
+      setDragLeft(initialLeft);
       setDragAppt(appt);
-      setDragDate(apptDate);
-      setDragOffset(e.clientX - rect.left);
-      setDragLeft(rect.left - (gridRef.current?.getBoundingClientRect().left ?? 0));
     },
     []
   );
 
   useEffect(() => {
     if (!dragAppt || !gridRef.current) return;
-    const gridRect = gridRef.current.getBoundingClientRect();
+    const gridEl = gridRef.current;
     const DRAG_THRESHOLD = 5;
+    const dayRowEls = Array.from(
+      gridEl.querySelectorAll<HTMLElement>("[data-date]")
+    );
 
     function handleMouseMove(e: MouseEvent) {
-      const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
-      const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
-      if (!hasMovedRef.current && (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD)) {
-        hasMovedRef.current = true;
-        setIsDraggingReal(true);
-      }
-      if (!hasMovedRef.current) return;
-
-      const newLeft = e.clientX - gridRect.left - dragOffset;
-      setDragLeft(Math.max(0, newLeft));
-
-      // Detect day row by Y position
-      const dayRows = gridRef.current!.querySelectorAll("[data-date]");
-      dayRows.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
-          setDragDate(el.getAttribute("data-date"));
+      if (!hasMovedRef.current) {
+        const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
+        const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
+        if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+          hasMovedRef.current = true;
+          setIsDraggingReal(true);
+        } else {
+          return;
         }
-      });
+      }
+
+      const gridRect = gridEl.getBoundingClientRect();
+      const timelineOriginX = gridRect.left + DAY_LABEL_WIDTH;
+      const rawLeft = e.clientX - timelineOriginX - dragOffsetRef.current;
+      const newLeft = Math.max(0, Math.min(rawLeft, totalWidth));
+      dragLeftRef.current = newLeft;
+
+      for (const el of dayRowEls) {
+        const r = el.getBoundingClientRect();
+        if (e.clientY >= r.top && e.clientY <= r.bottom) {
+          dragDateRef.current = el.getAttribute("data-date");
+          break;
+        }
+      }
+
+      if (rafRef.current == null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          setDragLeft(dragLeftRef.current);
+        });
+      }
     }
 
     async function handleMouseUp() {
-      if (!dragAppt || !dragDate) return;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
 
       if (!hasMovedRef.current) {
         setSelectedAppt(dragAppt);
         setDragAppt(null);
-        setDragDate(null);
         setIsDraggingReal(false);
         return;
       }
 
+      const dropDate = dragDateRef.current;
+      if (!dropDate) {
+        setDragAppt(null);
+        setIsDraggingReal(false);
+        return;
+      }
+
+      const finalLeft = dragLeftRef.current;
       const newMinutes =
-        Math.round(dragLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
+        Math.round(finalLeft / PX_PER_MIN / frameMin) * frameMin + startHour;
       const newStartTime = minutesToTime(newMinutes);
       const durationMin =
-        timeToMinutes(dragAppt.endAt.slice(11, 16)) -
-        timeToMinutes(dragAppt.startAt.slice(11, 16));
+        timeToMinutes(dragAppt!.endAt.slice(11, 16)) -
+        timeToMinutes(dragAppt!.startAt.slice(11, 16));
       const newEndTime = minutesToTime(newMinutes + durationMin);
 
-      const newStartAt = `${dragDate}T${newStartTime}:00`;
-      const newEndAt = `${dragDate}T${newEndTime}:00`;
+      const newStartAt = `${dropDate}T${newStartTime}:00`;
+      const newEndAt = `${dropDate}T${newEndTime}:00`;
 
       const form = new FormData();
       form.set("start_at", newStartAt);
       form.set("end_at", newEndAt);
 
-      const result = await updateAppointment(dragAppt.id, form);
+      const result = await updateAppointment(dragAppt!.id, form);
       if ("error" in result && result.error) {
         toast.error(String(result.error));
       } else {
-        const dateLabel = `${Number(dragDate.split("-")[1])}/${Number(dragDate.split("-")[2])}`;
+        const dateLabel = `${Number(dropDate.split("-")[1])}/${Number(dropDate.split("-")[2])}`;
         toast.success(`予約を ${dateLabel} ${newStartTime} に移動しました`);
       }
 
       setDragAppt(null);
-      setDragDate(null);
       setIsDraggingReal(false);
     }
 
@@ -178,8 +219,12 @@ export function WeeklyReservationCalendar({
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [dragAppt, dragOffset, dragLeft, dragDate, frameMin, startHour]);
+  }, [dragAppt, frameMin, startHour, totalWidth]);
 
   useEffect(() => {
     function updateNow() {
@@ -431,13 +476,71 @@ export function WeeklyReservationCalendar({
                   })}
 
                   {/* Appointment blocks */}
-                  {dayAppts.map((appt) => {
+                  {(() => {
+                    // 同じ日に時間が被る予約を vertical lane に分ける。
+                    // (日ビューのスタッフ行と同じアルゴリズム)
+                    const laneMap = new Map<number, { lane: number; laneCount: number }>();
+                    const active = dayAppts
+                      .slice()
+                      .sort((a, b) =>
+                        a.startAt.localeCompare(b.startAt) ||
+                        a.endAt.localeCompare(b.endAt)
+                      );
+                    let cluster: typeof active = [];
+                    let clusterEnd = -1;
+                    const flush = () => {
+                      if (cluster.length === 0) return;
+                      const laneEnds: number[] = [];
+                      const perAppt: Array<{ id: number; lane: number }> = [];
+                      for (const a of cluster) {
+                        const s = timeToMinutes(a.startAt.slice(11, 16));
+                        const e = timeToMinutes(a.endAt.slice(11, 16));
+                        let lane = laneEnds.findIndex((end) => end <= s);
+                        if (lane === -1) {
+                          lane = laneEnds.length;
+                          laneEnds.push(e);
+                        } else {
+                          laneEnds[lane] = e;
+                        }
+                        perAppt.push({ id: a.id, lane });
+                      }
+                      const laneCount = laneEnds.length;
+                      for (const p of perAppt) {
+                        laneMap.set(p.id, { lane: p.lane, laneCount });
+                      }
+                      cluster = [];
+                      clusterEnd = -1;
+                    };
+                    for (const a of active) {
+                      const s = timeToMinutes(a.startAt.slice(11, 16));
+                      const e = timeToMinutes(a.endAt.slice(11, 16));
+                      if (cluster.length === 0 || s < clusterEnd) {
+                        cluster.push(a);
+                        clusterEnd = Math.max(clusterEnd, e);
+                      } else {
+                        flush();
+                        cluster.push(a);
+                        clusterEnd = e;
+                      }
+                    }
+                    flush();
+
+                    return dayAppts.map((appt) => {
                     const apptStartMin = timeToMinutes(appt.startAt.slice(11, 16));
                     const apptEndMin = timeToMinutes(appt.endAt.slice(11, 16));
                     const minutesFromStart = apptStartMin - startHour;
                     const durationMinutes = apptEndMin - apptStartMin;
                     const apptLeft = minutesFromStart * PX_PER_MIN + 1;
                     const apptWidth = durationMinutes * PX_PER_MIN - 2;
+                    const laneInfo = laneMap.get(appt.id) ?? {
+                      lane: 0,
+                      laneCount: 1,
+                    };
+                    const availableHeight = DAY_ROW_HEIGHT - 6;
+                    const laneHeight = availableHeight / laneInfo.laneCount;
+                    const laneTop = 3 + laneInfo.lane * laneHeight;
+                    const laneBottom =
+                      3 + (laneInfo.laneCount - 1 - laneInfo.lane) * laneHeight;
 
                     const isDragging = isDraggingReal && dragAppt?.id === appt.id;
                     const isSlotBlock = !!appt.slotBlock;
@@ -460,8 +563,8 @@ export function WeeklyReservationCalendar({
                           style={{
                             left: isDragging ? dragLeft : apptLeft,
                             width: apptWidth,
-                            top: 3,
-                            bottom: 3,
+                            top: laneTop,
+                            bottom: laneBottom,
                             zIndex: isDragging ? 50 : 5,
                             borderLeftColor: blockColor,
                             backgroundColor: `${blockColor}12`,
@@ -563,20 +666,34 @@ export function WeeklyReservationCalendar({
                         style={{
                           left: isDragging ? dragLeft : apptLeft,
                           width: apptWidth,
-                          top: 3,
-                          bottom: 3,
+                          top: laneTop,
+                          bottom: laneBottom,
                           zIndex: isDragging ? 50 : 5,
                           touchAction: "pan-x",
                         }}
                         onMouseDown={(e) => handleDragStart(appt, e)}
                       >
-                        {/* 縦積みレイアウト (日ビュー ReservationCalendar
-                            と同じ形式)。バッジ行 → 顧客名 → メニュー名
-                            (最大 2 行 wrap)。カルテ番号はカード本体から
-                            外しホバーのツールチップで確認できる。 */}
-                        <div className="flex h-full flex-col overflow-hidden px-1 py-[2px]">
-                          {/* 1 行目: 来店バッジ + ステータス */}
-                          <div className="flex min-w-0 items-center gap-0.5 leading-none">
+                        {/* 2 行レイアウト (日ビューと同じ形式):
+                              1 行目: 顧客名 + カルテ番号
+                              2 行目: 来店バッジ + ステータス + メニュー名 */}
+                        <div className="overflow-hidden px-1 py-[1px]">
+                          <div className="flex min-w-0 items-baseline gap-0.5 leading-none">
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[11px] font-black ${
+                                appt.customerName
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }`}
+                            >
+                              {appt.customerName || "未設定"}
+                            </span>
+                            {formatCustomerCode(appt.customerCode) && (
+                              <span className="shrink-0 text-[9px] font-bold text-gray-500">
+                                ({formatCustomerCode(appt.customerCode)})
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 flex min-w-0 items-center gap-0.5 leading-none">
                             {isNew && (
                               <span
                                 className="shrink-0 rounded px-1 py-0 text-[10px] font-bold"
@@ -595,26 +712,16 @@ export function WeeklyReservationCalendar({
                                 {statusBadge}
                               </span>
                             )}
-                          </div>
-                          {/* 2 行目: 顧客名 (太字) */}
-                          <div
-                            className={`mt-0.5 truncate text-[12px] font-black leading-tight ${
-                              appt.customerName ? "text-gray-900" : "text-gray-400"
-                            }`}
-                          >
-                            {appt.customerName || "未設定"}
-                          </div>
-                          {/* 3 行目以降: メニュー名 (line-clamp-2 で折返し) */}
-                          {appt.menuName && (
-                            <div className="mt-0.5 line-clamp-2 break-words text-[10px] leading-tight text-gray-600">
+                            <span className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-600">
                               {appt.menuName}
                               {appt.duration > 0 && `（${appt.duration}分）`}
-                            </div>
-                          )}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
-                  })}
+                  });
+                  })()}
                 </div>
               </div>
             );

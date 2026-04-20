@@ -26,6 +26,11 @@ export const storeSchema = z.object({
   line_channel_id: z.string().max(64).optional().or(z.literal("")),
   line_channel_secret: z.string().max(128).optional().or(z.literal("")),
   line_channel_access_token: z.string().optional().or(z.literal("")),
+  // 広告 API 連携 (Meta / TikTok)
+  meta_ad_account_id: z.string().max(64).optional().or(z.literal("")),
+  meta_access_token: z.string().optional().or(z.literal("")),
+  tiktok_advertiser_id: z.string().max(64).optional().or(z.literal("")),
+  tiktok_access_token: z.string().optional().or(z.literal("")),
 });
 
 export type StoreFormValues = z.infer<typeof storeSchema>;

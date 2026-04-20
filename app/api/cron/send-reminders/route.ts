@@ -172,8 +172,22 @@ export async function GET(request: NextRequest) {
       const { data: appts } = await apptQuery;
       const appointments = (appts ?? []) as AppointmentForReminder[];
 
-      for (const appt of appointments) {
-        // 3. Check if already sent
+      // 同じ顧客が同じ日に複数予約を持っていても 1 回しか通知しない。
+      // 既存 UNIQUE(appointment_id, type, offset_days) では「同じ予約」
+      // のみ防げないため、先に per-customer 単位でデデュップする。
+      // 先にソートして古い予約 (朝) を残し、後続 (昼) はスキップ。
+      const seenCustomerIds = new Set<number>();
+      const dedupedAppointments = appointments
+        .slice()
+        .sort((a, b) => a.start_at.localeCompare(b.start_at))
+        .filter((a) => {
+          if (seenCustomerIds.has(a.customer_id)) return false;
+          seenCustomerIds.add(a.customer_id);
+          return true;
+        });
+
+      for (const appt of dedupedAppointments) {
+        // 3. Check if already sent (同じ appointment / type / offset_days)
         const { data: existingLog } = await supabase
           .from("reminder_logs")
           .select("id")
@@ -184,6 +198,7 @@ export async function GET(request: NextRequest) {
         if (existingLog) {
           continue; // already sent
         }
+
 
         // 4. Build context
         const [customer, staff, menu, shop] = await Promise.all([

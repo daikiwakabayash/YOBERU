@@ -23,6 +23,12 @@ export interface MarketingTotals {
   cpa: number;               // 広告費 / 実来院数
   roas: number;              // 売上 / 広告費
   avgPrice: number;          // 売上 / 実来院数
+  // 広告 API 連携で取れる追加指標 (manual 入力時は 0)
+  impressions: number;       // 表示回数
+  clicks: number;            // クリック数
+  ctr: number;               // クリック率 (%)
+  cvr: number;               // コンバージョン率 (%)
+  cpm: number;               // 1000 表示単価
 }
 
 export interface MarketingMonthBucket extends MarketingTotals {
@@ -60,10 +66,20 @@ function emptyTotals(): MarketingTotals {
     cpa: 0,
     roas: 0,
     avgPrice: 0,
+    impressions: 0,
+    clicks: 0,
+    ctr: 0,
+    cvr: 0,
+    cpm: 0,
   };
 }
 
 function finalize(t: MarketingTotals): MarketingTotals {
+  // CTR / CVR / CPM はバケット集計後に再計算 (集約 impressions / clicks
+  // から導出する方が単純平均より正確)。
+  const ctr = t.impressions > 0 ? (t.clicks / t.impressions) * 100 : 0;
+  const cvr = 0; // 顧客変換は appointments 側に紐付かないので一旦 API 値の合計平均は出さない
+  const cpm = t.impressions > 0 ? (t.adSpend / t.impressions) * 1000 : 0;
   return {
     ...t,
     joinRate: t.visitCount > 0 ? t.joinCount / t.visitCount : 0,
@@ -72,6 +88,9 @@ function finalize(t: MarketingTotals): MarketingTotals {
     cpa: t.visitCount > 0 ? t.adSpend / t.visitCount : 0,
     roas: t.adSpend > 0 ? t.sales / t.adSpend : 0,
     avgPrice: t.visitCount > 0 ? t.sales / t.visitCount : 0,
+    ctr,
+    cvr: t.cvr || cvr,
+    cpm,
   };
 }
 
@@ -177,7 +196,9 @@ export async function getMarketingData(params: {
     supabase.from("shops").select("id, name").eq("id", shopId).maybeSingle(),
     supabase
       .from("ad_spend")
-      .select("visit_source_id, year_month, amount")
+      .select(
+        "visit_source_id, year_month, amount, impressions, clicks, conversions, ctr, cvr, cpm"
+      )
       .eq("shop_id", shopId)
       .gte("year_month", startMonth)
       .lte("year_month", endMonth)
@@ -259,21 +280,42 @@ export async function getMarketingData(params: {
   }
 
   // 2. Distribute ad_spend into monthly + source buckets
+  //    (amount に加えて impressions / clicks / conversions / cvr も合算)
   for (const r of adSpendRows as Array<{
     visit_source_id: number;
     year_month: string;
     amount: number;
+    impressions: number | null;
+    clicks: number | null;
+    conversions: number | null;
+    ctr: number | null;
+    cvr: number | null;
+    cpm: number | null;
   }>) {
     if (visitSourceId && r.visit_source_id !== visitSourceId) continue;
+    const imp = r.impressions ?? 0;
+    const clk = r.clicks ?? 0;
+    const cvrVal = r.cvr ?? 0;
     totals.adSpend += r.amount;
+    totals.impressions += imp;
+    totals.clicks += clk;
+    if (cvrVal > totals.cvr) totals.cvr = cvrVal;
     const mb = monthBuckets.get(r.year_month);
-    if (mb) mb.adSpend += r.amount;
+    if (mb) {
+      mb.adSpend += r.amount;
+      mb.impressions += imp;
+      mb.clicks += clk;
+      if (cvrVal > mb.cvr) mb.cvr = cvrVal;
+    }
     let sb = sourceBuckets.get(r.visit_source_id);
     if (!sb) {
       sb = emptyTotals();
       sourceBuckets.set(r.visit_source_id, sb);
     }
     sb.adSpend += r.amount;
+    sb.impressions += imp;
+    sb.clicks += clk;
+    if (cvrVal > sb.cvr) sb.cvr = cvrVal;
   }
 
   // 3. Finalize rates/derived numbers
