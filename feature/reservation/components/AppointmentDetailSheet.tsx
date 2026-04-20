@@ -61,6 +61,9 @@ interface AppointmentDetailSheetProps {
     name: string;
     price: number;
     duration: number;
+    /** 会員プラン系のメニューは plan_type !== null。メニュー選択には
+     *  出さず、下部の「プラン提案」カードでのみ扱う。 */
+    plan_type?: string | null;
   }>;
   visitSources: Array<{ id: number; name: string }>;
   paymentMethods?: Array<{ code: string; name: string }>;
@@ -1581,12 +1584,14 @@ export function AppointmentDetailSheet({
           <Separator />
 
           {/* ===== Section: Menu Selection ===== */}
+          {/* 会員プラン系 (plan_type !== null) はここには出さない。
+              「プラン提案」カード側でのみ扱う。 */}
           <section className="space-y-2">
             <Label className="text-xs font-bold text-gray-500">
               メニュー選択
             </Label>
             <div className="space-y-1">
-              {menus.map((menu) => {
+              {menus.filter((m) => m.plan_type == null).map((menu) => {
                 const isSelected = selectedMenuIds.includes(
                   menu.menu_manage_id
                 );

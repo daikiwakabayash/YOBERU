@@ -11,7 +11,7 @@ import { toast } from "sonner";
 
 interface WeeklyReservationCalendarProps {
   data: WeeklyCalendarData;
-  menus?: Array<{ menu_manage_id: string; name: string; price: number; duration: number }>;
+  menus?: Array<{ menu_manage_id: string; name: string; price: number; duration: number; plan_type?: string | null }>;
   visitSources?: Array<{ id: number; name: string }>;
   paymentMethods?: Array<{ code: string; name: string }>;
   shopId?: number;
