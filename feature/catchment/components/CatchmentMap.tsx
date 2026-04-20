@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   MapContainer,
   TileLayer,
@@ -8,9 +9,12 @@ import {
   Circle,
   Popup,
   Marker,
+  useMap,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { RefreshCw } from "lucide-react";
+import { resetGeocode } from "../actions/regeocodeActions";
 import type {
   CatchmentData,
   CatchmentPoint,
@@ -19,6 +23,7 @@ import type {
 interface Props {
   data: CatchmentData;
   visitSources: Array<{ id: number; name: string }>;
+  shopId: number;
 }
 
 type ColorMode = "status" | "source" | "age";
@@ -47,7 +52,32 @@ const AGE_BUCKETS: Array<{ label: string; min: number; max: number; color: strin
   { label: "60+", min: 60, max: 999, color: "#a855f7" },
 ];
 
-export function CatchmentMap({ data, visitSources }: Props) {
+/** 親 → MapContainer の center を後から動かすには useMap が要るので別 child で。 */
+function AutoFitBounds({
+  points,
+  shop,
+}: {
+  points: Array<{ lat: number; lng: number }>;
+  shop: { lat: number; lng: number } | null;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    const all = [...points];
+    if (shop) all.push(shop);
+    if (all.length === 0) return;
+    if (all.length === 1) {
+      map.setView([all[0].lat, all[0].lng], 14);
+      return;
+    }
+    const bounds = L.latLngBounds(all.map((p) => [p.lat, p.lng]));
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+  }, [points, shop, map]);
+  return null;
+}
+
+export function CatchmentMap({ data, visitSources, shopId }: Props) {
+  const router = useRouter();
+  const [retrying, startRetry] = useTransition();
   const [filterMember, setFilterMember] = useState<"all" | "member" | "ticket">("all");
   const [selectedSources, setSelectedSources] = useState<Set<number | null>>(
     new Set([...visitSources.map((s) => s.id), null])
@@ -141,11 +171,30 @@ export function CatchmentMap({ data, visitSources }: Props) {
       <div className="space-y-4 rounded-lg border bg-white p-4">
         {!data.shop && (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800">
-            店舗住所から座標を取得できませんでした。
-            <br />
-            店舗設定の住所と郵便番号を確認してください。
+            <div className="font-bold">店舗位置の取得に失敗</div>
+            {data.shopAddress && (
+              <div className="mt-0.5 text-amber-700">住所: {data.shopAddress}</div>
+            )}
+            <div className="mt-0.5">店舗設定 → 住所と郵便番号を確認してください。</div>
           </div>
         )}
+        <button
+          type="button"
+          disabled={retrying}
+          onClick={() => {
+            if (!confirm("全顧客と店舗の座標を破棄して、もう一度 geocode を実行しますか？\n(処理に数十秒かかります)")) return;
+            startRetry(async () => {
+              const r = await resetGeocode(shopId);
+              if (r.ok) {
+                router.refresh();
+              }
+            });
+          }}
+          className="flex w-full items-center justify-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${retrying ? "animate-spin" : ""}`} />
+          {retrying ? "再 geocode 中..." : "全件 再 geocode"}
+        </button>
         <div>
           <div className="mb-2 text-xs font-bold text-gray-700">対象</div>
           <div className="flex flex-col gap-1 text-xs">
@@ -330,6 +379,20 @@ export function CatchmentMap({ data, visitSources }: Props) {
               </span>
             )}
           </div>
+          {data.stats.failedSamples.length > 0 && (
+            <details className="mt-1 text-amber-700">
+              <summary className="cursor-pointer font-bold">
+                geocode 失敗 サンプル ({data.stats.failedSamples.length}件)
+              </summary>
+              <ul className="mt-1 space-y-1">
+                {data.stats.failedSamples.map((f) => (
+                  <li key={f.id} className="text-[10px]">
+                    {f.name ?? "(名無し)"}: {f.zip ?? ""} {f.address ?? "(住所なし)"}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           {radiusStats && (
             <div className="mt-2 border-t pt-2">
               <div className="font-bold">半径内顧客数</div>
@@ -363,6 +426,7 @@ export function CatchmentMap({ data, visitSources }: Props) {
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
+            <AutoFitBounds points={filteredPoints} shop={data.shop} />
             {data.shop && (
               <Marker
                 position={[data.shop.lat, data.shop.lng]}

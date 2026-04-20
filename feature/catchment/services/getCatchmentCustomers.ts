@@ -36,15 +36,22 @@ export interface CatchmentShopCenter {
 
 export interface CatchmentData {
   shop: CatchmentShopCenter | null;
+  shopAddress: string | null; // 失敗時の表示用
   points: CatchmentPoint[];
   stats: {
     totalCustomers: number;
     geocodedCustomers: number;
     pending: number;
+    failedSamples: Array<{
+      id: number;
+      name: string | null;
+      zip: string | null;
+      address: string | null;
+    }>;
   };
 }
 
-const BACKFILL_LIMIT = 25; // 1 リクエスト最大件数 (GSI API 負荷配慮)
+const BACKFILL_LIMIT = 100; // 1 リクエスト最大件数 (GSI API 負荷配慮)
 
 export async function getCatchmentCustomers(params: {
   shopId: number;
@@ -54,6 +61,7 @@ export async function getCatchmentCustomers(params: {
 
   // ---- 1. 店舗中心を取得 (未設定なら住所から geocode) ----
   let shopCenter: CatchmentShopCenter | null = null;
+  let shopAddress: string | null = null;
   {
     const { data: shop } = await supabase
       .from("shops")
@@ -62,6 +70,7 @@ export async function getCatchmentCustomers(params: {
       .maybeSingle();
     if (shop) {
       const name = (shop.name as string) || "店舗";
+      shopAddress = (shop.address as string | null) ?? null;
       let lat = shop.latitude as number | null;
       let lng = shop.longitude as number | null;
       if ((lat == null || lng == null) && shop.address) {
@@ -83,7 +92,7 @@ export async function getCatchmentCustomers(params: {
         }
       }
       if (lat != null && lng != null) {
-        shopCenter = { lat, lng, name };
+        shopCenter = { lat: Number(lat), lng: Number(lng), name };
       }
     }
   }
@@ -189,13 +198,29 @@ export async function getCatchmentCustomers(params: {
     };
   });
 
+  // 失敗サンプル: 住所はあるのに lat/lng が NULL のままのもの (最大 5)
+  const stillFailed = allCustomers.filter(
+    (c) =>
+      (c.latitude == null || c.longitude == null) &&
+      ((c.address as string | null)?.trim() ?? "") !== ""
+  );
+  const failedSamples = stillFailed.slice(0, 5).map((c) => ({
+    id: c.id as number,
+    name:
+      [c.last_name, c.first_name].filter(Boolean).join(" ").trim() || null,
+    zip: (c.zip_code as string | null) ?? null,
+    address: (c.address as string | null) ?? null,
+  }));
+
   return {
     shop: shopCenter,
+    shopAddress,
     points,
     stats: {
       totalCustomers: allCustomers.length,
       geocodedCustomers: geocodedCustomers.length,
       pending: Math.max(0, pending.length - toBackfill.length),
+      failedSamples,
     },
   };
 }

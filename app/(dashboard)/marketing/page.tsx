@@ -167,6 +167,7 @@ export default async function MarketingPage({
         <CatchmentMapWrapper
           data={catchmentData}
           visitSources={sourcesForMap}
+          shopId={shopId}
         />
       );
     }
