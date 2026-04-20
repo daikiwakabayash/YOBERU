@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { Step1StoreDateTime } from "./public/Step1StoreDateTime";
 import { Step2CustomerInfo } from "./public/Step2CustomerInfo";
 import { Step3Confirm } from "./public/Step3Confirm";
-import { Step4Complete } from "./public/Step4Complete";
 import { LanguageToggle } from "./public/LanguageToggle";
 import type {
   BookingState,
@@ -22,7 +21,7 @@ import type { Lang } from "../i18n/dictionary";
 import type { ShopAvailabilityDay } from "../services/getShopAvailability";
 import type { StaffFreeDay } from "../services/getShopStaffFreeSlots";
 
-type WizardStep = 1 | 2 | 3 | 4;
+type WizardStep = 1 | 2 | 3;
 
 interface PublicBookingWizardProps {
   link: PublicLink;
@@ -86,9 +85,6 @@ export function PublicBookingWizard({
     staffId: link.staff_mode === 2 ? 0 : null,
   }));
   const [submitting, setSubmitting] = useState(false);
-  const [confirmedDateTime, setConfirmedDateTime] = useState<string | null>(
-    null
-  );
 
   function patchState(patch: Partial<BookingState>) {
     setState((prev) => ({ ...prev, ...patch }));
@@ -134,15 +130,24 @@ export function PublicBookingWizard({
     if (utmSource) form.set("utm_source", utmSource);
 
     const result = await submitPublicBooking(form);
-    setSubmitting(false);
 
     if ("error" in result && result.error) {
+      setSubmitting(false);
       toast.error(String(result.error));
       return;
     }
 
-    setConfirmedDateTime(`${state.date.replace(/-/g, ".")} ${state.time}`);
-    setStep(4);
+    // Hard-navigate to the common /booking-complete page so that:
+    //   - the URL changes (shareable, distinct from the form URL), and
+    //   - Google Tag Manager fires a fresh PageView on the new path
+    //     (required for conversion tracking).
+    const params = new URLSearchParams({
+      slug: link.slug,
+      date: state.date,
+      time: state.time,
+      lang,
+    });
+    window.location.assign(`/booking-complete?${params.toString()}`);
   }
 
   return (
@@ -188,13 +193,6 @@ export function PublicBookingWizard({
             onEdit={(target) => setStep(target === "step1" ? 1 : 2)}
             onSubmit={handleSubmit}
             submitting={submitting}
-            lang={lang}
-          />
-        )}
-        {step === 4 && (
-          <Step4Complete
-            link={link}
-            confirmedDateTime={confirmedDateTime}
             lang={lang}
           />
         )}

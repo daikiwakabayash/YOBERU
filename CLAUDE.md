@@ -84,7 +84,7 @@ npx tsc --noEmit     # 型チェックのみ
 - Supabase Auth (Email + Password)
 - ロール体系: root / brand / shop / staff (users テーブルの brand_id, shop_id で判定)
 - middleware.ts で未認証ユーザーを /login にリダイレクト
-- 公開ルート (認証スキップ): `/login`, `/auth`, `/book`, `/shop/`, `/q/`, `/api/cron`
+- 公開ルート (認証スキップ): `/login`, `/auth`, `/book`, `/booking-complete`, `/shop/`, `/q/`, `/api/cron`
 
 ---
 
