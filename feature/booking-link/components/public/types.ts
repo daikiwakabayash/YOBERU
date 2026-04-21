@@ -38,6 +38,10 @@ export interface PublicMenu {
   name: string;
   price: number;
   duration: number;
+  /** menus.price_disp_type。false なら公開予約画面で料金を表示しない。
+   *  DB 上 BOOLEAN DEFAULT FALSE なので「明示的に true にしたメニュー」
+   *  だけ価格を見せる運用。 */
+  priceDispType: boolean;
 }
 
 /**

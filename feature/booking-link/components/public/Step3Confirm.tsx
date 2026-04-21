@@ -85,7 +85,9 @@ export function Step3Confirm({
               label={t("confirmMenu")}
               value={link.alias_menu_name ?? menu.name}
               subValue={`${menu.duration}${t("minutes")}${
-                menu.price > 0 ? ` / ¥${menu.price.toLocaleString()}` : ""
+                menu.priceDispType && menu.price > 0
+                  ? ` / ¥${menu.price.toLocaleString()}`
+                  : ""
               }`}
               editLabel={t("edit")}
               onEdit={() => onEdit("step1")}

@@ -257,7 +257,8 @@ export function Step2CustomerInfo({
               <span>
                 {link.alias_menu_name ?? menu.name}
                 {menu.duration > 0 && `(${menu.duration}${t("minutes")})`}
-                {menu.price > 0 &&
+                {menu.priceDispType &&
+                  menu.price > 0 &&
                   ` ${menu.price.toLocaleString()}${t("yenSuffix")}`}
               </span>
             </div>

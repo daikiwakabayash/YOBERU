@@ -389,7 +389,7 @@ export function Step1StoreDateTime({
             value={
               selectedMenu
                 ? `${link.alias_menu_name ?? selectedMenu.name} ${
-                    selectedMenu.price
+                    selectedMenu.priceDispType && selectedMenu.price
                       ? `${selectedMenu.price.toLocaleString()}${t("yenSuffix")}`
                       : ""
                   }`.trim()
@@ -424,7 +424,9 @@ export function Step1StoreDateTime({
                       <div className="text-[11px] text-gray-500">
                         {m.duration}
                         {t("minutes")}{" "}
-                        {m.price > 0 && `/ ¥${m.price.toLocaleString()}`}
+                        {m.priceDispType &&
+                          m.price > 0 &&
+                          `/ ¥${m.price.toLocaleString()}`}
                       </div>
                     </div>
                     {selected && (
