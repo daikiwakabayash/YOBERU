@@ -25,6 +25,7 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
     line_button_text: raw.line_button_text || null,
     line_button_url: raw.line_button_url || null,
     visit_source_id: raw.visit_source_id ? Number(raw.visit_source_id) : null,
+    public_notice: raw.public_notice || null,
     head_tag_template_id: raw.head_tag_template_id
       ? Number(raw.head_tag_template_id)
       : null,
@@ -60,12 +61,17 @@ function isMissingImmediateEmailColumn(msg: string): boolean {
   return msg.includes("immediate_email_") && msg.includes("column");
 }
 
+function isMissingPublicNoticeColumn(msg: string): boolean {
+  return msg.includes("public_notice") && msg.includes("column");
+}
+
 function stripMigrationOnlyColumns(data: Record<string, unknown>): void {
   delete data.head_tag_template_id;
   delete data.body_tag_template_id;
   delete data.immediate_email_enabled;
   delete data.immediate_email_subject;
   delete data.immediate_email_template;
+  delete data.public_notice;
 }
 
 export async function createBookingLink(formData: FormData) {
@@ -96,7 +102,8 @@ export async function createBookingLink(formData: FormData) {
     if (
       error &&
       (isMissingTagTemplateColumn(error.message ?? "") ||
-        isMissingImmediateEmailColumn(error.message ?? ""))
+        isMissingImmediateEmailColumn(error.message ?? "") ||
+        isMissingPublicNoticeColumn(error.message ?? ""))
     ) {
       const fallback = { ...insertData };
       stripMigrationOnlyColumns(fallback);
@@ -201,6 +208,7 @@ export async function duplicateBookingLink(
     line_button_text: original.line_button_text,
     line_button_url: original.line_button_url,
     visit_source_id: original.visit_source_id,
+    public_notice: (original as Record<string, unknown>).public_notice ?? null,
   };
   // Include reminder_settings if the column exists on the original row
   if ("reminder_settings" in original) {

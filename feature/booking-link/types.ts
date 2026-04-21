@@ -26,6 +26,8 @@ export interface BookingLink {
   line_button_text: string | null;
   line_button_url: string | null;
   visit_source_id: number | null;
+  /** 公開予約画面 Step 1 に表示する自由記述の案内文 (改行保持)。 */
+  public_notice: string | null;
   /** Tag templates (GTM 等) to inject into document.head / body. (00023) */
   head_tag_template_id: number | null;
   body_tag_template_id: number | null;

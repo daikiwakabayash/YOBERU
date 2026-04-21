@@ -8,6 +8,8 @@ export interface PublicLink {
   line_button_text: string | null;
   line_button_url: string | null;
   alias_menu_name: string | null;
+  /** Step 1 の店舗カード直下に表示する自由記述の案内文 (改行保持)。 */
+  public_notice: string | null;
 }
 
 export interface PublicArea {
