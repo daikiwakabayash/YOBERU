@@ -94,10 +94,15 @@ export function ReservationCalendar({
   // just once (start/end of drag) so the listener effect is stable.
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
   const [dragLeft, setDragLeft] = useState(0);
+  // ドラッグ中にカードを「カーソルが今いるスタッフ行」まで縦に追従
+  // させるためのオフセット (px)。本体のスタッフ行からの相対 Y。
+  // 0 なら原位置、正値で下の行へ、負値で上の行へずらす。
+  const [dragTopOffset, setDragTopOffset] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
   const dragOffsetRef = useRef(0);
   const dragStaffIdRef = useRef<number | null>(null);
   const dragLeftRef = useRef(0);
+  const dragTopOffsetRef = useRef(0);
   const hasMovedRef = useRef(false);
   const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const rafRef = useRef<number | null>(null);
@@ -164,12 +169,23 @@ export function ReservationCalendar({
       dragLeftRef.current = newLeft;
 
       // Vertical: find staff row under cursor (cached rects; fast).
+      // ホーム行 (= ドラッグ開始時のスタッフ行) と現在カーソルが
+      // 乗っている行の Y 差分を取り、transform: translateY で
+      // ゴースト表示も縦に追従させる。これが無いとカードが原位置
+      // から動かず、「縦の動きだけ反映されない」ように見える。
+      let homeRowTop: number | null = null;
+      let hoverRowTop: number | null = null;
       for (const el of staffRowEls) {
         const r = el.getBoundingClientRect();
+        const id = Number(el.getAttribute("data-staff-id"));
+        if (id === dragAppt!.staffId) homeRowTop = r.top;
         if (e.clientY >= r.top && e.clientY <= r.bottom) {
-          dragStaffIdRef.current = Number(el.getAttribute("data-staff-id"));
-          break;
+          hoverRowTop = r.top;
+          dragStaffIdRef.current = id;
         }
+      }
+      if (homeRowTop != null && hoverRowTop != null) {
+        dragTopOffsetRef.current = hoverRowTop - homeRowTop;
       }
 
       // Throttle visual ghost update to animation frames.
@@ -177,6 +193,7 @@ export function ReservationCalendar({
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null;
           setDragLeft(dragLeftRef.current);
+          setDragTopOffset(dragTopOffsetRef.current);
         });
       }
     }
@@ -193,6 +210,8 @@ export function ReservationCalendar({
         setSelectedAppt(dragAppt);
         setDragAppt(null);
         setIsDraggingReal(false);
+        setDragTopOffset(0);
+        dragTopOffsetRef.current = 0;
         return;
       }
 
@@ -225,6 +244,8 @@ export function ReservationCalendar({
 
       setDragAppt(null);
       setIsDraggingReal(false);
+      setDragTopOffset(0);
+      dragTopOffsetRef.current = 0;
     }
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -702,6 +723,9 @@ export function ReservationCalendar({
                               borderLeftColor: blockColor,
                               backgroundColor: `${blockColor}12`,
                               touchAction: "pan-x",
+                              transform: isBeingDragged
+                                ? `translateY(${dragTopOffset}px)`
+                                : undefined,
                             }}
                             onMouseDown={(e) => handleDragStart(appt, e)}
                           >
@@ -798,6 +822,9 @@ export function ReservationCalendar({
                               : Math.max(laneBottom, 3),
                             zIndex: isBeingDragged ? 50 : 5,
                             touchAction: "pan-x",
+                            transform: isBeingDragged
+                              ? `translateY(${dragTopOffset}px)`
+                              : undefined,
                           }}
                           onMouseDown={(e) => handleDragStart(appt, e)}
                         >
