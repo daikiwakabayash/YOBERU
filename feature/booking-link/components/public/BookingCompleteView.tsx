@@ -56,12 +56,14 @@ export function BookingCompleteView({
             href={lineButtonUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex w-full max-w-xs items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-600"
+            className="flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 text-center text-sm font-bold leading-snug text-white hover:bg-emerald-600"
           >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[10px]">
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px]">
               L
             </span>
-            {lineButtonText || t("contactLine")}
+            <span className="whitespace-pre-line">
+              {lineButtonText || t("contactLine")}
+            </span>
           </a>
         )}
       </div>

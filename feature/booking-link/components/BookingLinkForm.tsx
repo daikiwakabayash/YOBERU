@@ -421,10 +421,11 @@ export function BookingLinkForm({
             <>
               <div className="space-y-2">
                 <Label>ボタン文言</Label>
-                <Input
+                <Textarea
                   value={lineButtonText ?? ""}
                   onChange={(e) => setLineButtonText(e.target.value)}
-                  placeholder="LINEで相談する"
+                  placeholder={"LINEで相談する\n(改行可)"}
+                  rows={2}
                 />
               </div>
               <div className="space-y-2">
