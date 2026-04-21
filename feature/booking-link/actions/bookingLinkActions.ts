@@ -62,7 +62,10 @@ function isMissingImmediateEmailColumn(msg: string): boolean {
 }
 
 function isMissingPublicNoticeColumn(msg: string): boolean {
-  return msg.includes("public_notice") && msg.includes("column");
+  // Supabase / PostgREST は "Could not find the 'public_notice' column of
+  // 'booking_links' in the schema cache" や "column booking_links.public_notice
+  // does not exist" などを返す。カラム名が含まれていれば該当とみなす。
+  return msg.includes("public_notice");
 }
 
 function stripMigrationOnlyColumns(data: Record<string, unknown>): void {
@@ -72,6 +75,31 @@ function stripMigrationOnlyColumns(data: Record<string, unknown>): void {
   delete data.immediate_email_subject;
   delete data.immediate_email_template;
   delete data.public_notice;
+}
+
+/**
+ * 「マイグレーション未適用」フォールバック時に、実は中身が空ではない
+ * カラムが含まれていないかをチェックする。空ではない = ユーザーが何か
+ * 入力した = 黙って捨てると「更新したのに反映されない」不具合になる
+ * ので、該当するカラムがあればエラーで返す。
+ */
+function detectSilentlyDroppedFields(
+  data: Record<string, unknown>,
+  errorMsg: string
+): string | null {
+  const drops: string[] = [];
+  if (
+    isMissingPublicNoticeColumn(errorMsg) &&
+    typeof data.public_notice === "string" &&
+    data.public_notice.trim().length > 0
+  ) {
+    drops.push("案内文");
+  }
+  if (drops.length === 0) return null;
+  return (
+    `${drops.join(" / ")}は未適用のマイグレーションがあり保存できません。` +
+    `supabase/migrations/00025_booking_link_public_notice.sql を適用してください。`
+  );
 }
 
 export async function createBookingLink(formData: FormData) {
@@ -105,6 +133,13 @@ export async function createBookingLink(formData: FormData) {
         isMissingImmediateEmailColumn(error.message ?? "") ||
         isMissingPublicNoticeColumn(error.message ?? ""))
     ) {
+      // 空でない列を黙って捨てないよう事前チェック。
+      const dropMsg = detectSilentlyDroppedFields(
+        insertData,
+        error.message ?? ""
+      );
+      if (dropMsg) return { error: dropMsg };
+
       const fallback = { ...insertData };
       stripMigrationOnlyColumns(fallback);
       const retry = await supabase.from("booking_links").insert(fallback);
@@ -148,8 +183,16 @@ export async function updateBookingLink(id: number, formData: FormData) {
   if (
     error &&
     (isMissingTagTemplateColumn(error.message ?? "") ||
-      isMissingImmediateEmailColumn(error.message ?? ""))
+      isMissingImmediateEmailColumn(error.message ?? "") ||
+      isMissingPublicNoticeColumn(error.message ?? ""))
   ) {
+    // ユーザー入力を黙って捨てないためのガード。
+    const dropMsg = detectSilentlyDroppedFields(
+      updateData,
+      error.message ?? ""
+    );
+    if (dropMsg) return { error: dropMsg };
+
     const fallback = { ...updateData };
     stripMigrationOnlyColumns(fallback);
     const retry = await supabase
