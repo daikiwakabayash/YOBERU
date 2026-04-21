@@ -615,7 +615,12 @@ export function ReservationCalendar({
                       // 顧客行を当日 INSERT するので、この 1 条件で
                       // カバーできる。前日以前に登録済みの既存顧客は、
                       // visit_count が 0/1 でも「会員」扱いにする。
-                      const isNew = !isSlotBlock && appt.isNewCustomer;
+                      // 継続決済 (サブスク月次課金の幽霊予約) も、
+                      // 実来院ではないので新規扱いから除外する。
+                      const isNew =
+                        !isSlotBlock &&
+                        !appt.isContinuedBilling &&
+                        appt.isNewCustomer;
                       const isPast = appt.status === 2;
                       const isInProgress = appt.status === 1;
                       const isCancelled = appt.status === 3 || appt.status === 99;

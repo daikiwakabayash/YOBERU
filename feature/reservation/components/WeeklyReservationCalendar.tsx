@@ -619,7 +619,9 @@ export function WeeklyReservationCalendar({
                     // 新規判定: 「今日登録された顧客」だけを新規とみなす
                     // (= customers.created_at >= 当日00:00 JST)。前日以前に
                     // 登録済みの既存顧客は visit_count の値に関わらず会員扱い。
-                    const isNew = appt.isNewCustomer;
+                    // 継続決済 (サブスク月次課金の幽霊予約) も新規扱いにしない。
+                    const isNew =
+                      !appt.isContinuedBilling && appt.isNewCustomer;
                     const isPast = appt.status === 2;
                     const isInProgress = appt.status === 1;
                     const isCancelled = appt.status === 3 || appt.status === 99;

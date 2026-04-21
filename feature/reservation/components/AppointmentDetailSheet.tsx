@@ -2171,6 +2171,11 @@ type DossierDetail = {
     menuName: string;
     staffName: string | null;
     isContinuedBilling: boolean;
+    planConsumption: {
+      planName: string;
+      ordinal: number;
+      total: number | null;
+    } | null;
   }>;
 };
 
@@ -2511,6 +2516,19 @@ function CustomerDossierPanel({
                       {a.isContinuedBilling && (
                         <Badge className="bg-purple-100 text-[10px] text-purple-700">
                           継続決済
+                        </Badge>
+                      )}
+                      {/* プラン消化バッジ: この日この予約で "プラン名 2/3 回目" を消化したこと
+                          を明示。LINE 問い合わせ対応でも、来院履歴カードだけで
+                          いつ何回目を使ったか判別できる。 */}
+                      {a.planConsumption && a.planConsumption.ordinal > 0 && (
+                        <Badge className="bg-emerald-100 text-[10px] font-bold text-emerald-800">
+                          {a.planConsumption.planName}{" "}
+                          {a.planConsumption.ordinal}
+                          {a.planConsumption.total != null
+                            ? ` / ${a.planConsumption.total}`
+                            : ""}{" "}
+                          回目
                         </Badge>
                       )}
                       {isCancelled && (
