@@ -160,6 +160,27 @@ export async function consumeCustomerPlan(
   return { success: true };
 }
 
+/**
+ * 顧客保有プランをソフトデリートする。
+ *
+ * 誤購入やテストデータの取り消しを想定。`deleted_at` にタイムスタンプを
+ * 立てるだけで、`consumed_plan_id` で参照している既存の予約 (= 既に
+ * 消化済みの履歴) には触らない。履歴保全を優先する方針。
+ */
+export async function deleteCustomerPlan(customerPlanId: number) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("customer_plans")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", customerPlanId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/reservation");
+  revalidatePath("/customer");
+  return { success: true };
+}
+
 function oneMonthLater(): string {
   const d = new Date();
   d.setMonth(d.getMonth() + 1);

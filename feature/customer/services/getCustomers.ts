@@ -82,6 +82,9 @@ export interface CustomerFullDetail {
     memo: string | null;
     menuName: string;
     staffName: string | null;
+    /** 継続決済 (サブスク月次課金) の幽霊予約フラグ。来院回数には
+     * 含めず、カルテ横の履歴表示では区別して描画できるようにする。 */
+    isContinuedBilling: boolean;
   }>;
 }
 
@@ -106,7 +109,7 @@ export async function getCustomerFullDetail(
   const { data: apptRaw } = await supabase
     .from("appointments")
     .select(
-      "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)"
+      "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, is_continued_billing, staffs(name)"
     )
     .eq("customer_id", customerId)
     .is("deleted_at", null)
@@ -122,6 +125,7 @@ export async function getCustomerFullDetail(
     memo: string | null;
     customer_record: string | null;
     menu_manage_id: string;
+    is_continued_billing: boolean | null;
     staffs:
       | { name: string | null }
       | Array<{ name: string | null }>
@@ -155,15 +159,20 @@ export async function getCustomerFullDetail(
       memo: a.memo,
       menuName: menuNameMap.get(a.menu_manage_id) ?? a.menu_manage_id,
       staffName: staff?.name ?? null,
+      isContinuedBilling: !!a.is_continued_billing,
     };
   });
 
-  // Derived metrics: 完了 (status=2) 予約だけをカウント
-  const completed = appointments.filter((a) => a.status === 2);
-  const visitCount = completed.length;
-  const totalSales = completed.reduce((sum, a) => sum + (a.sales || 0), 0);
+  // 来院回数 / 累計売上 / 最終来院日は「実来院の会計完了」だけをカウントする。
+  // 継続決済 (サブスク月次課金の幽霊予約) は status=2 でも除外し、履歴
+  // リストには残すが visit_count には積まない運用ルールに合わせる。
+  const realVisits = appointments.filter(
+    (a) => a.status === 2 && !a.isContinuedBilling
+  );
+  const visitCount = realVisits.length;
+  const totalSales = realVisits.reduce((sum, a) => sum + (a.sales || 0), 0);
   const lastVisitDate =
-    completed.length > 0 ? completed[0].startAt.slice(0, 10) : null;
+    realVisits.length > 0 ? realVisits[0].startAt.slice(0, 10) : null;
 
   return {
     customer: custRow as Customer,
