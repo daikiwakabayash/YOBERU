@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { X, ExternalLink } from "lucide-react";
 import type { PublicShop } from "./types";
 
 interface ShopMapSheetProps {
@@ -8,7 +8,34 @@ interface ShopMapSheetProps {
   onClose: () => void;
 }
 
+/**
+ * 住所から Google Maps 埋め込み URL を組み立てる。API キー不要の
+ * クエリ文字列モードを使用するので、そのまま iframe に流すだけで
+ * 地図が描画される。郵便番号のみ、住所のみ、どちらも空、いずれの
+ * ケースにもフォールバックする。
+ */
+function buildMapQuery(shop: PublicShop): string | null {
+  const parts: string[] = [];
+  if (shop.zip_code) parts.push(`〒${shop.zip_code}`);
+  if (shop.address) parts.push(shop.address);
+  if (shop.name) parts.push(shop.name);
+  const q = parts.join(" ").trim();
+  return q.length > 0 ? q : null;
+}
+
 export function ShopMapSheet({ shop, onClose }: ShopMapSheetProps) {
+  const mapQuery = buildMapQuery(shop);
+  const embedUrl = mapQuery
+    ? `https://www.google.com/maps?q=${encodeURIComponent(
+        mapQuery
+      )}&output=embed&hl=ja`
+    : null;
+  const externalUrl = mapQuery
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+        mapQuery
+      )}`
+    : null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       {/* Backdrop */}
@@ -33,9 +60,22 @@ export function ShopMapSheet({ shop, onClose }: ShopMapSheetProps) {
         {/* Header: MAP label */}
         <div className="px-12 py-3 text-xs font-medium text-gray-500">MAP</div>
 
-        {/* Map placeholder (no actual map embed for now) */}
-        <div className="mx-4 flex aspect-square items-center justify-center rounded-lg bg-gray-100">
-          <span className="text-xs text-gray-400">地図（準備中）</span>
+        {/* Map embed — no API key required (iframe q= mode). */}
+        <div className="mx-4 aspect-square overflow-hidden rounded-lg bg-gray-100">
+          {embedUrl ? (
+            <iframe
+              src={embedUrl}
+              title={`${shop.name}の地図`}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              className="h-full w-full border-0"
+              allowFullScreen
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <span className="text-xs text-gray-400">住所が未設定です</span>
+            </div>
+          )}
         </div>
 
         {/* Shop details */}
@@ -65,6 +105,18 @@ export function ShopMapSheet({ shop, onClose }: ShopMapSheetProps) {
               )}
             </tbody>
           </table>
+
+          {externalUrl && (
+            <a
+              href={externalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700"
+            >
+              Google マップで開く
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
         </div>
       </div>
     </div>

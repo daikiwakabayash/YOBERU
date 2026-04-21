@@ -225,6 +225,7 @@ export default async function PublicBookingPage({
           line_button_text: link.line_button_text,
           line_button_url: link.line_button_url,
           alias_menu_name: link.alias_menu_name,
+          public_notice: link.public_notice ?? null,
         }}
         areas={areas}
         shops={shops}

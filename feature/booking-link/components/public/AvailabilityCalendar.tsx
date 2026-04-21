@@ -241,18 +241,6 @@ export function AvailabilityCalendar({
 
   return (
     <div className="space-y-2">
-      {/* LINE notify button */}
-      <button
-        type="button"
-        className="flex w-full items-center justify-center gap-2 rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-600"
-      >
-        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[10px]">
-          L
-        </span>
-        空きが出たらLINEでお知らせ
-        <ChevronRight className="h-4 w-4" />
-      </button>
-
       {/* Month header */}
       <div className="flex items-center justify-between pt-2">
         <button

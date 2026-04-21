@@ -282,6 +282,11 @@ export function AppointmentDetailSheet({
   const [planPurchaseTarget, setPlanPurchaseTarget] =
     useState<LoadedPlanMenu | null>(null);
   const [justPurchasedPrice, setJustPurchasedPrice] = useState(0);
+  // 継続決済モードで「どのプランを課金したか」を appointments.menu_manage_id
+  // に立てるために、直前に購入したプランの menu_manage_id を保持する。
+  const [justPurchasedPlanMenuId, setJustPurchasedPlanMenuId] = useState<
+    string | null
+  >(null);
 
   // ---- 継続決済 (サブスク月額課金だけ計上する "幽霊予約") ----
   // 開いたスロットが「営業時間後の +2h ゾーン」にある場合、自動で
@@ -944,7 +949,16 @@ export function AppointmentDetailSheet({
       }
     }
 
-    if (selectedMenuIds.length === 0) {
+    // 継続決済モードではメニュー選択は不要 (実来院なしでサブスクの月次
+    // 課金だけ打つケース)。その代わり、どのプランを課金したかを特定
+    // するため、本セッションで購入したプランまたは既存の保有プランが
+    // 必須となる。
+    if (isContinuedBilling) {
+      if (!justPurchasedPlanMenuId && activePlans.length === 0) {
+        toast.error("継続決済の対象プランを選択してください");
+        return;
+      }
+    } else if (selectedMenuIds.length === 0) {
       toast.error("メニューを1つ以上選択してください");
       return;
     }
@@ -1001,25 +1015,38 @@ export function AppointmentDetailSheet({
           customerId = selectedCustomer!.id;
         }
 
-        // Build primary menu duration for end_at
+        // Build primary menu duration for end_at.
+        // 継続決済モードでメニュー未選択のときは、サブスク月次課金の
+        // 幽霊予約なので 30 分枠で作る (拡張ゾーンの最小単位)。
         const primaryMenu = menus.find(
           (m) => m.menu_manage_id === selectedMenuIds[0]
         );
         const totalDuration = menus
           .filter((m) => selectedMenuIds.includes(m.menu_manage_id))
           .reduce((s, m) => s + m.duration, 0);
-        const dur = totalDuration || primaryMenu?.duration || 60;
+        const dur =
+          totalDuration ||
+          primaryMenu?.duration ||
+          (isContinuedBilling ? 30 : 60);
 
         const startAt = `${newBooking.date}T${newBooking.time}:00`;
         const endTime = minutesToTime(timeToMinutes(newBooking.time) + dur);
         const endAt = `${newBooking.date}T${endTime}:00`;
+
+        // 継続決済モードでメニュー未選択なら、直前に購入したプランか
+        // 既存の保有プランの menu_manage_id を appointments.menu_manage_id
+        // に使う。これにより来院履歴・カルテパネルにも「どのプランの
+        // 課金か」が追える形で残る。
+        const fallbackPlanMenuId =
+          justPurchasedPlanMenuId ?? activePlans[0]?.menu_manage_id ?? "";
+        const menuIdForSave = selectedMenuIds[0] ?? fallbackPlanMenuId;
 
         const form = new FormData();
         form.set("brand_id", String(brandId));
         form.set("shop_id", String(shopId));
         form.set("customer_id", String(customerId));
         form.set("staff_id", String(newBooking.staffId));
-        form.set("menu_manage_id", selectedMenuIds[0]);
+        form.set("menu_manage_id", menuIdForSave);
         form.set("type", "0");
         form.set("start_at", startAt);
         form.set("end_at", endAt);
@@ -1028,6 +1055,13 @@ export function AppointmentDetailSheet({
         form.set("is_couple", "false");
         form.set("sales", String(total));
         form.set("status", "2");
+        form.set(
+          "is_continued_billing",
+          isContinuedBilling ? "true" : "false"
+        );
+        if (visitSourceId) {
+          form.set("visit_source_id", String(visitSourceId));
+        }
 
         const result = await createAppointment(form);
         if ("error" in result && result.error) {
@@ -1057,6 +1091,16 @@ export function AppointmentDetailSheet({
         form.set("status", "2");
         form.set("is_member_join", isMemberJoin ? "true" : "false");
         form.set("is_continued_billing", isContinuedBilling ? "true" : "false");
+        // 継続決済モードでメニュー未選択なら、直前に購入したプランか
+        // 既存の保有プランの menu_manage_id を menu_manage_id に上書き
+        // して、来院履歴で「どのプランを決済したか」が追えるようにする。
+        if (isContinuedBilling && selectedMenuIds.length === 0) {
+          const planMenuId =
+            justPurchasedPlanMenuId ?? activePlans[0]?.menu_manage_id ?? null;
+          if (planMenuId) {
+            form.set("menu_manage_id", planMenuId);
+          }
+        }
         if (visitSourceId) {
           form.set("visit_source_id", String(visitSourceId));
         }
@@ -1763,16 +1807,43 @@ export function AppointmentDetailSheet({
                     {activePlans.map((p) => (
                       <div
                         key={p.id}
-                        className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs"
+                        className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs"
                       >
-                        <span className="font-bold text-emerald-800">
+                        <span className="min-w-0 flex-1 truncate font-bold text-emerald-800">
                           {p.menu_name_snapshot}
                         </span>
-                        <span className="font-bold text-emerald-700">
+                        <span className="shrink-0 font-bold text-emerald-700">
                           {p.plan_type === "ticket" && p.total_count != null
                             ? `${p.used_count}/${p.total_count} 消化`
                             : "サブスク継続中"}
                         </span>
+                        <button
+                          type="button"
+                          aria-label="プランを削除"
+                          onClick={async () => {
+                            if (
+                              !confirm(
+                                `「${p.menu_name_snapshot}」を削除しますか？\n消化済みの予約履歴は残ります。`
+                              )
+                            )
+                              return;
+                            const { deleteCustomerPlan } = await import(
+                              "@/feature/customer-plan/actions/customerPlanActions"
+                            );
+                            const res = await deleteCustomerPlan(p.id);
+                            if ("error" in res && res.error) {
+                              toast.error(res.error);
+                              return;
+                            }
+                            setActivePlans((prev) =>
+                              prev.filter((x) => x.id !== p.id)
+                            );
+                            toast.success("プランを削除しました");
+                          }}
+                          className="shrink-0 rounded p-1 text-emerald-700 hover:bg-emerald-100 hover:text-red-600"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -2021,6 +2092,8 @@ export function AppointmentDetailSheet({
         onPurchased={({ plan, consumedToday }) => {
           // 合計金額にプラン代を加算するフラグ
           setJustPurchasedPrice((prev) => prev + plan.price);
+          // 継続決済モードで menu_manage_id の代替として使う。
+          setJustPurchasedPlanMenuId(plan.menu_manage_id);
           // 入会フラグをセット (UI 側の状態も更新)
           setIsMemberJoin(true);
           // アクティブプラン一覧を即時更新 (DB フェッチ待たず反映)
@@ -2097,6 +2170,7 @@ type DossierDetail = {
     memo: string | null;
     menuName: string;
     staffName: string | null;
+    isContinuedBilling: boolean;
     planConsumption: {
       planName: string;
       ordinal: number;
@@ -2439,6 +2513,11 @@ function CustomerDossierPanel({
                       <Badge variant="outline" className="text-[10px]">
                         {a.menuName}
                       </Badge>
+                      {a.isContinuedBilling && (
+                        <Badge className="bg-purple-100 text-[10px] text-purple-700">
+                          継続決済
+                        </Badge>
+                      )}
                       {/* プラン消化バッジ: この日この予約で "プラン名 2/3 回目" を消化したこと
                           を明示。LINE 問い合わせ対応でも、来院履歴カードだけで
                           いつ何回目を使ったか判別できる。 */}

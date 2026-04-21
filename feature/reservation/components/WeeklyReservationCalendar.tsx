@@ -88,10 +88,14 @@ export function WeeklyReservationCalendar({
   // that previously made dragging feel laggy.
   const [dragAppt, setDragAppt] = useState<CalendarAppointment | null>(null);
   const [dragLeft, setDragLeft] = useState(0);
+  // カーソルが今乗っている日付行までカードを縦に追従させるオフセット。
+  // 0 ならホーム行 (= ドラッグ開始時の日付行)、正値で下の日、負値で上の日へ。
+  const [dragTopOffset, setDragTopOffset] = useState(0);
   const [isDraggingReal, setIsDraggingReal] = useState(false);
   const dragOffsetRef = useRef(0);
   const dragDateRef = useRef<string | null>(null);
   const dragLeftRef = useRef(0);
+  const dragTopOffsetRef = useRef(0);
   const hasMovedRef = useRef(false);
   const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const rafRef = useRef<number | null>(null);
@@ -148,18 +152,29 @@ export function WeeklyReservationCalendar({
       const newLeft = Math.max(0, Math.min(rawLeft, totalWidth));
       dragLeftRef.current = newLeft;
 
+      // ホーム行と現在カーソル位置の日付行の Y 差分を取り、transform で
+      // ゴースト表示も縦に追従させる。
+      const homeDate = dragAppt!.startAt.slice(0, 10);
+      let homeRowTop: number | null = null;
+      let hoverRowTop: number | null = null;
       for (const el of dayRowEls) {
         const r = el.getBoundingClientRect();
+        const date = el.getAttribute("data-date");
+        if (date === homeDate) homeRowTop = r.top;
         if (e.clientY >= r.top && e.clientY <= r.bottom) {
-          dragDateRef.current = el.getAttribute("data-date");
-          break;
+          hoverRowTop = r.top;
+          dragDateRef.current = date;
         }
+      }
+      if (homeRowTop != null && hoverRowTop != null) {
+        dragTopOffsetRef.current = hoverRowTop - homeRowTop;
       }
 
       if (rafRef.current == null) {
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null;
           setDragLeft(dragLeftRef.current);
+          setDragTopOffset(dragTopOffsetRef.current);
         });
       }
     }
@@ -176,6 +191,8 @@ export function WeeklyReservationCalendar({
         setSelectedAppt(dragAppt);
         setDragAppt(null);
         setIsDraggingReal(false);
+        setDragTopOffset(0);
+        dragTopOffsetRef.current = 0;
         return;
       }
 
@@ -183,6 +200,8 @@ export function WeeklyReservationCalendar({
       if (!dropDate) {
         setDragAppt(null);
         setIsDraggingReal(false);
+        setDragTopOffset(0);
+        dragTopOffsetRef.current = 0;
         return;
       }
 
@@ -212,6 +231,8 @@ export function WeeklyReservationCalendar({
 
       setDragAppt(null);
       setIsDraggingReal(false);
+      setDragTopOffset(0);
+      dragTopOffsetRef.current = 0;
     }
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -569,6 +590,9 @@ export function WeeklyReservationCalendar({
                             borderLeftColor: blockColor,
                             backgroundColor: `${blockColor}12`,
                             touchAction: "pan-x",
+                            transform: isDragging
+                              ? `translateY(${dragTopOffset}px)`
+                              : undefined,
                           }}
                           onMouseDown={(e) => handleDragStart(appt, e)}
                         >
@@ -592,10 +616,12 @@ export function WeeklyReservationCalendar({
                       );
                     }
 
-                    // 継続決済 (サブスク月次課金の幽霊予約) は新規扱いにしない
+                    // 新規判定: 「今日登録された顧客」だけを新規とみなす
+                    // (= customers.created_at >= 当日00:00 JST)。前日以前に
+                    // 登録済みの既存顧客は visit_count の値に関わらず会員扱い。
+                    // 継続決済 (サブスク月次課金の幽霊予約) も新規扱いにしない。
                     const isNew =
-                      !appt.isContinuedBilling &&
-                      (appt.isNewCustomer || appt.visitCount <= 1);
+                      !appt.isContinuedBilling && appt.isNewCustomer;
                     const isPast = appt.status === 2;
                     const isInProgress = appt.status === 1;
                     const isCancelled = appt.status === 3 || appt.status === 99;
@@ -673,6 +699,9 @@ export function WeeklyReservationCalendar({
                           bottom: laneBottom,
                           zIndex: isDragging ? 50 : 5,
                           touchAction: "pan-x",
+                          transform: isDragging
+                            ? `translateY(${dragTopOffset}px)`
+                            : undefined,
                         }}
                         onMouseDown={(e) => handleDragStart(appt, e)}
                       >
@@ -697,7 +726,7 @@ export function WeeklyReservationCalendar({
                             )}
                           </div>
                           <div className="mt-0.5 flex min-w-0 items-center gap-0.5 leading-none">
-                            {isNew && (
+                            {isNew ? (
                               <span
                                 className="shrink-0 rounded px-1 py-0 text-[10px] font-bold"
                                 style={{
@@ -706,6 +735,10 @@ export function WeeklyReservationCalendar({
                                 }}
                               >
                                 {appt.source ? `${appt.source}新規` : "新規"}
+                              </span>
+                            ) : (
+                              <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[10px] font-bold text-white">
+                                会員
                               </span>
                             )}
                             {statusBadge && (

@@ -200,6 +200,15 @@ export function Step1StoreDateTime({
         {/* Step indicator */}
         <StepHeader stepNumber={1} total={3} title={t("step1Title")} />
 
+        {/* 案内文 (リンク別の自由記述。改行は whitespace-pre-line で保持) */}
+        {link.public_notice && link.public_notice.trim() && (
+          <div className="mb-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+            <p className="whitespace-pre-line text-xs leading-relaxed text-gray-700">
+              {link.public_notice}
+            </p>
+          </div>
+        )}
+
         {/* エリア (only if multiple areas) */}
         {areas.length > 1 && (
           <SelectRow

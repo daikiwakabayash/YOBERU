@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ShiftScheduleToolbar } from "@/feature/shift/components/ShiftScheduleToolbar";
+import { BulkBreakActionButton } from "@/feature/shift/components/BulkBreakActionButton";
 import {
   ShiftScheduleGrid,
   type ShiftEntry,
@@ -122,12 +123,20 @@ export default async function ShiftSchedulePage({ searchParams }: Props) {
         title="出勤表"
         description="スタッフの出勤スケジュール"
         actions={
-          <Link href={`/shift-schedule/edit?week=${weekStartStr}`}>
-            <Button>
-              <Pencil className="mr-1 h-4 w-4" />
-              出勤修正
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <BulkBreakActionButton
+              brandId={brandId}
+              shopId={shopId}
+              staffs={staffs}
+              defaultStartDate={weekStartStr}
+            />
+            <Link href={`/shift-schedule/edit?week=${weekStartStr}`}>
+              <Button>
+                <Pencil className="mr-1 h-4 w-4" />
+                出勤修正
+              </Button>
+            </Link>
+          </div>
         }
       />
       <div className="space-y-4 p-6">

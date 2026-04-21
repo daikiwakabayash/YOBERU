@@ -79,6 +79,9 @@ export function BookingLinkForm({
   const [visitSourceId, setVisitSourceId] = useState<number | null>(
     initialData?.visit_source_id ?? null
   );
+  const [publicNotice, setPublicNotice] = useState(
+    initialData?.public_notice ?? ""
+  );
   const [headTagTemplateId, setHeadTagTemplateId] = useState<number | null>(
     initialData?.head_tag_template_id ?? null
   );
@@ -148,6 +151,7 @@ export function BookingLinkForm({
     form.set("line_button_text", lineButtonText);
     form.set("line_button_url", lineButtonUrl);
     if (visitSourceId) form.set("visit_source_id", String(visitSourceId));
+    form.set("public_notice", publicNotice);
     if (headTagTemplateId)
       form.set("head_tag_template_id", String(headTagTemplateId));
     if (bodyTagTemplateId)
@@ -407,6 +411,30 @@ export function BookingLinkForm({
         </CardContent>
       </Card>
 
+      {/* 公開予約画面の案内文 (Step 1 の店舗選択直下に表示される) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">案内文</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label>本文（改行可）</Label>
+          <Textarea
+            value={publicNotice ?? ""}
+            onChange={(e) => setPublicNotice(e.target.value)}
+            placeholder={
+              "例) 初回特別価格\n通常8,000円 → 1,980円\n\n" +
+              "✓ 初回時間：約60分\n✓ 完全予約制で待ち時間なし\n\n" +
+              "【住所】\n〒169-0075 東京都新宿区…"
+            }
+            rows={6}
+          />
+          <p className="text-xs text-muted-foreground">
+            公開予約画面のステップ 1「店舗と日時を選ぶ」内に表示されます。
+            空欄の場合は表示されません。
+          </p>
+        </CardContent>
+      </Card>
+
       {/* LINE button */}
       <Card>
         <CardHeader>
@@ -421,10 +449,11 @@ export function BookingLinkForm({
             <>
               <div className="space-y-2">
                 <Label>ボタン文言</Label>
-                <Input
+                <Textarea
                   value={lineButtonText ?? ""}
                   onChange={(e) => setLineButtonText(e.target.value)}
-                  placeholder="LINEで相談する"
+                  placeholder={"LINEで相談する\n(改行可)"}
+                  rows={2}
                 />
               </div>
               <div className="space-y-2">
