@@ -588,14 +588,13 @@ export function ReservationCalendar({
                       const apptWidth = durationMinutes * PX_PER_MIN - 2;
 
                       const isSlotBlock = !!appt.slotBlock;
-                      // 新規判定: visitCount が 0 (submitPublicBooking は
-                      // visit_count を未設定のまま INSERT するため DB
-                      // デフォルト 0 になる) または 1 の場合を新規とみなす。
-                      // isNewCustomer は「顧客の created_at が今日」で判定
-                      // するため、前日に作成した顧客の翌日予約は false になる。
-                      const isNew =
-                        !isSlotBlock &&
-                        (appt.isNewCustomer || appt.visitCount <= 1);
+                      // 新規判定: 「今日登録された顧客」だけを新規とみなす
+                      // (= customers.created_at >= 当日00:00 JST)。手入力
+                      // (新規タブ) も /book/ 強制リンクも、どちらも新規
+                      // 顧客行を当日 INSERT するので、この 1 条件で
+                      // カバーできる。前日以前に登録済みの既存顧客は、
+                      // visit_count が 0/1 でも「会員」扱いにする。
+                      const isNew = !isSlotBlock && appt.isNewCustomer;
                       const isPast = appt.status === 2;
                       const isInProgress = appt.status === 1;
                       const isCancelled = appt.status === 3 || appt.status === 99;
@@ -635,11 +634,7 @@ export function ReservationCalendar({
                         statusBadgeColor = "bg-orange-100 text-orange-700";
                       }
 
-                      const visitLabel = isNew
-                        ? null
-                        : appt.visitCount > 0
-                          ? `${appt.visitCount}回目`
-                          : null;
+                      const visitLabel = isNew || isSlotBlock ? null : "会員";
 
                       const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
 

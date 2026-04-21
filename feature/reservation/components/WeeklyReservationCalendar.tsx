@@ -592,7 +592,10 @@ export function WeeklyReservationCalendar({
                       );
                     }
 
-                    const isNew = appt.isNewCustomer || appt.visitCount <= 1;
+                    // 新規判定: 「今日登録された顧客」だけを新規とみなす
+                    // (= customers.created_at >= 当日00:00 JST)。前日以前に
+                    // 登録済みの既存顧客は visit_count の値に関わらず会員扱い。
+                    const isNew = appt.isNewCustomer;
                     const isPast = appt.status === 2;
                     const isInProgress = appt.status === 1;
                     const isCancelled = appt.status === 3 || appt.status === 99;
@@ -694,7 +697,7 @@ export function WeeklyReservationCalendar({
                             )}
                           </div>
                           <div className="mt-0.5 flex min-w-0 items-center gap-0.5 leading-none">
-                            {isNew && (
+                            {isNew ? (
                               <span
                                 className="shrink-0 rounded px-1 py-0 text-[10px] font-bold"
                                 style={{
@@ -703,6 +706,10 @@ export function WeeklyReservationCalendar({
                                 }}
                               >
                                 {appt.source ? `${appt.source}新規` : "新規"}
+                              </span>
+                            ) : (
+                              <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[10px] font-bold text-white">
+                                会員
                               </span>
                             )}
                             {statusBadge && (
