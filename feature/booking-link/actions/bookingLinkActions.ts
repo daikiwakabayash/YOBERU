@@ -337,6 +337,42 @@ export async function submitPublicBooking(formData: FormData) {
     return { error: "必須項目が入力されていません" };
   }
 
+  // サーバー側でも電話番号・メールの形式を検証する。クライアント側
+  // バリデーションは DevTools から迂回できてしまうため、「実在しない
+  // 形式」の予約データを DB に入れないようここで最終ガード。
+  // 電話: 日本の番号 = 先頭 0 + 全 10〜11 桁、ハイフン/記号/空白禁止。
+  if (!/^0\d{9,10}$/.test(phone)) {
+    return {
+      error:
+        "電話番号の形式が正しくありません。ハイフンなしの10〜11桁で入力してください。",
+    };
+  }
+  // メール: 形式 + 代表的な typo ドメイン除外。
+  if (email) {
+    const emailRe = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+    const badDomains = new Set([
+      "gmial.com",
+      "gmai.com",
+      "gmial.co.jp",
+      "gnail.com",
+      "yaho.co.jp",
+      "yhaoo.co.jp",
+      "hotmai.com",
+      "outlok.com",
+      "icould.com",
+    ]);
+    const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
+    const tld = domain.slice(domain.lastIndexOf(".") + 1);
+    if (
+      !emailRe.test(email) ||
+      email.length > 254 ||
+      badDomains.has(domain) ||
+      tld.length < 2
+    ) {
+      return { error: "メールアドレスの形式が正しくありません。" };
+    }
+  }
+
   // 1. Create or find customer by phone
   let customerId: number;
   const existing = await supabase
