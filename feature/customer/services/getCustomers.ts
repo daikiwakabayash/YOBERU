@@ -82,6 +82,15 @@ export interface CustomerFullDetail {
     memo: string | null;
     menuName: string;
     staffName: string | null;
+    /** この予約がどのプランを何回目として消化したか。未消化は null。
+     *  LINE 問い合わせ対応時に「来院履歴カードから直接この日何回目か
+     *  分かる」UX のため。ordinal は顧客の該当プラン全消化の中での
+     *  start_at ASC 順位 (1-indexed)。 */
+    planConsumption: {
+      planName: string;
+      ordinal: number;
+      total: number | null;
+    } | null;
   }>;
 }
 
@@ -106,7 +115,7 @@ export async function getCustomerFullDetail(
   const { data: apptRaw } = await supabase
     .from("appointments")
     .select(
-      "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)"
+      "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, consumed_plan_id, staffs(name)"
     )
     .eq("customer_id", customerId)
     .is("deleted_at", null)
@@ -122,6 +131,7 @@ export async function getCustomerFullDetail(
     memo: string | null;
     customer_record: string | null;
     menu_manage_id: string;
+    consumed_plan_id: number | null;
     staffs:
       | { name: string | null }
       | Array<{ name: string | null }>
@@ -143,8 +153,67 @@ export async function getCustomerFullDetail(
     );
   }
 
+  // ---- プラン消化 ordinal の計算 ----------------------------------------
+  // "50 件の history に対して ordinal を振る" のではなく、顧客の全消化履歴
+  // を start_at ASC で拾って「この予約は 3 回目の消化」を出す。direct lookup。
+  const consumedPlanIdsInHistory = Array.from(
+    new Set(
+      raw
+        .map((a) => a.consumed_plan_id)
+        .filter((id): id is number => id != null)
+    )
+  );
+  const planOrdinalByApptId = new Map<number, number>();
+  const planMeta = new Map<number, { name: string; total: number | null }>();
+  if (consumedPlanIdsInHistory.length > 0) {
+    const [allConsumptionsRes, planRowsRes] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("id, start_at, consumed_plan_id")
+        .eq("customer_id", customerId)
+        .in("consumed_plan_id", consumedPlanIdsInHistory)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: true }),
+      supabase
+        .from("customer_plans")
+        .select("id, menu_name_snapshot, total_count")
+        .in("id", consumedPlanIdsInHistory),
+    ]);
+    const consumptionsByPlan = new Map<number, number[]>();
+    for (const row of (allConsumptionsRes.data ?? []) as Array<{
+      id: number;
+      consumed_plan_id: number;
+    }>) {
+      const list = consumptionsByPlan.get(row.consumed_plan_id) ?? [];
+      list.push(row.id);
+      consumptionsByPlan.set(row.consumed_plan_id, list);
+    }
+    for (const [, apptIds] of consumptionsByPlan) {
+      apptIds.forEach((aid, i) => planOrdinalByApptId.set(aid, i + 1));
+    }
+    for (const p of (planRowsRes.data ?? []) as Array<{
+      id: number;
+      menu_name_snapshot: string;
+      total_count: number | null;
+    }>) {
+      planMeta.set(p.id, {
+        name: p.menu_name_snapshot,
+        total: p.total_count ?? null,
+      });
+    }
+  }
+
   const appointments = raw.map((a) => {
     const staff = Array.isArray(a.staffs) ? a.staffs[0] ?? null : a.staffs;
+    const planConsumption =
+      a.consumed_plan_id != null && planMeta.has(a.consumed_plan_id)
+        ? {
+            planName:
+              planMeta.get(a.consumed_plan_id)?.name ?? "プラン",
+            ordinal: planOrdinalByApptId.get(a.id) ?? 0,
+            total: planMeta.get(a.consumed_plan_id)?.total ?? null,
+          }
+        : null;
     return {
       id: a.id,
       startAt: a.start_at,
@@ -155,6 +224,7 @@ export async function getCustomerFullDetail(
       memo: a.memo,
       menuName: menuNameMap.get(a.menu_manage_id) ?? a.menu_manage_id,
       staffName: staff?.name ?? null,
+      planConsumption,
     };
   });
 
@@ -188,13 +258,15 @@ export async function searchCustomers(
   //
   // Staff type just the number to pull up a returning patient, so
   // "12" should hit customer #12 first. Because the column is stored
-  // as a string we need to match two shapes:
-  //   1. exact new-format:    code = "12"
-  //   2. legacy zero-padded:  code = "00000012"
-  // We also allow prefix matching ("1" → 1, 10-19, 100...) so the
-  // search dropdown starts returning candidates as the user types.
-  // The final list is de-duped and re-ordered so exact-code matches
-  // always sit at the top.
+  // as a string we need to match three shapes:
+  //   1. exact new-format:        code = "12"
+  //   2. legacy zero-padded:      code = "00000012"
+  //   3. partial (contains)       code ILIKE "%12%"  ← ゼロ埋め桁数に
+  //      依存せずヒットさせるため
+  // We also let phone_number_1 contain the digits (for when staff type
+  // a partial phone instead of a code). Final ranking enforces
+  // "カルテNo マッチ > 電話だけマッチ" so phone-only hits never push
+  // code hits down the list.
   // ---------------------------------------------------------------
   if (/^\d+$/.test(trimmed)) {
     const padded = trimmed.padStart(8, "0");
@@ -204,25 +276,34 @@ export async function searchCustomers(
       .eq("shop_id", shopId)
       .is("deleted_at", null)
       .or(
-        `code.eq.${trimmed},code.eq.${padded},code.ilike.${trimmed}%,phone_number_1.ilike.%${trimmed}%`
+        `code.eq.${trimmed},code.eq.${padded},code.ilike.%${trimmed}%,phone_number_1.ilike.%${trimmed}%`
       )
-      .limit(limit);
+      .limit(limit * 3); // 後で tier でフィルタ/ソートするので少し多めに
     if (codeErr) throw codeErr;
     const rows = (codeHits ?? []) as CustomerSummary[];
-    // Exact code match wins — sort it to position 0.
+
+    // マッチ種別の判定:
+    //   0 = exact code (12 or 00000012)
+    //   1 = code が trimmed を含む (先頭一致・途中一致どちらも)
+    //   2 = phone だけのマッチ (コード側には digits が無い)
+    const rankOf = (c: CustomerSummary): number => {
+      const code = c.code ?? "";
+      if (code === trimmed || code === padded) return 0;
+      if (code.includes(trimmed)) return 1;
+      const phone = c.phone_number_1 ?? "";
+      if (phone.includes(trimmed)) return 2;
+      return 3; // fallback — 通常到達しない
+    };
+
     rows.sort((a, b) => {
-      const aExact =
-        a.code === trimmed || a.code === padded ? 0 : 1;
-      const bExact =
-        b.code === trimmed || b.code === padded ? 0 : 1;
-      if (aExact !== bExact) return aExact - bExact;
-      // Otherwise numeric-ish ordering by code so shorter codes show
-      // up first (1, 10, 11, 12... rather than 12, 13, 1).
+      const ra = rankOf(a);
+      const rb = rankOf(b);
+      if (ra !== rb) return ra - rb;
       const an = parseInt(a.code ?? "0", 10) || 0;
       const bn = parseInt(b.code ?? "0", 10) || 0;
       return an - bn;
     });
-    return rows;
+    return rows.slice(0, limit);
   }
 
   // ---------------------------------------------------------------

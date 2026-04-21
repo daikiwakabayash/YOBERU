@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { getCustomer } from "@/feature/customer/services/getCustomers";
 import { getActiveCustomerPlans } from "@/feature/customer-plan/services/getCustomerPlans";
+import { PlanCountEditor } from "@/feature/customer-plan/components/PlanCountEditor";
 import {
   Card,
   CardContent,
@@ -52,14 +53,10 @@ export default async function CustomerRecordPage({ params }: CustomerRecordPageP
               <ul className="divide-y divide-gray-100">
                 {activePlans.map((p) => {
                   const isTicket = p.plan_type === "ticket";
-                  const remaining =
-                    isTicket && p.total_count != null
-                      ? Math.max(0, p.total_count - (p.used_count ?? 0))
-                      : null;
                   return (
                     <li
                       key={p.id}
-                      className="flex items-center justify-between py-3"
+                      className="flex items-center justify-between gap-3 py-3"
                     >
                       <div className="min-w-0 space-y-0.5">
                         <p className="truncate text-sm font-medium">
@@ -75,22 +72,12 @@ export default async function CustomerRecordPage({ params }: CustomerRecordPageP
                           購入日 {p.purchased_at.slice(0, 10)}
                         </p>
                       </div>
-                      <div className="ml-4 text-right text-sm">
-                        {isTicket && p.total_count != null ? (
-                          <>
-                            <span className="text-2xl font-bold text-emerald-600">
-                              {remaining}
-                            </span>
-                            <span className="ml-1 text-xs text-muted-foreground">
-                              / {p.total_count} 回 残
-                            </span>
-                          </>
-                        ) : (
-                          <span className="rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
-                            契約中
-                          </span>
-                        )}
-                      </div>
+                      <PlanCountEditor
+                        planId={p.id}
+                        planType={p.plan_type}
+                        totalCount={p.total_count}
+                        usedCount={p.used_count ?? 0}
+                      />
                     </li>
                   );
                 })}
