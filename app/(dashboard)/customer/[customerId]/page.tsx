@@ -16,6 +16,7 @@ import { getCustomer } from "@/feature/customer/services/getCustomers";
 import { createClient } from "@/helper/lib/supabase/server";
 import { CustomerDetailTabs } from "@/feature/customer/components/CustomerDetailTabs";
 import { CustomerAttachmentsSection } from "@/feature/customer-attachment/components/CustomerAttachmentsSection";
+import { KarteEditor } from "@/feature/reservation/components/KarteEditor";
 import {
   getActiveBrandId,
   getActiveShopId,
@@ -69,14 +70,37 @@ export default async function CustomerDetailPage({
   let appointments: any[] = [];
   try {
     const supabase = await createClient();
-    const { data } = await supabase
+    // migration 00029 (customer_record_updated_at/_by) が未適用でも
+    // 落ちないように、失敗したら監査カラム無しで再取得するフォールバック付き。
+    let data: unknown[] | null = null;
+    const first = await supabase
       .from("appointments")
-      .select("id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)")
+      .select(
+        "id, start_at, end_at, status, sales, memo, customer_record, customer_record_updated_at, customer_record_updated_by, menu_manage_id, staffs(name)"
+      )
       .eq("customer_id", id)
       .is("deleted_at", null)
       .order("start_at", { ascending: false })
       .limit(50);
-    appointments = data ?? [];
+    if (
+      first.error &&
+      (first.error.message?.includes("customer_record_updated") ?? false)
+    ) {
+      const retry = await supabase
+        .from("appointments")
+        .select(
+          "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)"
+        )
+        .eq("customer_id", id)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: false })
+        .limit(50);
+      data = retry.data ?? null;
+    } else {
+      data = first.data ?? null;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    appointments = (data as any[]) ?? [];
 
     // Fetch menu names
     const menuIds = [...new Set(appointments.map((a) => a.menu_manage_id as string))];
@@ -289,7 +313,7 @@ export default async function CustomerDetailPage({
                 </>
               )}
               <Separator />
-              <Link href={`/customer/${id}/history`}>
+              <Link href={`/customer/${id}/edit`}>
                 <Button variant="outline" size="sm" className="w-full">
                   <FileText className="mr-2 h-4 w-4" />
                   編集する
@@ -337,6 +361,12 @@ export default async function CustomerDetailPage({
                     const sales = (appt.sales as number) || 0;
                     const status = appt.status as number;
                     const carte = appt.customer_record as string | null;
+                    const karteUpdatedAt =
+                      (appt.customer_record_updated_at as string | null) ??
+                      null;
+                    const karteUpdatedBy =
+                      (appt.customer_record_updated_by as string | null) ??
+                      null;
                     const menuName = (appt as Record<string, unknown>).menu_name as string ?? "不明";
                     const isCancelled = status === 3 || status === 99;
 
@@ -376,8 +406,17 @@ export default async function CustomerDetailPage({
                           </div>
                         </div>
 
-                        {/* Carte content */}
-                        {carte && (
+                        {/* Carte content — 会計後もインラインで編集可能。
+                            最終更新者のメール + 日時をカード右下に表示。 */}
+                        {!isCancelled && (
+                          <KarteEditor
+                            appointmentId={appt.id as number}
+                            initialText={carte}
+                            updatedAt={karteUpdatedAt}
+                            updatedBy={karteUpdatedBy}
+                          />
+                        )}
+                        {isCancelled && carte && (
                           <div className="mt-3 rounded bg-gray-50 p-3 text-sm">
                             <div className="mb-1 text-xs font-medium text-gray-400">
                               カルテ
