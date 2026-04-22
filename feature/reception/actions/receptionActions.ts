@@ -3,6 +3,7 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { toLocalDateString } from "@/helper/utils/time";
+import { computePerVisitConsumedAmount } from "@/helper/utils/consumedAmount";
 
 /**
  * Check in a customer (mark as arrived)
@@ -213,26 +214,6 @@ async function autoConsumePlanForAppointment(
       status: exhausted ? 1 : 0,
     })
     .eq("id", candidate.id);
-}
-
-/**
- * 1 予約あたりの消化額の計算ロジック (customerPlanActions と同一)。
- * ここでは server action の呼び合いを避けるためローカルに複製している。
- */
-function computePerVisitConsumedAmount(args: {
-  planType: "ticket" | "subscription";
-  priceSnapshot: number;
-  totalCount: number | null;
-  nextUsedCount: number;
-}): number {
-  const { planType, priceSnapshot, totalCount, nextUsedCount } = args;
-  if (!priceSnapshot || priceSnapshot <= 0) return 0;
-  if (!totalCount || totalCount <= 0) return 0;
-  const perVisit = Math.floor(priceSnapshot / totalCount);
-  if (planType === "ticket" && nextUsedCount >= totalCount) {
-    return priceSnapshot - perVisit * (totalCount - 1);
-  }
-  return perVisit;
 }
 
 /**
