@@ -25,7 +25,10 @@ export default async function CustomerRegisterPage() {
 
   return (
     <div>
-      <PageHeader title="顧客登録" description="新しい顧客を登録します" />
+      <PageHeader
+        title="顧客登録"
+        description="電話でのヒアリング等、問診票リンクを使えないお客様向け。カルテ No は保存時に自動で採番されます (未使用の最小番号から)。"
+      />
       <div className="p-6">
         <CustomerForm
           brandId={brandId}

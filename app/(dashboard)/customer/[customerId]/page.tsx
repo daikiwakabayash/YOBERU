@@ -14,6 +14,12 @@ import {
 } from "@/components/ui/table";
 import { getCustomer } from "@/feature/customer/services/getCustomers";
 import { createClient } from "@/helper/lib/supabase/server";
+import { CustomerDetailTabs } from "@/feature/customer/components/CustomerDetailTabs";
+import { CustomerAttachmentsSection } from "@/feature/customer-attachment/components/CustomerAttachmentsSection";
+import {
+  getActiveBrandId,
+  getActiveShopId,
+} from "@/helper/lib/shop-context";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -24,6 +30,7 @@ import {
   UserCog,
   FileText,
   BarChart3,
+  UserPlus,
 } from "lucide-react";
 
 const TYPE_LABELS: Record<number, { label: string; color: string }> = {
@@ -99,18 +106,29 @@ export default async function CustomerDetailPage({
     .reduce((sum, a) => sum + ((a.sales as number) || 0), 0);
   const visitCount = appointments.filter((a) => a.status === 2).length;
 
+  const brandId = await getActiveBrandId();
+  const shopId = await getActiveShopId();
+
   return (
     <div>
       <PageHeader
         title={fullName}
         description={`顧客コード: ${customer.code ?? "-"}`}
         actions={
-          <Link href="/customer">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              顧客一覧に戻る
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/customer/register">
+              <Button size="sm">
+                <UserPlus className="mr-1 h-4 w-4" />
+                新規顧客を登録
+              </Button>
+            </Link>
+            <Link href="/customer">
+              <Button variant="outline" size="sm">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                顧客一覧に戻る
+              </Button>
+            </Link>
+          </div>
         }
       />
 
@@ -149,9 +167,9 @@ export default async function CustomerDetailPage({
           </Card>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Left: Customer Info */}
-          <Card className="lg:col-span-1">
+        <CustomerDetailTabs
+          infoTab={
+          <Card>
             <CardHeader>
               <CardTitle className="text-base">基本情報</CardTitle>
             </CardHeader>
@@ -279,9 +297,25 @@ export default async function CustomerDetailPage({
               </Link>
             </CardContent>
           </Card>
-
-          {/* Right: Visit History + Carte */}
-          <Card className="lg:col-span-2">
+          }
+          photosTab={
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">写真・ビフォアフ</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* スマホ / PC 両方から施術前後の写真をアップロード可能。
+                  毎回開く必要はないのでタブ内に隔離してある。 */}
+              <CustomerAttachmentsSection
+                brandId={brandId}
+                shopId={shopId}
+                customerId={id}
+              />
+            </CardContent>
+          </Card>
+          }
+          historyTab={
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Calendar className="h-4 w-4" />
@@ -367,7 +401,8 @@ export default async function CustomerDetailPage({
               )}
             </CardContent>
           </Card>
-        </div>
+          }
+        />
       </div>
     </div>
   );
