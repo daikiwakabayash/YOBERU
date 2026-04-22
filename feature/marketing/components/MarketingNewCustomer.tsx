@@ -64,7 +64,18 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
         />
       </div>
 
-      {/* セクション A: 顧客別テーブル */}
+      {/* スタッフ別サマリー pivot (全体スコアを先に見せる) */}
+      <Card className="overflow-hidden">
+        <div className="border-b bg-gradient-to-r from-blue-50 to-white px-5 py-3 text-sm font-bold text-gray-800">
+          <Users className="mr-1.5 inline h-4 w-4 text-blue-500" />
+          {periodLabel} のセラピスト別サマリー
+        </div>
+        <div className="overflow-x-auto">
+          <StaffPivotTable byStaff={byStaff} />
+        </div>
+      </Card>
+
+      {/* 顧客別テーブル (新規客台帳) */}
       <Card className="overflow-hidden">
         <div className="border-b bg-gradient-to-r from-orange-50 to-white px-5 py-3 text-sm font-bold text-gray-800">
           <UserPlus className="mr-1.5 inline h-4 w-4 text-orange-500" />
@@ -80,8 +91,12 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
                 <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium">
                   カルテ
                 </th>
-                <th className="px-3 py-2 text-left font-medium">氏名</th>
-                <th className="px-3 py-2 text-left font-medium">担当</th>
+                <th className="whitespace-nowrap px-3 py-2 text-left font-medium">
+                  氏名
+                </th>
+                <th className="whitespace-nowrap px-3 py-2 text-left font-medium">
+                  担当
+                </th>
                 <th className="px-3 py-2 text-left font-medium">媒体</th>
                 <th className="px-3 py-2 text-left font-medium">会員</th>
                 <th className="px-3 py-2 text-center font-medium">継・離</th>
@@ -113,17 +128,6 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
               )}
             </tbody>
           </table>
-        </div>
-      </Card>
-
-      {/* セクション B: スタッフ別サマリー pivot */}
-      <Card className="overflow-hidden">
-        <div className="border-b bg-gradient-to-r from-blue-50 to-white px-5 py-3 text-sm font-bold text-gray-800">
-          <Users className="mr-1.5 inline h-4 w-4 text-blue-500" />
-          {periodLabel} のセラピスト別サマリー
-        </div>
-        <div className="overflow-x-auto">
-          <StaffPivotTable byStaff={byStaff} />
         </div>
       </Card>
 
@@ -173,8 +177,12 @@ function CustomerRow({ row }: { row: NewCustomerRow }) {
       <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-mono text-[11px] text-gray-700">
         {row.code ?? "-"}
       </td>
-      <td className="px-3 py-1.5 text-gray-900">{row.name}</td>
-      <td className="px-3 py-1.5 text-gray-700">{row.staffName ?? "-"}</td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-gray-900">
+        {row.name}
+      </td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-gray-700">
+        {row.staffName ?? "-"}
+      </td>
       <td className="px-3 py-1.5 text-gray-700">
         {row.visitSourceName ?? "-"}
       </td>
