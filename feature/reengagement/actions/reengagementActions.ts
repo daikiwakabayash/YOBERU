@@ -18,6 +18,7 @@ export interface SaveTemplateInput {
   message: string;
   couponMenuManageId: string | null;
   cooldownDays: number;
+  autoSendEnabled: boolean;
 }
 
 /**
@@ -42,7 +43,7 @@ export async function saveReengagementTemplate(input: SaveTemplateInput) {
   }
   await existingQuery;
 
-  const { error } = await supabase.from("reengagement_templates").insert({
+  const insertRow: Record<string, unknown> = {
     brand_id: input.brandId,
     shop_id: input.shopId,
     segment: input.segment,
@@ -50,8 +51,21 @@ export async function saveReengagementTemplate(input: SaveTemplateInput) {
     message: input.message,
     coupon_menu_manage_id: input.couponMenuManageId,
     cooldown_days: input.cooldownDays,
+    auto_send_enabled: input.autoSendEnabled,
     is_active: true,
-  });
+  };
+  let { error } = await supabase
+    .from("reengagement_templates")
+    .insert(insertRow);
+  // auto_send_enabled 未適用環境へのフォールバック (migration 00027 前)
+  if (error && error.message?.includes("auto_send_enabled")) {
+    const fallback = { ...insertRow };
+    delete fallback.auto_send_enabled;
+    const retry = await supabase
+      .from("reengagement_templates")
+      .insert(fallback);
+    error = retry.error;
+  }
   if (error) return { error: error.message };
 
   revalidatePath("/reengagement");

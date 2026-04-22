@@ -50,5 +50,8 @@ export interface ReengagementTemplate {
   message: string;
   couponMenuManageId: string | null;
   cooldownDays: number;
+  /** TRUE なら 毎日 9:00 JST の cron (/api/cron/reengagement) で自動配信。
+   *  FALSE は手動配信のみ。 */
+  autoSendEnabled: boolean;
   isActive: boolean;
 }

@@ -10,6 +10,7 @@ import { getMarketingData } from "@/feature/marketing/services/getMarketingData"
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
 import { getNewCustomerAnalytics } from "@/feature/marketing/services/getNewCustomerAnalytics";
 import { getCatchmentCustomers } from "@/feature/catchment/services/getCatchmentCustomers";
+import { getLineFriendStats } from "@/feature/marketing/services/getLineFriendStats";
 import {
   getActiveBrandId,
   getActiveShopId,
@@ -159,15 +160,25 @@ export default async function MarketingPage({
     }
     // overview: default fallback. 媒体別 section is rendered within
     // MarketingOverview itself.
-    const data = await getMarketingData({
-      brandId,
-      shopId,
-      startMonth,
-      endMonth,
-      visitSourceId,
-      staffId,
-    });
-    return <MarketingOverview data={data} />;
+    const [data, lineFriendStats] = await Promise.all([
+      getMarketingData({
+        brandId,
+        shopId,
+        startMonth,
+        endMonth,
+        visitSourceId,
+        staffId,
+      }),
+      // LINE 友だち化率は全顧客ベースの現在値 (期間フィルタを適用すると
+      // 分母が揺れて意味が取りにくくなるため)
+      getLineFriendStats(shopId).catch(() => undefined),
+    ]);
+    return (
+      <MarketingOverview
+        data={data}
+        lineFriendStats={lineFriendStats}
+      />
+    );
   })();
 
   const descriptionBits: string[] = [];

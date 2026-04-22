@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Tabs,
   TabsContent,
@@ -161,6 +162,9 @@ function SegmentPanel({
     template.couponMenuManageId ?? ""
   );
   const [cooldownDays, setCooldownDays] = useState(template.cooldownDays);
+  const [autoSendEnabled, setAutoSendEnabled] = useState(
+    template.autoSendEnabled
+  );
 
   // 初期選択: cooldown に掛かっていない顧客を全員チェック
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => {
@@ -199,6 +203,7 @@ function SegmentPanel({
         message,
         couponMenuManageId: couponMenuId || null,
         cooldownDays,
+        autoSendEnabled,
       });
       if ("error" in res && res.error) {
         toast.error(res.error);
@@ -318,6 +323,20 @@ function SegmentPanel({
             <p className="text-[10px] text-gray-500">
               同じ顧客に同じセグメントで再送信するまでの最低日数。
             </p>
+          </div>
+
+          <div className="flex items-start gap-3 rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
+            <Switch
+              checked={autoSendEnabled}
+              onCheckedChange={setAutoSendEnabled}
+            />
+            <div className="flex-1 text-xs">
+              <div className="font-bold text-gray-900">自動配信</div>
+              <p className="mt-0.5 text-[11px] text-gray-500">
+                ON にすると毎日 9:00 (JST) に対象顧客へ自動送信します。
+                手動配信ボタンは引き続き利用できます。
+              </p>
+            </div>
           </div>
 
           <Button

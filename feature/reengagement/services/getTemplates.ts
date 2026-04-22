@@ -59,6 +59,7 @@ export async function getTemplatesForShop(
         couponMenuManageId:
           (row.coupon_menu_manage_id as string | null) ?? null,
         cooldownDays: (row.cooldown_days as number) ?? 30,
+        autoSendEnabled: !!row.auto_send_enabled,
         isActive: !!row.is_active,
       };
     }
@@ -76,6 +77,7 @@ export async function getTemplatesForShop(
         message: DEFAULT_MESSAGES[seg],
         couponMenuManageId: null,
         cooldownDays: 30,
+        autoSendEnabled: false,
         isActive: true,
       };
     }
