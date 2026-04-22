@@ -122,13 +122,12 @@ function monthRange(startMonth: string, endMonth: string): string[] {
 }
 
 function appointmentYearMonth(startAt: string): string {
-  // start_at is ISO with Z — treat as Asia/Tokyo for bucketing.
-  // Cheap: add 9h and slice. (The calendar query already scopes the
-  // window to Asia/Tokyo-aligned days, so this is close enough for
-  // per-month bucketing. Exact boundary cases are rare.)
-  const d = new Date(startAt);
-  d.setUTCHours(d.getUTCHours() + 9);
-  return d.toISOString().slice(0, 7);
+  // appointments.start_at は UI から TZ なしの ISO 文字列で書き込まれて
+  // いる (= UTC 扱いで保存されるが、クロック値は JST 入力そのもの)。
+  // 1 日の切り上げ / 切り下げで +9h シフトを掛けると 15 時台以降が翌日
+  // 扱いになってしまうので、先頭 7 文字 (YYYY-MM) をそのまま JST 月と
+  // して使う。
+  return startAt.slice(0, 7);
 }
 
 export async function getMarketingData(params: {

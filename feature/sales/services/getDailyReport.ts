@@ -80,10 +80,15 @@ const PAYMENT_LABELS: Record<string, string> = {
 };
 
 function dayInTokyo(iso: string): string {
-  // Convert ISO timestamp to Asia/Tokyo YYYY-MM-DD via +9h shift
-  const d = new Date(iso);
-  d.setUTCHours(d.getUTCHours() + 9);
-  return d.toISOString().slice(0, 10);
+  // appointments.start_at は UI から "YYYY-MM-DDTHH:MM:00" (TZ なし) で
+  // 投入されているため、Supabase 側で UTC として保存されるが、クロック
+  // 値としては JST (= ユーザーが画面で指定した時刻) がそのまま入って
+  // いる。したがって UTC→JST の +9h シフトをすると JST 15:00 以降が
+  // 翌日扱いになってしまう (15+9=24 で日付が繰り上がる) のが原因。
+  //
+  // 文字列の先頭 10 文字 (YYYY-MM-DD) がそのまま JST 日付として正しい
+  // ので、パース無しで slice するだけで OK。
+  return iso.slice(0, 10);
 }
 
 export async function getDailyReport(
