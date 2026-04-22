@@ -2301,24 +2301,16 @@ function CustomerDossierPanel({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* 写真・動画タブへの直接リンク。患者 DB のページに遷移して
-              「写真・ビフォアフ」タブが最初から開いた状態。 */}
-          <Link
-            href={`/customer/${rightPanelCustomer.id}?tab=photos`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          {/* 写真・動画タブへの直接リンク。同一ウィンドウで遷移して、
+              「写真・ビフォアフ」タブが最初から開いた状態になる。 */}
+          <Link href={`/customer/${rightPanelCustomer.id}?tab=photos`}>
             <Button variant="outline" size="sm">
               <ImageIcon className="mr-1 h-4 w-4" />
               写真・動画
             </Button>
           </Link>
           {/* 基本情報の編集画面へ (/customer/<id>/edit) */}
-          <Link
-            href={`/customer/${rightPanelCustomer.id}/edit`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <Link href={`/customer/${rightPanelCustomer.id}/edit`}>
             <Button variant="outline" size="sm">
               <Pencil className="mr-1 h-4 w-4" />
               基本情報を編集
