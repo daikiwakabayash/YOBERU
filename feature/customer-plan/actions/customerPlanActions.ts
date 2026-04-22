@@ -46,8 +46,11 @@ export async function purchaseCustomerPlan(input: PurchasePlanInput) {
   }
 
   const planType = menu.plan_type as "ticket" | "subscription";
-  const totalCount =
-    planType === "ticket" ? (menu.ticket_count as number | null) : null;
+  // ticket / subscription どちらも ticket_count を拾う。
+  //   ticket       : 購入時点の総回数 (4 回券 → 4)
+  //   subscription : 1 サイクル (1 ヶ月) あたりの利用回数 (月 4 回制限 → 4)
+  //                  NULL なら無制限サブスク
+  const totalCount = (menu.ticket_count as number | null) ?? null;
 
   // 2. customer_plans に INSERT
   const initialUsedCount =
@@ -77,10 +80,17 @@ export async function purchaseCustomerPlan(input: PurchasePlanInput) {
 
   // 3. 今日を 1 回目として使う場合は appointment に consumed_plan_id を貼る。
   //    併せて is_member_join=true にしてマーケティング入会率に反映。
+  //    消化額も合わせて stamp する (migration 00029)。
   if (input.appointmentId) {
     const apptUpdate: Record<string, unknown> = { is_member_join: true };
     if (planType === "ticket" && input.consumeToday) {
       apptUpdate.consumed_plan_id = inserted.id;
+      apptUpdate.consumed_amount = computePerVisitConsumedAmount({
+        planType: "ticket",
+        priceSnapshot: menu.price as number,
+        totalCount,
+        nextUsedCount: 1,
+      });
     }
     const { error: apptErr } = await supabase
       .from("appointments")
@@ -111,15 +121,13 @@ export async function consumeCustomerPlan(
 ) {
   const supabase = await createClient();
 
-  // 既に別のプランを消化していたら revert する
+  // 既に別のプランを消化していたら revert する (used_count と consumed_amount 両方)
   const { data: current } = await supabase
     .from("appointments")
     .select("consumed_plan_id")
     .eq("id", appointmentId)
     .maybeSingle();
   if (current?.consumed_plan_id && current.consumed_plan_id !== customerPlanId) {
-    await supabase.rpc;
-    // used_count を 1 減らす (revert)
     const { data: prev } = await supabase
       .from("customer_plans")
       .select("used_count")
@@ -133,28 +141,52 @@ export async function consumeCustomerPlan(
     }
   }
 
-  // 新プランを appointment に紐付け
-  const { error: apptErr } = await supabase
-    .from("appointments")
-    .update({ consumed_plan_id: customerPlanId })
-    .eq("id", appointmentId);
-  if (apptErr) return { error: apptErr.message };
-
-  // used_count を +1 (ticket のみ)。残数 0 になったら status=1 (exhausted)。
+  // 新プランの情報を取得 (消化額計算に必要)
   const { data: plan } = await supabase
     .from("customer_plans")
-    .select("plan_type, used_count, total_count")
+    .select("plan_type, used_count, total_count, price_snapshot")
     .eq("id", customerPlanId)
     .maybeSingle();
+
+  // used_count を +1 (ticket のみ)。残数 0 になったら status=1 (exhausted)。
+  let nextUsedCount = 1;
   if (plan?.plan_type === "ticket") {
-    const nextUsed = (plan.used_count ?? 0) + 1;
+    nextUsedCount = (plan.used_count ?? 0) + 1;
     const exhausted =
-      plan.total_count != null && nextUsed >= (plan.total_count as number);
+      plan.total_count != null && nextUsedCount >= (plan.total_count as number);
     await supabase
       .from("customer_plans")
-      .update({ used_count: nextUsed, status: exhausted ? 1 : 0 })
+      .update({ used_count: nextUsedCount, status: exhausted ? 1 : 0 })
       .eq("id", customerPlanId);
+  } else if (plan?.plan_type === "subscription") {
+    // サブスクも月あたり利用回数があれば +1 する (無制限なら触らない)
+    if (plan.total_count != null) {
+      nextUsedCount = (plan.used_count ?? 0) + 1;
+      await supabase
+        .from("customer_plans")
+        .update({ used_count: nextUsedCount })
+        .eq("id", customerPlanId);
+    }
   }
+
+  // 消化額を計算して appointment に stamp
+  const consumedAmount = plan
+    ? computePerVisitConsumedAmount({
+        planType: plan.plan_type as "ticket" | "subscription",
+        priceSnapshot: plan.price_snapshot as number,
+        totalCount: (plan.total_count as number | null) ?? null,
+        nextUsedCount,
+      })
+    : 0;
+
+  const { error: apptErr } = await supabase
+    .from("appointments")
+    .update({
+      consumed_plan_id: customerPlanId,
+      consumed_amount: consumedAmount,
+    })
+    .eq("id", appointmentId);
+  if (apptErr) return { error: apptErr.message };
 
   revalidatePath("/reservation");
   return { success: true };
@@ -242,4 +274,34 @@ function oneMonthLater(): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * 1 予約あたりの消化額を計算する。
+ *
+ * - ticket: 基本は floor(price / total_count)。ただし「最終回」
+ *   (nextUsedCount === total_count) だけは端数を吸収させ、
+ *   合計が price_snapshot と一致するようにする。
+ *     例) 10,000 円 3 回券 → 3,333 / 3,333 / 3,334
+ * - subscription: 毎回 floor(price / total_count) を計上 (サブスクは
+ *   月次でリセットされるので「最終回」の概念は無い)。
+ *   total_count が NULL の無制限サブスクは 0 (消化額を機械的に
+ *   割り出せないため)。
+ */
+export function computePerVisitConsumedAmount(args: {
+  planType: "ticket" | "subscription";
+  priceSnapshot: number;
+  totalCount: number | null;
+  nextUsedCount: number;
+}): number {
+  const { planType, priceSnapshot, totalCount, nextUsedCount } = args;
+  if (!priceSnapshot || priceSnapshot <= 0) return 0;
+  if (!totalCount || totalCount <= 0) return 0;
+
+  const perVisit = Math.floor(priceSnapshot / totalCount);
+  if (planType === "ticket" && nextUsedCount >= totalCount) {
+    // 最終回: 残り全額を乗せる
+    return priceSnapshot - perVisit * (totalCount - 1);
+  }
+  return perVisit;
 }

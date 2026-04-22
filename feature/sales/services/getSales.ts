@@ -11,6 +11,14 @@ interface SalesData {
   newCustomerCount: number;
   existingCustomerSales: number;
   existingCustomerCount: number;
+  /**
+   * 消化売上: 前金で販売したチケット/サブスクが、実際に来店で
+   * 消化された分の合計 (円)。会計額 (totalSales) とは別軸で、
+   * 前金前受金を「サービス提供時点の売上」として認識する指標。
+   */
+  consumedSales: number;
+  /** consumed_amount > 0 だった予約の件数 */
+  consumedCount: number;
   completedCount: number;
   cancelledCount: number;
   noShowCount: number;
@@ -23,6 +31,8 @@ interface SalesData {
     treatmentCount: number;
     /** 新規数 = 施術のうち visit_count=1 の件数 */
     newCount: number;
+    /** スタッフ別消化売上 (完了予約) */
+    consumedSales: number;
     /** 期間内の総開放時間 (= シフト合計、分単位) */
     openMin: number;
     /** 期間内の稼働時間 (status 1/2 のみ、分単位) */
@@ -52,7 +62,9 @@ export async function getSalesSummary(
 
   let query = supabase
     .from("appointments")
-    .select("id, staff_id, sales, status, type, visit_count, cancelled_at, staffs(name)")
+    .select(
+      "id, staff_id, sales, consumed_amount, status, type, visit_count, cancelled_at, staffs(name)"
+    )
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
@@ -72,6 +84,15 @@ export async function getSalesSummary(
 
   const totalSales = completed.reduce((sum, a) => sum + (a.sales || 0), 0);
   const totalCount = completed.length;
+  // 消化売上 = 完了予約のうち consumed_amount > 0 の合計。
+  // sales (当日入金) とは別軸で、前金プランの実消費を計上する。
+  const consumedSales = completed.reduce(
+    (sum, a) => sum + ((a.consumed_amount as number | null) ?? 0),
+    0
+  );
+  const consumedCount = completed.filter(
+    (a) => ((a.consumed_amount as number | null) ?? 0) > 0
+  ).length;
 
   // For new/existing split, type=0 is normal booking
   // We approximate new customers by checking type field
@@ -89,6 +110,7 @@ export async function getSalesSummary(
       count: number;
       treatmentCount: number;
       newCount: number;
+      consumedSales: number;
     }
   >();
 
@@ -98,13 +120,20 @@ export async function getSalesSummary(
   ) {
     let row = staffMap.get(sId);
     if (!row) {
-      row = { staffName: name, sales: 0, count: 0, treatmentCount: 0, newCount: 0 };
+      row = {
+        staffName: name,
+        sales: 0,
+        count: 0,
+        treatmentCount: 0,
+        newCount: 0,
+        consumedSales: 0,
+      };
       staffMap.set(sId, row);
     }
     return row;
   }
 
-  // Pass 1: completed appointments → sales / count
+  // Pass 1: completed appointments → sales / count / consumed
   for (const appt of completed) {
     const staffData = appt.staffs as unknown as { name: string } | null;
     const row = getOrCreateStaff(
@@ -113,6 +142,8 @@ export async function getSalesSummary(
     );
     row.sales += appt.sales || 0;
     row.count += 1;
+    row.consumedSales +=
+      ((appt.consumed_amount as number | null) ?? 0);
   }
 
   // Pass 2: treatment count + new count. Includes status 1 (施術中) AND
@@ -154,6 +185,7 @@ export async function getSalesSummary(
         count: 0,
         treatmentCount: 0,
         newCount: 0,
+        consumedSales: 0,
       });
     }
   }
@@ -171,6 +203,8 @@ export async function getSalesSummary(
       0
     ),
     existingCustomerCount: existingCustomerAppts.length,
+    consumedSales,
+    consumedCount,
     completedCount: completed.length,
     cancelledCount: cancelled.length,
     noShowCount: noShow.length,

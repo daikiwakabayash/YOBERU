@@ -64,7 +64,18 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
         />
       </div>
 
-      {/* セクション A: 顧客別テーブル */}
+      {/* スタッフ別サマリー pivot (全体スコアを先に見せる) */}
+      <Card className="overflow-hidden">
+        <div className="border-b bg-gradient-to-r from-blue-50 to-white px-5 py-3 text-sm font-bold text-gray-800">
+          <Users className="mr-1.5 inline h-4 w-4 text-blue-500" />
+          {periodLabel} のセラピスト別サマリー
+        </div>
+        <div className="overflow-x-auto">
+          <StaffPivotTable byStaff={byStaff} />
+        </div>
+      </Card>
+
+      {/* 顧客別テーブル (新規客台帳) */}
       <Card className="overflow-hidden">
         <div className="border-b bg-gradient-to-r from-orange-50 to-white px-5 py-3 text-sm font-bold text-gray-800">
           <UserPlus className="mr-1.5 inline h-4 w-4 text-orange-500" />
@@ -80,8 +91,12 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
                 <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium">
                   カルテ
                 </th>
-                <th className="px-3 py-2 text-left font-medium">氏名</th>
-                <th className="px-3 py-2 text-left font-medium">担当</th>
+                <th className="whitespace-nowrap px-3 py-2 text-left font-medium">
+                  氏名
+                </th>
+                <th className="whitespace-nowrap px-3 py-2 text-left font-medium">
+                  担当
+                </th>
                 <th className="px-3 py-2 text-left font-medium">媒体</th>
                 <th className="px-3 py-2 text-left font-medium">会員</th>
                 <th className="px-3 py-2 text-center font-medium">継・離</th>
@@ -116,24 +131,13 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
         </div>
       </Card>
 
-      {/* セクション B: スタッフ別サマリー pivot */}
-      <Card className="overflow-hidden">
-        <div className="border-b bg-gradient-to-r from-blue-50 to-white px-5 py-3 text-sm font-bold text-gray-800">
-          <Users className="mr-1.5 inline h-4 w-4 text-blue-500" />
-          {periodLabel} のセラピスト別サマリー
-        </div>
-        <div className="overflow-x-auto">
-          <StaffPivotTable byStaff={byStaff} />
-        </div>
-      </Card>
-
-      {/* セクション C: 新規売上 vs 既存売上 */}
+      {/* セクション C: 新規売上 vs 既存売上 vs 消化売上 */}
       <Card className="overflow-hidden">
         <div className="border-b bg-gradient-to-r from-emerald-50 to-white px-5 py-3 text-sm font-bold text-gray-800">
           <TrendingUp className="mr-1.5 inline h-4 w-4 text-emerald-500" />
           売上内訳 ({periodLabel})
         </div>
-        <div className="grid grid-cols-1 gap-0 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-0 sm:grid-cols-4">
           <SalesSplitCell
             label="新規売上"
             sub="当月に初回来店した顧客"
@@ -151,6 +155,12 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
             sub={`新規構成比 ${pct(newShare)}`}
             value={yen(sales.totalSales)}
             tone="bg-emerald-50"
+          />
+          <SalesSplitCell
+            label="消化売上"
+            sub="前金プランの実消費分"
+            value={yen(sales.consumedSales)}
+            tone="bg-cyan-50"
           />
         </div>
       </Card>
@@ -173,8 +183,12 @@ function CustomerRow({ row }: { row: NewCustomerRow }) {
       <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-mono text-[11px] text-gray-700">
         {row.code ?? "-"}
       </td>
-      <td className="px-3 py-1.5 text-gray-900">{row.name}</td>
-      <td className="px-3 py-1.5 text-gray-700">{row.staffName ?? "-"}</td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-gray-900">
+        {row.name}
+      </td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-gray-700">
+        {row.staffName ?? "-"}
+      </td>
       <td className="px-3 py-1.5 text-gray-700">
         {row.visitSourceName ?? "-"}
       </td>

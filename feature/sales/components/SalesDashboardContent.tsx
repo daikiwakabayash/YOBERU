@@ -17,6 +17,7 @@ import {
   UserCheck,
   XCircle,
   AlertTriangle,
+  Ticket,
 } from "lucide-react";
 
 interface SalesData {
@@ -26,6 +27,8 @@ interface SalesData {
   newCustomerCount: number;
   existingCustomerSales: number;
   existingCustomerCount: number;
+  consumedSales: number;
+  consumedCount: number;
   completedCount: number;
   cancelledCount: number;
   noShowCount: number;
@@ -36,6 +39,7 @@ interface SalesData {
     count: number;
     treatmentCount: number;
     newCount: number;
+    consumedSales: number;
     openMin: number;
     busyMin: number;
     utilizationRate: number;
@@ -70,7 +74,7 @@ export function SalesDashboardContent({
   return (
     <div className="space-y-6">
       {/* Summary KPI Cards (compact) */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Card data-size="sm">
           <CardHeader className="flex flex-row items-center justify-between pb-1">
             <CardTitle className="text-xs font-medium text-muted-foreground">
@@ -84,6 +88,25 @@ export function SalesDashboardContent({
             </div>
             <p className="text-[11px] text-muted-foreground">
               {data.totalCount}件完了
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* 消化売上: 前金で売ったチケット/サブスクが来店で消化された金額。
+            会計 (totalSales) とは別軸で、実サービス提供時点の売上認識。 */}
+        <Card data-size="sm" className="border-cyan-200 bg-cyan-50/40">
+          <CardHeader className="flex flex-row items-center justify-between pb-1">
+            <CardTitle className="text-xs font-medium text-cyan-700">
+              消化売上
+            </CardTitle>
+            <Ticket className="h-3.5 w-3.5 text-cyan-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold leading-tight text-cyan-900">
+              ¥{data.consumedSales.toLocaleString()}
+            </div>
+            <p className="text-[11px] text-cyan-700/80">
+              {data.consumedCount}件消化
             </p>
           </CardContent>
         </Card>
@@ -163,6 +186,7 @@ export function SalesDashboardContent({
               <TableRow>
                 <TableHead>スタッフ</TableHead>
                 <TableHead className="text-right">売上</TableHead>
+                <TableHead className="text-right text-cyan-700">消化売上</TableHead>
                 <TableHead className="text-right">件数</TableHead>
                 <TableHead className="text-right">客単価</TableHead>
                 <TableHead className="text-right">予約開放時間</TableHead>
@@ -176,7 +200,7 @@ export function SalesDashboardContent({
               {data.staffSales.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={10}
                     className="py-8 text-center text-muted-foreground"
                   >
                     データがありません
@@ -192,6 +216,11 @@ export function SalesDashboardContent({
                       </TableCell>
                       <TableCell className="text-right">
                         ¥{staff.sales.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right text-cyan-800">
+                        {staff.consumedSales > 0
+                          ? `¥${staff.consumedSales.toLocaleString()}`
+                          : "-"}
                       </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="secondary">{staff.count}</Badge>
