@@ -96,6 +96,12 @@ export interface CalendarAppointment {
   isContinuedBilling: boolean;
   /** チケット消化で紐付いた customer_plans.id (null なら未消化) */
   consumedPlanId: number | null;
+  /**
+   * 当予約で消化されたプラン金額 (円)。前金扱いのチケット/サブスクを
+   * 実際に使ったタイミングの「消化売上」として sales (当日入金) とは
+   * 別軸で集計される。
+   */
+  consumedAmount: number;
 }
 
 export interface CalendarData {

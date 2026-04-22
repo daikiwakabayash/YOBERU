@@ -73,6 +73,8 @@ npx tsc --noEmit     # 型チェックのみ
   - `00003_booking_links_and_payment_methods.sql` - 強制リンク + 支払方法
   - `00004_reminder_settings.sql` - リマインド設定 + ログ
   - `00005_visit_source_colors.sql` - 来店経路カラー + 問診票
+  - `00020_customer_plans_and_continued_billing.sql` - 回数券/サブスク + consumed_plan_id
+  - `00029_appointment_consumed_amount.sql` - 消化売上 (appointments.consumed_amount)
 - `menu_manage_id` は VARCHAR prefix 方式: BRD-○○ (ブランド共通) / STR-○○ (店舗限定)
 
 ### 多店舗のデータモデル
@@ -156,6 +158,54 @@ CTA を置く。
 3. 登録画面の hidden field / 初期値も `getActiveShopId()` を使う
 4. `const SHOP_ID = 1` などのハードコード定数を書かない
 5. 公開 (認証不要) ルートを追加する場合は `middleware.ts` の allowlist にも追加する
+
+---
+
+## 消化売上 (deferred revenue recognition)
+
+### 概要
+3 万円で 3 回券を販売した場合、会計時点では 3 万円を `sales` として
+計上するが、実際のサービスは来店ごとに提供される。そこで「1 来店で
+1 万円ずつ消化した」という「**消化売上**」を別軸で集計し、前金プランの
+実消費を追跡する。
+
+### データモデル
+- **`appointments.consumed_amount`** (migration 00029)
+  当予約で消化したプラン金額 (円)。`sales` (当日入金額) とは別軸。
+- **`appointments.consumed_plan_id`** (migration 00020)
+  どの `customer_plans` から消化したか。
+- **`customer_plans.total_count / used_count`**
+  - ticket: 購入時の総回数 / 消化済み回数。
+  - subscription: 1 ヶ月あたりの利用回数 / 当月消化回数。
+    月次で `resetSubscriptionForRenewal` が `used_count=0` にリセット。
+
+### 消化額の計算 (`feature/customer-plan/actions/customerPlanActions.ts::computePerVisitConsumedAmount`)
+| プラン種別 | 消化額 |
+|---|---|
+| ticket | `floor(price_snapshot / total_count)`。ただし最終回のみ端数を乗せて合計が `price_snapshot` と一致するようにする |
+| subscription (回数指定) | `floor(price_snapshot / total_count)` を毎回計上 |
+| subscription (無制限) | `0` (機械的に割り出せないため) |
+
+### どこで stamp されるか
+1. **購入時 1 回目消化**: `purchaseCustomerPlan(consumeToday=true, appointmentId)` が
+   `consumed_amount` を stamp。
+2. **予約完了時自動消化**: `completeAppointment` → `autoConsumePlanForAppointment` が
+   会員メニュー (price=0, plan_type=null) で消化候補プランを選び、
+   `consumed_plan_id` と `consumed_amount` を同時に stamp。
+3. **手動消化**: `consumeCustomerPlan(appointmentId, planId)` でも同様に stamp。
+
+### 表示箇所
+- **予約パネル** (`AppointmentDetailSheet`): お会計セクションに
+  「プラン消化額 ¥X」バッジ (既存予約のみ)。
+- **売上ダッシュボード** (`/sales`): 「消化売上」KPI カード +
+  スタッフ別ブレイクダウンに `消化売上` 列。
+- **マーケティング概要** (`/marketing` 概要タブ): pastel MiniCard 行に
+  「消化売上」、月別推移 / 媒体別内訳のテーブルに `消化売上` 列。
+- **新規管理タブ**: 売上内訳カードに「消化売上」セル。
+
+### 将来拡張
+- 消化分析タブ (プラン別消化率 / 期限切れ警告 / 顧客別消化状況)
+- 予約キャンセル時の消化取消 (used_count と consumed_amount の revert)
 
 ---
 

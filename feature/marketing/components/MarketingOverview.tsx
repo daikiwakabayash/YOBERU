@@ -106,7 +106,7 @@ export function MarketingOverview({
       )}
 
       {/* Secondary pastel row */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <MiniCard
           label="広告費合計"
           value={yen(t.adSpend)}
@@ -116,6 +116,11 @@ export function MarketingOverview({
           label="売上合計"
           value={yen(t.sales)}
           tone="bg-emerald-50 border-emerald-100"
+        />
+        <MiniCard
+          label="消化売上"
+          value={yen(t.consumedSales)}
+          tone="bg-cyan-50 border-cyan-100"
         />
         <MiniCard
           label="ROAS"
@@ -183,6 +188,9 @@ export function MarketingOverview({
                 <th className="px-3 py-2 text-right font-medium">広告費</th>
                 <th className="px-3 py-2 text-right font-medium">CPA</th>
                 <th className="px-3 py-2 text-right font-medium">売上</th>
+                <th className="px-3 py-2 text-right font-medium text-cyan-700">
+                  消化売上
+                </th>
                 <th className="px-3 py-2 text-right font-medium">ROAS</th>
               </tr>
             </thead>
@@ -190,7 +198,7 @@ export function MarketingOverview({
               {data.byMonth.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={12}
                     className="py-6 text-center text-muted-foreground"
                   >
                     期間内のデータがありません
@@ -228,6 +236,9 @@ export function MarketingOverview({
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-emerald-700">
                       {yen(m.sales)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-cyan-800">
+                      {m.consumedSales > 0 ? yen(m.consumedSales) : "-"}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span
@@ -267,6 +278,9 @@ export function MarketingOverview({
                 <th className="px-3 py-2 text-right font-medium">広告費</th>
                 <th className="px-3 py-2 text-right font-medium">CPA</th>
                 <th className="px-3 py-2 text-right font-medium">売上</th>
+                <th className="px-3 py-2 text-right font-medium text-cyan-700">
+                  消化売上
+                </th>
                 <th className="px-3 py-2 text-right font-medium">ROAS</th>
               </tr>
             </thead>
@@ -274,7 +288,7 @@ export function MarketingOverview({
               {data.bySource.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={12}
                     className="py-6 text-center text-muted-foreground"
                   >
                     媒体データがありません
@@ -312,6 +326,9 @@ export function MarketingOverview({
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-emerald-700">
                       {yen(s.sales)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-cyan-800">
+                      {s.consumedSales > 0 ? yen(s.consumedSales) : "-"}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span

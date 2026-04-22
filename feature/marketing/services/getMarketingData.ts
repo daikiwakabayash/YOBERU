@@ -17,6 +17,7 @@ export interface MarketingTotals {
   cancelCount: number;       // キャンセル系の数
   adSpend: number;           // 広告費合計
   sales: number;             // 売上 (status = 2 のみ)
+  consumedSales: number;     // 消化売上 (前金プランの実消費、status = 2)
   reviewCount: number;       // 口コミ数 (未実装: 0)
   joinRate: number;          // 入会数 / 実来院数
   cancelRate: number;        // キャンセル / 予約総数
@@ -60,6 +61,7 @@ function emptyTotals(): MarketingTotals {
     cancelCount: 0,
     adSpend: 0,
     sales: 0,
+    consumedSales: 0,
     reviewCount: 0,
     joinRate: 0,
     cancelRate: 0,
@@ -172,7 +174,7 @@ export async function getMarketingData(params: {
   let apptQuery = supabase
     .from("appointments")
     .select(
-      "id, status, start_at, sales, visit_source_id, is_member_join, cancelled_at, visit_count"
+      "id, status, start_at, sales, consumed_amount, visit_source_id, is_member_join, cancelled_at, visit_count"
     )
     .eq("shop_id", shopId)
     .eq("visit_count", 1)
@@ -227,6 +229,7 @@ export async function getMarketingData(params: {
     status: number;
     start_at: string;
     sales: number | null;
+    consumed_amount: number | null;
     visit_source_id: number | null;
     is_member_join: boolean | null;
     visit_count: number | null;
@@ -271,6 +274,11 @@ export async function getMarketingData(params: {
       totals.sales += a.sales;
       mb.sales += a.sales;
       sb.sales += a.sales;
+    }
+    if (isComplete && a.consumed_amount) {
+      totals.consumedSales += a.consumed_amount;
+      mb.consumedSales += a.consumed_amount;
+      sb.consumedSales += a.consumed_amount;
     }
     if (a.is_member_join) {
       totals.joinCount += 1;

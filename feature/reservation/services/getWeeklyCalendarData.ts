@@ -62,7 +62,7 @@ export async function getWeeklyCalendarData(
   // deployments don't have `is_member_join` and the query would silently
   // return null otherwise.
   const FULL_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, is_continued_billing, consumed_plan_id, other_label, slot_block_type_code, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, is_continued_billing, consumed_plan_id, consumed_amount, other_label, slot_block_type_code, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
   const SAFE_SELECT =
     "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
 
@@ -98,6 +98,7 @@ export async function getWeeklyCalendarData(
       msg.includes("is_member_join") ||
       msg.includes("is_continued_billing") ||
       msg.includes("consumed_plan_id") ||
+      msg.includes("consumed_amount") ||
       msg.includes("other_label") ||
       msg.includes("slot_block_type_code") ||
       msg.includes("does not exist")
@@ -198,6 +199,7 @@ export async function getWeeklyCalendarData(
     is_member_join?: boolean | null;
     is_continued_billing?: boolean | null;
     consumed_plan_id?: number | null;
+    consumed_amount?: number | null;
     other_label?: string | null;
     slot_block_type_code?: string | null;
     customers:
@@ -342,6 +344,7 @@ export async function getWeeklyCalendarData(
       isMemberJoin: !!a.is_member_join,
       isContinuedBilling: !!a.is_continued_billing,
       consumedPlanId: a.consumed_plan_id ?? null,
+      consumedAmount: a.consumed_amount ?? 0,
       slotBlock,
       otherLabel: a.other_label ?? null,
     };
