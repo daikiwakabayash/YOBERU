@@ -14,10 +14,15 @@ import { lookupZipCodeAddress } from "../utils/lookupZipCode";
 
 interface PublicQuestionnaireFormProps {
   questionnaire: Questionnaire;
+  /** 送信成功時の挙動を上書きしたい場合に指定 (例: 管理画面から登録時に
+   *  完了画面ではなく顧客詳細へ遷移させる)。デフォルトは「ご回答
+   *  ありがとうございます」の完了画面を表示する。 */
+  onCompleted?: (result: { customerId: number | null }) => void;
 }
 
 export function PublicQuestionnaireForm({
   questionnaire,
+  onCompleted,
 }: PublicQuestionnaireFormProps) {
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -99,6 +104,12 @@ export function PublicQuestionnaireForm({
 
     if ("error" in result && result.error) {
       toast.error(result.error);
+      return;
+    }
+    if (onCompleted) {
+      const customerId =
+        "customerId" in result ? (result.customerId ?? null) : null;
+      onCompleted({ customerId });
       return;
     }
     setCompleted(true);

@@ -3,11 +3,6 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { getCustomer } from "@/feature/customer/services/getCustomers";
 import { getActiveCustomerPlans } from "@/feature/customer-plan/services/getCustomerPlans";
 import { PlanCountEditor } from "@/feature/customer-plan/components/PlanCountEditor";
-import { CustomerAttachmentsSection } from "@/feature/customer-attachment/components/CustomerAttachmentsSection";
-import {
-  getActiveBrandId,
-  getActiveShopId,
-} from "@/helper/lib/shop-context";
 import {
   Card,
   CardContent,
@@ -40,9 +35,6 @@ export default async function CustomerRecordPage({ params }: CustomerRecordPageP
   // 会員プラン残数の取得。テーブル未セットアップ時は空配列が返る (致命的エラーに
   // はしない)。
   const activePlans = await getActiveCustomerPlans(id).catch(() => []);
-
-  const brandId = await getActiveBrandId();
-  const shopId = await getActiveShopId();
 
   return (
     <div>
@@ -94,18 +86,6 @@ export default async function CustomerRecordPage({ params }: CustomerRecordPageP
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>カルテ写真・添付ファイル</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CustomerAttachmentsSection
-              brandId={brandId}
-              shopId={shopId}
-              customerId={id}
-            />
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

@@ -62,7 +62,6 @@ export function AttachmentGallery({
 
     startTransition(async () => {
       let ok = 0;
-      let failed = 0;
       for (const f of files) {
         const fd = new FormData();
         fd.set("file", f);
@@ -74,21 +73,34 @@ export function AttachmentGallery({
         }
         fd.set("attachment_type", selectedType);
         fd.set("memo", memo);
-        const res = await uploadCustomerAttachment(fd);
-        if ("error" in res && res.error) {
-          failed++;
-          toast.error(`${f.name}: ${res.error}`);
-        } else {
-          ok++;
+        try {
+          const res = await uploadCustomerAttachment(fd);
+          if ("error" in res && res.error) {
+            console.error("[AttachmentGallery] upload error", {
+              file: f.name,
+              size: f.size,
+              error: res.error,
+            });
+            // エラーメッセージは読み切れるよう長めに表示 (10 秒)。
+            toast.error(`${f.name}: ${res.error}`, { duration: 10000 });
+          } else {
+            ok++;
+          }
+        } catch (e) {
+          const msg =
+            e instanceof Error ? e.message : "不明なエラー";
+          console.error("[AttachmentGallery] upload exception", e);
+          // 典型的にはここに「Body exceeded 1MB」等の Next.js 制限が来る
+          toast.error(
+            `${f.name}: 送信に失敗しました (${msg}). ファイルが大きすぎる場合は 10MB 以下に圧縮してください。`,
+            { duration: 10000 }
+          );
         }
       }
       if (ok > 0) {
         toast.success(`${ok} 件アップロードしました`);
         setMemo("");
         router.refresh();
-      }
-      if (failed > 0 && ok === 0) {
-        // already toasted per file
       }
     });
   }
@@ -275,8 +287,11 @@ function Thumbnail({
             >
               {ATTACHMENT_TYPE_LABELS[attachment.attachmentType]}
             </Badge>
-            <span className="text-[10px] text-gray-400">
-              {attachment.createdAt.slice(0, 10)}
+            <span
+              className="text-[10px] text-gray-400"
+              title={`アップロード日時: ${formatJstDateTime(attachment.createdAt)}`}
+            >
+              {formatJstDate(attachment.createdAt)}
             </span>
           </div>
           {attachment.memo && (
@@ -365,7 +380,7 @@ function Lightbox({
               {ATTACHMENT_TYPE_LABELS[attachment.attachmentType]}
             </Badge>
             <span className="text-gray-500">
-              {attachment.createdAt.slice(0, 10)}
+              アップロード: {formatJstDateTime(attachment.createdAt)}
             </span>
             {attachment.uploadedByStaffName && (
               <span className="text-gray-500">
@@ -382,4 +397,35 @@ function Lightbox({
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Date helpers (JST)
+// ---------------------------------------------------------------------------
+
+function formatJstDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+  const j = toJst(d);
+  return `${j.y}/${j.mo}/${j.da}`;
+}
+
+function formatJstDateTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  const j = toJst(d);
+  return `${j.y}/${j.mo}/${j.da} ${j.hh}:${j.mm}`;
+}
+
+function toJst(d: Date) {
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return {
+    y: jst.getUTCFullYear(),
+    mo: String(jst.getUTCMonth() + 1).padStart(2, "0"),
+    da: String(jst.getUTCDate()).padStart(2, "0"),
+    hh: String(jst.getUTCHours()).padStart(2, "0"),
+    mm: String(jst.getUTCMinutes()).padStart(2, "0"),
+  };
 }

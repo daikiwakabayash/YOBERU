@@ -55,10 +55,11 @@ export async function getStaffBookedSlots(
       const sM = Number(a.start_at.slice(14, 16));
       const eH = Number(a.end_at.slice(11, 13));
       const eM = Number(a.end_at.slice(14, 16));
-      // Derive the date from start_at (shift +9h for Asia/Tokyo)
-      const d = new Date(a.start_at);
-      d.setUTCHours(d.getUTCHours() + 9);
-      const dateStr = d.toISOString().slice(0, 10);
+      // start_at は TZ なしで保存されるため、文字列の YYYY-MM-DD を
+      // そのまま JST 日付として扱う (UTC→JST の +9h シフトをすると
+      // 15:00 以降の予約が翌日扱いになる)。HH:MM 側も同様に slice
+      // するので、この関数内で一貫している。
+      const dateStr = a.start_at.slice(0, 10);
       return {
         date: dateStr,
         startMin: sH * 60 + sM,

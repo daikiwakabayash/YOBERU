@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { Search, UserPlus, X, ExternalLink } from "lucide-react";
+import { Search, UserPlus, X, ExternalLink, Image as ImageIcon, Pencil } from "lucide-react";
 import type { CalendarAppointment } from "../types";
 import {
   createAppointment,
@@ -31,7 +31,7 @@ import {
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
 import { PlanPurchaseDialog } from "@/feature/customer-plan/components/PlanPurchaseDialog";
 import { getLastVisitForCustomer } from "@/feature/reservation/services/getAppointments";
-import { CustomerAttachmentsSection } from "@/feature/customer-attachment/components/CustomerAttachmentsSection";
+import { KarteEditor } from "./KarteEditor";
 import type { CustomerSummary } from "@/feature/customer/types";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { toast } from "sonner";
@@ -2090,9 +2090,6 @@ export function AppointmentDetailSheet({
               detail={customerDetail}
               loading={customerDetailLoading}
               stripZeros={stripZeros}
-              brandId={brandId}
-              shopId={shopId}
-              appointmentId={appointment?.id ?? null}
             />
           </div>
         )}
@@ -2196,6 +2193,8 @@ type DossierDetail = {
       ordinal: number;
       total: number | null;
     } | null;
+    karteUpdatedAt: string | null;
+    karteUpdatedBy: string | null;
   }>;
 };
 
@@ -2258,19 +2257,11 @@ function CustomerDossierPanel({
   detail,
   loading,
   stripZeros,
-  brandId,
-  shopId,
-  appointmentId,
 }: {
   rightPanelCustomer: DossierCustomer;
   detail: DossierDetail | null;
   loading: boolean;
   stripZeros: (code: string | null | undefined) => string | null;
-  brandId: number;
-  shopId: number;
-  /** 予約単位の添付をしたい場合に渡す。新規予約 (= appointment 未保存) の
-   *  ときは null にして、顧客単位の添付として扱う。 */
-  appointmentId: number | null;
 }) {
   // Until the dossier arrives, fall back to the sparse data we already
   // have from the calendar / search (so the header doesn't flicker).
@@ -2325,8 +2316,25 @@ function CustomerDossierPanel({
             <div className="mt-0.5 text-xs text-gray-500">{kanaName}</div>
           )}
         </div>
-        {/* 問診票データ反映ボタン */}
-        <SyncQuestionnaireButton customerId={rightPanelCustomer.id} />
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 写真・動画タブへの直接リンク。同一ウィンドウで遷移して、
+              「写真・ビフォアフ」タブが最初から開いた状態になる。 */}
+          <Link href={`/customer/${rightPanelCustomer.id}?tab=photos`}>
+            <Button variant="outline" size="sm">
+              <ImageIcon className="mr-1 h-4 w-4" />
+              写真・動画
+            </Button>
+          </Link>
+          {/* 基本情報の編集画面へ (/customer/<id>/edit) */}
+          <Link href={`/customer/${rightPanelCustomer.id}/edit`}>
+            <Button variant="outline" size="sm">
+              <Pencil className="mr-1 h-4 w-4" />
+              基本情報を編集
+            </Button>
+          </Link>
+          {/* 問診票データ反映ボタン */}
+          <SyncQuestionnaireButton customerId={rightPanelCustomer.id} />
+        </div>
       </div>
 
       {/* ===== 4 KPI cards — 来店回数 / 累計売上 / ステータス / 最終来院 ===== */}
@@ -2500,30 +2508,6 @@ function CustomerDossierPanel({
           )}
         </div>
 
-        {/* カルテ写真 / 添付ファイル — 患者単位の添付を表示・追加する。
-            新規予約 (appointmentId=null) のときは顧客単位、既存予約の
-            ときは予約単位の添付として扱う。 */}
-        {customer && (
-          <div className="rounded-xl border bg-white p-5 shadow-sm lg:col-span-3">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-bold text-gray-900">
-                カルテ写真・添付
-              </div>
-              <div className="text-[11px] text-gray-400">
-                {appointmentId != null
-                  ? "この予約に添付"
-                  : "顧客に添付"}
-              </div>
-            </div>
-            <CustomerAttachmentsSection
-              brandId={brandId}
-              shopId={shopId}
-              customerId={customer.id}
-              appointmentId={appointmentId}
-            />
-          </div>
-        )}
-
         {/* Visit history */}
         <div className="rounded-xl border bg-white p-5 shadow-sm lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
@@ -2595,16 +2579,14 @@ function CustomerDossierPanel({
                         <span>¥{a.sales.toLocaleString()}</span>
                       )}
                     </div>
-                    {a.customerRecord && (
-                      <div className="mt-2 rounded bg-gray-50 p-2 text-xs">
-                        <div className="mb-0.5 text-[10px] font-bold text-gray-400">
-                          カルテ
-                        </div>
-                        <p className="whitespace-pre-wrap text-gray-700">
-                          {a.customerRecord}
-                        </p>
-                      </div>
-                    )}
+                    {/* カルテは会計後もインラインで編集できる。編集者の
+                        メールアドレスと日時はカード右下に小さく表示される。 */}
+                    <KarteEditor
+                      appointmentId={a.id}
+                      initialText={a.customerRecord}
+                      updatedAt={a.karteUpdatedAt ?? null}
+                      updatedBy={a.karteUpdatedBy ?? null}
+                    />
                   </div>
                 );
               })}

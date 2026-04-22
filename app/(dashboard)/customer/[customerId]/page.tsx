@@ -14,6 +14,13 @@ import {
 } from "@/components/ui/table";
 import { getCustomer } from "@/feature/customer/services/getCustomers";
 import { createClient } from "@/helper/lib/supabase/server";
+import { CustomerDetailTabs } from "@/feature/customer/components/CustomerDetailTabs";
+import { CustomerAttachmentsSection } from "@/feature/customer-attachment/components/CustomerAttachmentsSection";
+import { KarteEditor } from "@/feature/reservation/components/KarteEditor";
+import {
+  getActiveBrandId,
+  getActiveShopId,
+} from "@/helper/lib/shop-context";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -24,6 +31,7 @@ import {
   UserCog,
   FileText,
   BarChart3,
+  UserPlus,
 } from "lucide-react";
 
 const TYPE_LABELS: Record<number, { label: string; color: string }> = {
@@ -62,14 +70,37 @@ export default async function CustomerDetailPage({
   let appointments: any[] = [];
   try {
     const supabase = await createClient();
-    const { data } = await supabase
+    // migration 00029 (customer_record_updated_at/_by) が未適用でも
+    // 落ちないように、失敗したら監査カラム無しで再取得するフォールバック付き。
+    let data: unknown[] | null = null;
+    const first = await supabase
       .from("appointments")
-      .select("id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)")
+      .select(
+        "id, start_at, end_at, status, sales, memo, customer_record, customer_record_updated_at, customer_record_updated_by, menu_manage_id, staffs(name)"
+      )
       .eq("customer_id", id)
       .is("deleted_at", null)
       .order("start_at", { ascending: false })
       .limit(50);
-    appointments = data ?? [];
+    if (
+      first.error &&
+      (first.error.message?.includes("customer_record_updated") ?? false)
+    ) {
+      const retry = await supabase
+        .from("appointments")
+        .select(
+          "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, staffs(name)"
+        )
+        .eq("customer_id", id)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: false })
+        .limit(50);
+      data = retry.data ?? null;
+    } else {
+      data = first.data ?? null;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    appointments = (data as any[]) ?? [];
 
     // Fetch menu names
     const menuIds = [...new Set(appointments.map((a) => a.menu_manage_id as string))];
@@ -99,18 +130,29 @@ export default async function CustomerDetailPage({
     .reduce((sum, a) => sum + ((a.sales as number) || 0), 0);
   const visitCount = appointments.filter((a) => a.status === 2).length;
 
+  const brandId = await getActiveBrandId();
+  const shopId = await getActiveShopId();
+
   return (
     <div>
       <PageHeader
         title={fullName}
         description={`顧客コード: ${customer.code ?? "-"}`}
         actions={
-          <Link href="/customer">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              顧客一覧に戻る
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/customer/register">
+              <Button size="sm">
+                <UserPlus className="mr-1 h-4 w-4" />
+                新規顧客を登録
+              </Button>
+            </Link>
+            <Link href="/customer">
+              <Button variant="outline" size="sm">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                顧客一覧に戻る
+              </Button>
+            </Link>
+          </div>
         }
       />
 
@@ -149,9 +191,9 @@ export default async function CustomerDetailPage({
           </Card>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Left: Customer Info */}
-          <Card className="lg:col-span-1">
+        <CustomerDetailTabs
+          infoTab={
+          <Card>
             <CardHeader>
               <CardTitle className="text-base">基本情報</CardTitle>
             </CardHeader>
@@ -271,7 +313,7 @@ export default async function CustomerDetailPage({
                 </>
               )}
               <Separator />
-              <Link href={`/customer/${id}/history`}>
+              <Link href={`/customer/${id}/edit`}>
                 <Button variant="outline" size="sm" className="w-full">
                   <FileText className="mr-2 h-4 w-4" />
                   編集する
@@ -279,9 +321,25 @@ export default async function CustomerDetailPage({
               </Link>
             </CardContent>
           </Card>
-
-          {/* Right: Visit History + Carte */}
-          <Card className="lg:col-span-2">
+          }
+          photosTab={
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">写真・ビフォアフ</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* スマホ / PC 両方から施術前後の写真をアップロード可能。
+                  毎回開く必要はないのでタブ内に隔離してある。 */}
+              <CustomerAttachmentsSection
+                brandId={brandId}
+                shopId={shopId}
+                customerId={id}
+              />
+            </CardContent>
+          </Card>
+          }
+          historyTab={
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Calendar className="h-4 w-4" />
@@ -303,6 +361,12 @@ export default async function CustomerDetailPage({
                     const sales = (appt.sales as number) || 0;
                     const status = appt.status as number;
                     const carte = appt.customer_record as string | null;
+                    const karteUpdatedAt =
+                      (appt.customer_record_updated_at as string | null) ??
+                      null;
+                    const karteUpdatedBy =
+                      (appt.customer_record_updated_by as string | null) ??
+                      null;
                     const menuName = (appt as Record<string, unknown>).menu_name as string ?? "不明";
                     const isCancelled = status === 3 || status === 99;
 
@@ -342,8 +406,17 @@ export default async function CustomerDetailPage({
                           </div>
                         </div>
 
-                        {/* Carte content */}
-                        {carte && (
+                        {/* Carte content — 会計後もインラインで編集可能。
+                            最終更新者のメール + 日時をカード右下に表示。 */}
+                        {!isCancelled && (
+                          <KarteEditor
+                            appointmentId={appt.id as number}
+                            initialText={carte}
+                            updatedAt={karteUpdatedAt}
+                            updatedBy={karteUpdatedBy}
+                          />
+                        )}
+                        {isCancelled && carte && (
                           <div className="mt-3 rounded bg-gray-50 p-3 text-sm">
                             <div className="mb-1 text-xs font-medium text-gray-400">
                               カルテ
@@ -367,7 +440,8 @@ export default async function CustomerDetailPage({
               )}
             </CardContent>
           </Card>
-        </div>
+          }
+        />
       </div>
     </div>
   );

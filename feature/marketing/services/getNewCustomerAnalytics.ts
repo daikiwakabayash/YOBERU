@@ -13,8 +13,15 @@ import { toLocalDateString } from "@/helper/utils/time";
  * 新規客 = appointments.visit_count = 1 (reservationActions でスタンプ)
  */
 
-const MAX_VISIT_COLUMNS = 5;
+const MAX_VISIT_COLUMNS = 20;
 const PLAN_PREFIX = "BRD-PLAN-";
+
+/** 各来院セルに付けるマーカー種別。
+ *  - member_join : appointments.is_member_join=TRUE だがプラン購入履歴無し
+ *                  (在庫上チケット/サブスク以外の入会フラグ) のケース
+ *  - ticket      : この来院時に回数券プランを購入
+ *  - subscription: この来院時にサブスクプランを購入 */
+export type VisitMarker = "member_join" | "ticket" | "subscription" | null;
 
 export interface NewCustomerVisit {
   date: string; // YYYY-MM-DD (Asia/Tokyo)
@@ -22,6 +29,9 @@ export interface NewCustomerVisit {
   status: number;
   isMemberJoin: boolean;
   isCancel: boolean;
+  /** 入会 / 回数券購入 / サブスク購入 を区別するマーカー。
+   *  UI 側でこの値を見て金額セルに色付きバッジを出す。 */
+  marker: VisitMarker;
 }
 
 export interface NewCustomerRow {
@@ -35,7 +45,10 @@ export interface NewCustomerRow {
   planName: string | null; // BRD-PLAN-* メニュー名、無ければ null
   isMemberJoin: boolean;
   isChurned: boolean; // 未来予約がない
-  visits: NewCustomerVisit[]; // 最大 5 件
+  /** この顧客が合計で購入 (入会 / 回数券 / サブスク) した回数。
+   *  マーカー付き visit の数を集計したもの。 */
+  purchaseCount: number;
+  visits: NewCustomerVisit[]; // 最大 MAX_VISIT_COLUMNS 件
 }
 
 export interface NewCustomerStaffBucket {
@@ -209,7 +222,8 @@ export async function getNewCustomerAnalytics(params: {
     )
   );
 
-  // 2. 該当 customer_id の全 appointments、当月全体の既存売上用、参照 master を並列取得。
+  // 2. 該当 customer_id の全 appointments、当月全体の既存売上用、
+  //    customer_plans 購入履歴、参照 master を並列取得。
   const [
     allApptsRes,
     monthApptsRes,
@@ -217,6 +231,7 @@ export async function getNewCustomerAnalytics(params: {
     staffsRes,
     sourcesRes,
     menusRes,
+    plansRes,
   ] = await Promise.all([
     supabase
       .from("appointments")
@@ -253,6 +268,14 @@ export async function getNewCustomerAnalytics(params: {
       .select("menu_manage_id, name")
       .like("menu_manage_id", `${PLAN_PREFIX}%`)
       .is("deleted_at", null),
+    // customer_plans は「どの予約の日にプランを購入したか」を追うために
+    // purchased_appointment_id を含めて取る。ticket / subscription の
+    // 区別もここから取って visit セルのマーカーに反映する。
+    supabase
+      .from("customer_plans")
+      .select("customer_id, plan_type, purchased_appointment_id")
+      .in("customer_id", customerIds)
+      .is("deleted_at", null),
   ]);
 
   const allAppts = (allApptsRes.data ?? []) as ApptRow[];
@@ -287,6 +310,23 @@ export async function getNewCustomerAnalytics(params: {
     ])
   );
 
+  // appointment.id → plan_type のルックアップ。同じ予約で ticket と
+  // subscription が同時に入ることは想定しないので最初にマッチしたもの
+  // を採用する。customer_plans 起因でない「入会フラグのみ (従来)」は
+  // このマップに入らないので、別ロジックでフォールバック markerする。
+  const planTypeByApptId = new Map<number, "ticket" | "subscription">();
+  for (const p of (plansRes.data ?? []) as Array<{
+    customer_id: number;
+    plan_type: string | null;
+    purchased_appointment_id: number | null;
+  }>) {
+    if (!p.purchased_appointment_id) continue;
+    if (p.plan_type !== "ticket" && p.plan_type !== "subscription") continue;
+    if (!planTypeByApptId.has(p.purchased_appointment_id)) {
+      planTypeByApptId.set(p.purchased_appointment_id, p.plan_type);
+    }
+  }
+
   // 3. customer_id ごとに appointments をグループ化 (start_at 昇順はクエリで保証済み)。
   const apptsByCustomer = new Map<number, ApptRow[]>();
   for (const a of allAppts) {
@@ -317,17 +357,29 @@ export async function getNewCustomerAnalytics(params: {
       (a) => a.start_at > nowIso && (a.status === 0 || a.status === 1)
     );
 
-    // 1〜5 回目: キャンセル系を除外した完了/予定順の先頭 5 件。
+    // 1〜N 回目: キャンセル系を除外した完了/予定順の先頭 MAX_VISIT_COLUMNS 件。
+    // 各セルには marker を付けて「入会 / 回数券 / サブスク」購入の
+    // タイミングが UI で一目で分かるようにする。
     const visitList: NewCustomerVisit[] = appts
       .filter((a) => !isCancelStatus(a.status))
       .slice(0, MAX_VISIT_COLUMNS)
-      .map((a) => ({
-        date: toLocalDateString(new Date(a.start_at)),
-        sales: a.sales ?? 0,
-        status: a.status,
-        isMemberJoin: !!a.is_member_join,
-        isCancel: false,
-      }));
+      .map((a) => {
+        const planType = planTypeByApptId.get(a.id) ?? null;
+        let marker: VisitMarker = null;
+        if (planType === "ticket") marker = "ticket";
+        else if (planType === "subscription") marker = "subscription";
+        else if (a.is_member_join) marker = "member_join";
+        return {
+          date: toLocalDateString(new Date(a.start_at)),
+          sales: a.sales ?? 0,
+          status: a.status,
+          isMemberJoin: !!a.is_member_join,
+          isCancel: false,
+          marker,
+        };
+      });
+
+    const purchaseCount = visitList.filter((v) => v.marker !== null).length;
 
     return {
       customerId: first.customer_id,
@@ -344,6 +396,7 @@ export async function getNewCustomerAnalytics(params: {
       planName,
       isMemberJoin: !!joinAppt,
       isChurned: !hasFuture,
+      purchaseCount,
       visits: visitList,
     };
   });

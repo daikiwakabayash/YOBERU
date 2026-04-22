@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { Button } from "@/components/ui/button";
 import { getCustomer } from "@/feature/customer/services/getCustomers";
 import {
   Table,
@@ -32,7 +35,18 @@ export default async function CustomerHistoryPage({ params }: CustomerHistoryPag
 
   return (
     <div>
-      <PageHeader title="来店履歴" description={fullName} />
+      <PageHeader
+        title="来店履歴"
+        description={fullName}
+        actions={
+          <Link href={`/customer/${id}`}>
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              戻る
+            </Button>
+          </Link>
+        }
+      />
       <div className="p-6">
         <Table>
           <TableHeader>

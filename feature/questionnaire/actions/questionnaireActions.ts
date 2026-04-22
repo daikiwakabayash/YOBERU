@@ -388,7 +388,10 @@ export async function submitQuestionnaireResponse(formData: FormData) {
   revalidatePath("/customer");
   if (customerId) revalidatePath(`/customer/${customerId}`);
 
-  return { success: true };
+  // customerId を返すことで、管理画面 (/customer/register) から呼んだ
+  // 際に「登録直後に顧客詳細に遷移」が可能になる。公開画面 (/q/<slug>)
+  // 側は使わない。
+  return { success: true, customerId };
 }
 
 // -----------------------------------------------------------------------

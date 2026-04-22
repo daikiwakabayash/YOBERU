@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card";
-import { UserPlus, TrendingUp, Users } from "lucide-react";
+import { UserPlus, TrendingUp, Users, Crown, Ticket, Repeat } from "lucide-react";
 import type {
   NewCustomerAnalytics,
   NewCustomerRow,
@@ -12,7 +12,10 @@ interface MarketingNewCustomerProps {
   data: NewCustomerAnalytics;
 }
 
-const VISIT_COLUMNS = [1, 2, 3, 4, 5] as const;
+// 表示列数 = 10 回目まで固定で枠を作る。実データがそれ以上になることは
+// 稀だが、横スクロールで見える運用にして「基本 5 回目まで画面に出る
+// + 6 回目以降はスクロール」を実現。
+const VISIT_COLUMNS: number[] = Array.from({ length: 10 }, (_, i) => i + 1);
 
 /**
  * 新規管理タブ UI。
@@ -100,11 +103,12 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
                 <th className="px-3 py-2 text-left font-medium">媒体</th>
                 <th className="px-3 py-2 text-left font-medium">会員</th>
                 <th className="px-3 py-2 text-center font-medium">継・離</th>
+                <th className="px-3 py-2 text-center font-medium">購入</th>
                 {VISIT_COLUMNS.map((n) => (
                   <th
                     key={n}
                     colSpan={2}
-                    className="border-l px-3 py-2 text-center font-medium"
+                    className="min-w-[140px] border-l px-3 py-2 text-center font-medium"
                   >
                     {n}回目
                   </th>
@@ -115,7 +119,7 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6 + VISIT_COLUMNS.length * 2}
+                    colSpan={7 + VISIT_COLUMNS.length * 2}
                     className="py-6 text-center text-muted-foreground"
                   >
                     当月の新規客はいません
@@ -128,6 +132,28 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
               )}
             </tbody>
           </table>
+        </div>
+      </Card>
+
+      {/* マーカー凡例: 上の新規客台帳の金額セルの色が何を表すかを明示 */}
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center gap-4 px-5 py-3 text-[11px] text-gray-600">
+          <span className="font-bold text-gray-700">金額セルのマーカー:</span>
+          <LegendItem
+            tone="bg-blue-500"
+            icon={<Ticket className="h-3 w-3" />}
+            label="回数券購入"
+          />
+          <LegendItem
+            tone="bg-purple-500"
+            icon={<Repeat className="h-3 w-3" />}
+            label="サブスク購入"
+          />
+          <LegendItem
+            tone="bg-cyan-500"
+            icon={<Crown className="h-3 w-3" />}
+            label="入会 (一般)"
+          />
         </div>
       </Card>
 
@@ -173,7 +199,7 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
 // ---------------------------------------------------------------------------
 
 function CustomerRow({ row }: { row: NewCustomerRow }) {
-  // 1〜5 回目を visits 配列からパディング
+  // 1〜N 回目を visits 配列からパディング (列数分)。
   const cells: (NewCustomerVisit | null)[] = Array.from(
     { length: VISIT_COLUMNS.length },
     (_, i) => row.visits[i] ?? null
@@ -210,6 +236,15 @@ function CustomerRow({ row }: { row: NewCustomerRow }) {
           <span className="text-[10px] text-emerald-600">継続</span>
         )}
       </td>
+      <td className="px-3 py-1.5 text-center">
+        {row.purchaseCount > 0 ? (
+          <span className="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">
+            {row.purchaseCount} 回
+          </span>
+        ) : (
+          <span className="text-[10px] text-gray-300">0</span>
+        )}
+      </td>
       {cells.map((v, i) => (
         <VisitCells key={i} visit={v} />
       ))}
@@ -231,9 +266,9 @@ function VisitCells({ visit }: { visit: NewCustomerVisit | null }) {
     );
   }
   const zero = (visit.sales ?? 0) === 0;
-  const join = visit.isMemberJoin;
-  const amountClass = join
-    ? "bg-cyan-100 text-cyan-800 font-bold"
+  const markerStyle = MARKER_CELL_STYLE[visit.marker ?? "none"];
+  const amountClass = markerStyle
+    ? markerStyle.cellClass
     : zero
       ? "bg-red-50 text-red-500"
       : "text-gray-800";
@@ -242,10 +277,60 @@ function VisitCells({ visit }: { visit: NewCustomerVisit | null }) {
       <td className="border-l px-2 py-1.5 text-center text-[11px] text-gray-600">
         {formatVisitDate(visit.date)}
       </td>
-      <td className={`px-2 py-1.5 text-right text-[11px] ${amountClass}`}>
-        {(visit.sales ?? 0).toLocaleString()}
+      <td
+        className={`relative px-2 py-1.5 text-right text-[11px] ${amountClass}`}
+        title={markerStyle?.tooltip}
+      >
+        <span className="inline-flex items-center gap-1">
+          {markerStyle?.icon}
+          {(visit.sales ?? 0).toLocaleString()}
+        </span>
       </td>
     </>
+  );
+}
+
+// マーカー種別ごとのセルスタイル。UI の凡例カードと同じ配色を使う。
+const MARKER_CELL_STYLE: Record<
+  "ticket" | "subscription" | "member_join" | "none",
+  { cellClass: string; icon: React.ReactNode; tooltip: string } | null
+> = {
+  ticket: {
+    cellClass: "bg-blue-100 text-blue-900 font-bold",
+    icon: <Ticket className="h-3 w-3" />,
+    tooltip: "この来院時に回数券プランを購入",
+  },
+  subscription: {
+    cellClass: "bg-purple-100 text-purple-900 font-bold",
+    icon: <Repeat className="h-3 w-3" />,
+    tooltip: "この来院時にサブスクプランを購入",
+  },
+  member_join: {
+    cellClass: "bg-cyan-100 text-cyan-800 font-bold",
+    icon: <Crown className="h-3 w-3" />,
+    tooltip: "この来院時に入会 (プラン種別不明)",
+  },
+  none: null,
+};
+
+function LegendItem({
+  tone,
+  icon,
+  label,
+}: {
+  tone: string;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={`flex h-4 w-4 items-center justify-center rounded text-white ${tone}`}
+      >
+        {icon}
+      </span>
+      <span>{label}</span>
+    </span>
   );
 }
 
