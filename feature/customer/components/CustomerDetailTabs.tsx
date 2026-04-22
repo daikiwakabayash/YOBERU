@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import {
   Tabs,
   TabsContent,
@@ -14,6 +15,9 @@ interface CustomerDetailTabsProps {
   photosTab: ReactNode;
   historyTab: ReactNode;
 }
+
+const VALID_TABS = ["info", "photos", "history"] as const;
+type TabValue = (typeof VALID_TABS)[number];
 
 /**
  * 患者 DB (/customer/<id>) の詳細ページをタブ化するためのクライアント
@@ -29,8 +33,48 @@ export function CustomerDetailTabs({
   photosTab,
   historyTab,
 }: CustomerDetailTabsProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // URL ?tab=photos をタブの初期値として採用。予約シートの「写真・動画」
+  // リンクから直接このタブへ飛べるようにする。
+  const initialTab: TabValue = (() => {
+    const t = searchParams.get("tab");
+    if (t && (VALID_TABS as readonly string[]).includes(t)) {
+      return t as TabValue;
+    }
+    return "info";
+  })();
+
+  const [value, setValue] = useState<TabValue>(initialTab);
+
+  function handleChange(next: TabValue) {
+    setValue(next);
+    // URL を書き換えて履歴に残す。同一ページ内遷移なのでスクロールは
+    // 維持したい → router.replace で history push は避ける。
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "info") {
+      params.delete("tab");
+    } else {
+      params.set("tab", next);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, {
+      scroll: false,
+    });
+  }
+
   return (
-    <Tabs defaultValue="info" className="w-full">
+    <Tabs
+      value={value}
+      onValueChange={(v) => {
+        if (v && (VALID_TABS as readonly string[]).includes(v)) {
+          handleChange(v as TabValue);
+        }
+      }}
+      className="w-full"
+    >
       <TabsList>
         <TabsTrigger value="info">
           <User className="mr-1 h-4 w-4" />

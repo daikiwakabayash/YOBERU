@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { Search, UserPlus, X, ExternalLink } from "lucide-react";
+import { Search, UserPlus, X, ExternalLink, Image as ImageIcon, Pencil } from "lucide-react";
 import type { CalendarAppointment } from "../types";
 import {
   createAppointment,
@@ -31,6 +31,7 @@ import {
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
 import { PlanPurchaseDialog } from "@/feature/customer-plan/components/PlanPurchaseDialog";
 import { getLastVisitForCustomer } from "@/feature/reservation/services/getAppointments";
+import { KarteEditor } from "./KarteEditor";
 import type { CustomerSummary } from "@/feature/customer/types";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { toast } from "sonner";
@@ -2176,6 +2177,8 @@ type DossierDetail = {
       ordinal: number;
       total: number | null;
     } | null;
+    karteUpdatedAt: string | null;
+    karteUpdatedBy: string | null;
   }>;
 };
 
@@ -2297,8 +2300,33 @@ function CustomerDossierPanel({
             <div className="mt-0.5 text-xs text-gray-500">{kanaName}</div>
           )}
         </div>
-        {/* 問診票データ反映ボタン */}
-        <SyncQuestionnaireButton customerId={rightPanelCustomer.id} />
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 写真・動画タブへの直接リンク。患者 DB のページに遷移して
+              「写真・ビフォアフ」タブが最初から開いた状態。 */}
+          <Link
+            href={`/customer/${rightPanelCustomer.id}?tab=photos`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Button variant="outline" size="sm">
+              <ImageIcon className="mr-1 h-4 w-4" />
+              写真・動画
+            </Button>
+          </Link>
+          {/* 基本情報の編集画面へ (/customer/<id>/edit) */}
+          <Link
+            href={`/customer/${rightPanelCustomer.id}/edit`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Button variant="outline" size="sm">
+              <Pencil className="mr-1 h-4 w-4" />
+              基本情報を編集
+            </Button>
+          </Link>
+          {/* 問診票データ反映ボタン */}
+          <SyncQuestionnaireButton customerId={rightPanelCustomer.id} />
+        </div>
       </div>
 
       {/* ===== 4 KPI cards — 来店回数 / 累計売上 / ステータス / 最終来院 ===== */}
@@ -2543,16 +2571,14 @@ function CustomerDossierPanel({
                         <span>¥{a.sales.toLocaleString()}</span>
                       )}
                     </div>
-                    {a.customerRecord && (
-                      <div className="mt-2 rounded bg-gray-50 p-2 text-xs">
-                        <div className="mb-0.5 text-[10px] font-bold text-gray-400">
-                          カルテ
-                        </div>
-                        <p className="whitespace-pre-wrap text-gray-700">
-                          {a.customerRecord}
-                        </p>
-                      </div>
-                    )}
+                    {/* カルテは会計後もインラインで編集できる。編集者の
+                        メールアドレスと日時はカード右下に小さく表示される。 */}
+                    <KarteEditor
+                      appointmentId={a.id}
+                      initialText={a.customerRecord}
+                      updatedAt={a.karteUpdatedAt ?? null}
+                      updatedBy={a.karteUpdatedBy ?? null}
+                    />
                   </div>
                 );
               })}

@@ -94,6 +94,11 @@ export interface CustomerFullDetail {
       ordinal: number;
       total: number | null;
     } | null;
+    /** カルテを最後に編集した日時 (migration 00029)。null = 会計時から
+     *  変更されていない。 */
+    karteUpdatedAt: string | null;
+    /** カルテを最後に編集したユーザーのメールアドレス */
+    karteUpdatedBy: string | null;
   }>;
 }
 
@@ -115,15 +120,35 @@ export async function getCustomerFullDetail(
   //    `staffs(name)` is an FK join — Supabase returns it inline. We
   //    then resolve menu names via a single follow-up query to avoid
   //    the no-FK fragility documented in CLAUDE.md.
-  const { data: apptRaw } = await supabase
+  // migration 00029 (customer_record_updated_at/_by) が未適用でも落ちない
+  // よう、失敗したら監査カラム無しで再取得するフォールバック付き。
+  let apptRaw: unknown[] | null = null;
+  const firstTry = await supabase
     .from("appointments")
     .select(
-      "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, is_continued_billing, consumed_plan_id, staffs(name)"
+      "id, start_at, end_at, status, sales, memo, customer_record, customer_record_updated_at, customer_record_updated_by, menu_manage_id, is_continued_billing, consumed_plan_id, staffs(name)"
     )
     .eq("customer_id", customerId)
     .is("deleted_at", null)
     .order("start_at", { ascending: false })
     .limit(50);
+  if (
+    firstTry.error &&
+    (firstTry.error.message?.includes("customer_record_updated") ?? false)
+  ) {
+    const retry = await supabase
+      .from("appointments")
+      .select(
+        "id, start_at, end_at, status, sales, memo, customer_record, menu_manage_id, is_continued_billing, consumed_plan_id, staffs(name)"
+      )
+      .eq("customer_id", customerId)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: false })
+      .limit(50);
+    apptRaw = retry.data ?? null;
+  } else {
+    apptRaw = firstTry.data ?? null;
+  }
 
   const raw = (apptRaw ?? []) as Array<{
     id: number;
@@ -136,6 +161,8 @@ export async function getCustomerFullDetail(
     menu_manage_id: string;
     is_continued_billing: boolean | null;
     consumed_plan_id: number | null;
+    customer_record_updated_at?: string | null;
+    customer_record_updated_by?: string | null;
     staffs:
       | { name: string | null }
       | Array<{ name: string | null }>
@@ -230,6 +257,8 @@ export async function getCustomerFullDetail(
       staffName: staff?.name ?? null,
       isContinuedBilling: !!a.is_continued_billing,
       planConsumption,
+      karteUpdatedAt: a.customer_record_updated_at ?? null,
+      karteUpdatedBy: a.customer_record_updated_by ?? null,
     };
   });
 
