@@ -9,6 +9,7 @@ import {
   Circle,
   Popup,
   Marker,
+  Rectangle,
   useMap,
 } from "react-leaflet";
 import L from "leaflet";
@@ -85,6 +86,12 @@ export function CatchmentMap({ data, visitSources, shopId }: Props) {
   const [colorMode, setColorMode] = useState<ColorMode>("status");
   const [radiusKm, setRadiusKm] = useState<number>(3);
   const [showRadius, setShowRadius] = useState<boolean>(true);
+  // ヒートマップ表示 (グリッド単位で顧客密度を可視化)。広告費配分の
+  // 意思決定に使う「反応ゾーン / ゼロゾーン」はこの表示で浮かび上がる。
+  const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
+  // 0.5km / 1km / 2km の 3 段階。小さくすると細かく、大きくすると
+  // 全体傾向。初期値は 1km (町丁感覚)。
+  const [gridKm, setGridKm] = useState<number>(1);
   const [ageFilter, setAgeFilter] = useState<Set<number>>(
     new Set(AGE_BUCKETS.map((_, i) => i))
   );
@@ -132,6 +139,74 @@ export function CatchmentMap({ data, visitSources, shopId }: Props) {
     : filteredPoints[0]
       ? [filteredPoints[0].lat, filteredPoints[0].lng]
       : [35.681, 139.767]; // 東京駅
+
+  // ヒートマップ用のグリッド集計。
+  //   - 店舗中心から ±radiusKm の範囲を gridKm のセルに分割
+  //   - 各セルに入る filteredPoints をカウント
+  //   - maxCount で正規化してカラー強度を決める
+  //   - 全セルのうち 0 件のものを「ゼロゾーン」として集計 (広告配分推奨)
+  const heatmapData = useMemo(() => {
+    if (!data.shop) return null;
+    const shopLat = data.shop.lat;
+    const shopLng = data.shop.lng;
+    // 日本の緯度では 1 度 ≈ 111km (緯度) / 111 * cos(lat) km (経度)。
+    const latPerKm = 1 / 111;
+    const lngPerKm = 1 / (111 * Math.cos((shopLat * Math.PI) / 180));
+    const cellLat = gridKm * latPerKm;
+    const cellLng = gridKm * lngPerKm;
+    const span = Math.ceil(radiusKm / gridKm);
+    // セルは shopLat/shopLng を中心セルとして、そこから ±span セル分作る
+    const cells = new Map<
+      string,
+      {
+        minLat: number;
+        maxLat: number;
+        minLng: number;
+        maxLng: number;
+        centerLat: number;
+        centerLng: number;
+        count: number;
+      }
+    >();
+    for (let i = -span; i <= span; i++) {
+      for (let j = -span; j <= span; j++) {
+        const key = `${i}_${j}`;
+        const minLat = shopLat + i * cellLat - cellLat / 2;
+        const maxLat = minLat + cellLat;
+        const minLng = shopLng + j * cellLng - cellLng / 2;
+        const maxLng = minLng + cellLng;
+        cells.set(key, {
+          minLat,
+          maxLat,
+          minLng,
+          maxLng,
+          centerLat: (minLat + maxLat) / 2,
+          centerLng: (minLng + maxLng) / 2,
+          count: 0,
+        });
+      }
+    }
+    // 各顧客を所属セルに振り分け
+    for (const p of filteredPoints) {
+      const i = Math.round((p.lat - shopLat) / cellLat);
+      const j = Math.round((p.lng - shopLng) / cellLng);
+      if (Math.abs(i) > span || Math.abs(j) > span) continue;
+      const c = cells.get(`${i}_${j}`);
+      if (c) c.count += 1;
+    }
+    // 円形半径外のセルは除外
+    const kept = Array.from(cells.values()).filter((c) => {
+      const dx = (c.centerLat - shopLat) / latPerKm;
+      const dy = (c.centerLng - shopLng) / lngPerKm;
+      return Math.sqrt(dx * dx + dy * dy) <= radiusKm;
+    });
+    const maxCount = Math.max(1, ...kept.map((c) => c.count));
+    const hotCells = kept
+      .filter((c) => c.count >= Math.max(2, Math.ceil(maxCount * 0.5)))
+      .sort((a, b) => b.count - a.count);
+    const zeroCells = kept.filter((c) => c.count === 0);
+    return { cells: kept, maxCount, hotCells, zeroCells };
+  }, [data.shop, filteredPoints, radiusKm, gridKm]);
 
   const sourceColorMap = useMemo(() => {
     const m = new Map<number | null, string>();
@@ -367,6 +442,59 @@ export function CatchmentMap({ data, visitSources, shopId }: Props) {
           </div>
         </div>
 
+        {/* Heatmap (広告費配分の意思決定補助) */}
+        <div>
+          <div className="mb-2 text-xs font-bold text-gray-700">
+            ヒートマップ
+          </div>
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={showHeatmap}
+              onChange={(e) => setShowHeatmap(e.target.checked)}
+            />
+            グリッドで密度を表示
+          </label>
+          {showHeatmap && (
+            <>
+              <div className="mt-1 flex gap-1">
+                {([0.5, 1, 2] as const).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setGridKm(g)}
+                    className={`flex-1 rounded-md border px-2 py-1 text-xs ${
+                      gridKm === g
+                        ? "border-orange-400 bg-orange-50 font-bold text-orange-700"
+                        : "text-gray-600"
+                    }`}
+                  >
+                    {g}km
+                  </button>
+                ))}
+              </div>
+              {heatmapData && (
+                <div className="mt-2 space-y-1 rounded-md border bg-white p-2 text-[11px] text-gray-700">
+                  <div className="flex items-center justify-between">
+                    <span className="text-red-600 font-bold">反応ゾーン</span>
+                    <span>{heatmapData.hotCells.length} セル</span>
+                  </div>
+                  <div className="text-[10px] text-gray-500">
+                    既存顧客が密集。折込チラシ / ポスティングが効く可能性。
+                  </div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <span className="text-gray-500 font-bold">ゼロゾーン</span>
+                    <span>{heatmapData.zeroCells.length} セル</span>
+                  </div>
+                  <div className="text-[10px] text-gray-500">
+                    半径内で顧客ゼロ。Meta 広告の地域ターゲティング候補。
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
         {/* Stats */}
         <div className="rounded-md border bg-gray-50 p-2 text-[11px] text-gray-700">
           <div>表示中: <b>{filteredPoints.length}</b> 名</div>
@@ -451,7 +579,62 @@ export function CatchmentMap({ data, visitSources, shopId }: Props) {
                   }}
                 />
               ))}
-            {filteredPoints.map((p) => (
+            {showHeatmap &&
+              heatmapData &&
+              heatmapData.cells.map((c, idx) => {
+                const intensity = c.count / heatmapData.maxCount;
+                // 段階カラー: 0 件は半透明グレー、以降は黄→橙→赤。
+                const fillColor =
+                  c.count === 0
+                    ? "#d1d5db"
+                    : intensity > 0.75
+                      ? "#dc2626"
+                      : intensity > 0.5
+                        ? "#f97316"
+                        : intensity > 0.25
+                          ? "#f59e0b"
+                          : "#fde68a";
+                return (
+                  <Rectangle
+                    key={`hm-${idx}`}
+                    bounds={[
+                      [c.minLat, c.minLng],
+                      [c.maxLat, c.maxLng],
+                    ]}
+                    pathOptions={{
+                      color:
+                        c.count === 0 ? "#9ca3af" : "#b91c1c",
+                      weight: 0.5,
+                      fillColor,
+                      fillOpacity: c.count === 0 ? 0.15 : 0.45,
+                    }}
+                  >
+                    <Popup>
+                      <div className="text-xs">
+                        <div className="font-bold">
+                          {c.count === 0
+                            ? "ゼロゾーン"
+                            : `${c.count} 名在住`}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-gray-500">
+                          {c.count === 0
+                            ? "広告エリアターゲティングの候補"
+                            : `このエリアの占有率: ${
+                                filteredPoints.length > 0
+                                  ? Math.round(
+                                      (c.count / filteredPoints.length) *
+                                        100
+                                    )
+                                  : 0
+                              }%`}
+                        </div>
+                      </div>
+                    </Popup>
+                  </Rectangle>
+                );
+              })}
+            {!showHeatmap &&
+              filteredPoints.map((p) => (
               <CircleMarker
                 key={p.id}
                 center={[p.lat, p.lng]}

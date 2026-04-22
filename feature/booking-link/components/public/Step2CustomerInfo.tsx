@@ -23,6 +23,46 @@ interface Step2Props {
 }
 
 /**
+ * 電話番号バリデーション: 日本の電話番号形式 (先頭 0、全 10〜11 桁、
+ * ハイフン/記号/空白禁止) のみを許容する。ユーザーには「ハイフン
+ * なし」を明示するが、誤入力された場合でも isValidPhone が false を
+ * 返すので送信ボタンが押せずに済む。
+ */
+const PHONE_RE = /^0\d{9,10}$/;
+function isValidPhone(v: string): boolean {
+  return PHONE_RE.test(v);
+}
+
+/**
+ * メールアドレスバリデーション: 最低限の形式チェックに加え、代表的な
+ * ドメイン typo (gmial.com など) を弾く。完全な実在確認は送信後の
+ * 確認メールで検証する想定。
+ */
+const EMAIL_RE =
+  /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const EMAIL_TYPO_DOMAINS = new Set([
+  "gmial.com",
+  "gmai.com",
+  "gmial.co.jp",
+  "gnail.com",
+  "yaho.co.jp",
+  "yhaoo.co.jp",
+  "hotmai.com",
+  "outlok.com",
+  "icould.com",
+]);
+function isValidEmail(v: string): boolean {
+  if (!EMAIL_RE.test(v)) return false;
+  if (v.length > 254) return false;
+  const domain = v.slice(v.lastIndexOf("@") + 1).toLowerCase();
+  if (EMAIL_TYPO_DOMAINS.has(domain)) return false;
+  // TLD は 2 文字以上
+  const tld = domain.slice(domain.lastIndexOf(".") + 1);
+  if (tld.length < 2) return false;
+  return true;
+}
+
+/**
  * Validation: all required fields present
  */
 function isStep2Valid(s: BookingState, requirePolicy: boolean): boolean {
@@ -30,10 +70,8 @@ function isStep2Valid(s: BookingState, requirePolicy: boolean): boolean {
   if (!s.firstName.trim()) return false;
   if (!s.lastNameKana.trim()) return false;
   if (!s.firstNameKana.trim()) return false;
-  if (!s.phone.trim() || !/^\d{10,11}$/.test(s.phone.replace(/-/g, "")))
-    return false;
-  if (!s.email.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email))
-    return false;
+  if (!isValidPhone(s.phone.trim())) return false;
+  if (!isValidEmail(s.email.trim())) return false;
   if (requirePolicy && !s.cancelPolicyAccepted) return false;
   return true;
 }
@@ -100,7 +138,7 @@ export function Step2CustomerInfo({
             required
             value={state.lastNameKana}
             onChange={(v) => setState({ lastNameKana: v })}
-            placeholder="やまだ"
+            placeholder="ヤマダ"
             valid={state.lastNameKana.trim().length > 0}
           />
           <LabeledInput
@@ -109,7 +147,7 @@ export function Step2CustomerInfo({
             required
             value={state.firstNameKana}
             onChange={(v) => setState({ firstNameKana: v })}
-            placeholder="たろう"
+            placeholder="タロウ"
             valid={state.firstNameKana.trim().length > 0}
           />
         </div>
@@ -123,9 +161,23 @@ export function Step2CustomerInfo({
             value={state.phone}
             onChange={(v) => setState({ phone: v })}
             placeholder="09012345678"
+            hint={lang === "en" ? "Digits only, no hyphens" : "ハイフンなしで入力"}
             inputMode="numeric"
             maxLength={11}
-            valid={/^\d{10,11}$/.test(state.phone.replace(/-/g, ""))}
+            valid={isValidPhone(state.phone.trim())}
+            errorMessage={
+              state.phone.trim().length === 0
+                ? undefined
+                : /[-－ー 　]/.test(state.phone)
+                  ? lang === "en"
+                    ? "Please enter digits only (no hyphens or spaces)"
+                    : "ハイフン・スペースは使えません。数字のみで入力してください"
+                  : !isValidPhone(state.phone.trim())
+                    ? lang === "en"
+                      ? "Enter a valid Japanese phone number (10-11 digits starting with 0)"
+                      : "電話番号の形式が正しくありません (0で始まる10〜11桁)"
+                    : undefined
+            }
           />
         </div>
 
@@ -139,7 +191,16 @@ export function Step2CustomerInfo({
             onChange={(v) => setState({ email: v })}
             placeholder="example@ex.jp"
             type="email"
-            valid={/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(state.email)}
+            valid={isValidEmail(state.email.trim())}
+            errorMessage={
+              state.email.trim().length === 0
+                ? undefined
+                : !isValidEmail(state.email.trim())
+                  ? lang === "en"
+                    ? "Please enter a valid email address"
+                    : "メールアドレスの形式が正しくありません"
+                  : undefined
+            }
           />
         </div>
 
@@ -196,7 +257,8 @@ export function Step2CustomerInfo({
               <span>
                 {link.alias_menu_name ?? menu.name}
                 {menu.duration > 0 && `(${menu.duration}${t("minutes")})`}
-                {menu.price > 0 &&
+                {menu.priceDispType &&
+                  menu.price > 0 &&
                   ` ${menu.price.toLocaleString()}${t("yenSuffix")}`}
               </span>
             </div>
@@ -243,6 +305,7 @@ function LabeledInput({
   inputMode,
   maxLength,
   valid,
+  errorMessage,
 }: {
   label: string;
   required?: boolean;
@@ -255,7 +318,12 @@ function LabeledInput({
   inputMode?: "text" | "numeric" | "email" | "tel";
   maxLength?: number;
   valid?: boolean;
+  /** 入力ミスをその場でユーザーに伝えるためのメッセージ。空なら非表示。
+   *  errorMessage が立っているときは枠を赤でハイライトし「送信できる
+   *  形式になっていない」ことを視覚的に示す。 */
+  errorMessage?: string;
 }) {
+  const showError = !!errorMessage;
   return (
     <div>
       <div className="mb-1 flex items-baseline gap-1.5">
@@ -275,18 +343,26 @@ function LabeledInput({
           maxLength={maxLength}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
+          aria-invalid={showError || undefined}
           className={`h-10 w-full rounded-md border bg-white px-3 pr-9 text-sm focus:outline-none focus:ring-2 ${
-            valid
-              ? "border-emerald-300 focus:ring-emerald-200"
-              : "border-gray-200 focus:ring-gray-200"
+            showError
+              ? "border-red-400 focus:ring-red-200"
+              : valid
+                ? "border-emerald-300 focus:ring-emerald-200"
+                : "border-gray-200 focus:ring-gray-200"
           }`}
         />
-        {valid && (
+        {valid && !showError && (
           <span className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-emerald-500">
             <Check className="h-3 w-3 text-white" />
           </span>
         )}
       </div>
+      {showError && (
+        <p className="mt-1 text-[11px] font-medium text-red-600">
+          {errorMessage}
+        </p>
+      )}
     </div>
   );
 }

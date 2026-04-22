@@ -24,6 +24,7 @@ import {
   Sparkles,
   Crown,
   CalendarX2,
+  HeartHandshake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -71,6 +72,7 @@ const navigation = [
       { name: "経営指標", href: "/kpi", icon: Crown },
       { name: "売上", href: "/sales", icon: BarChart3 },
       { name: "マーケティング", href: "/marketing", icon: Sparkles },
+      { name: "再来店促進", href: "/reengagement", icon: HeartHandshake },
     ],
   },
 ];

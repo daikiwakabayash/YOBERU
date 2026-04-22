@@ -31,6 +31,7 @@ import {
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
 import { PlanPurchaseDialog } from "@/feature/customer-plan/components/PlanPurchaseDialog";
 import { getLastVisitForCustomer } from "@/feature/reservation/services/getAppointments";
+import { CustomerAttachmentsSection } from "@/feature/customer-attachment/components/CustomerAttachmentsSection";
 import type { CustomerSummary } from "@/feature/customer/types";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { toast } from "sonner";
@@ -2073,6 +2074,9 @@ export function AppointmentDetailSheet({
               detail={customerDetail}
               loading={customerDetailLoading}
               stripZeros={stripZeros}
+              brandId={brandId}
+              shopId={shopId}
+              appointmentId={appointment?.id ?? null}
             />
           </div>
         )}
@@ -2238,11 +2242,19 @@ function CustomerDossierPanel({
   detail,
   loading,
   stripZeros,
+  brandId,
+  shopId,
+  appointmentId,
 }: {
   rightPanelCustomer: DossierCustomer;
   detail: DossierDetail | null;
   loading: boolean;
   stripZeros: (code: string | null | undefined) => string | null;
+  brandId: number;
+  shopId: number;
+  /** 予約単位の添付をしたい場合に渡す。新規予約 (= appointment 未保存) の
+   *  ときは null にして、顧客単位の添付として扱う。 */
+  appointmentId: number | null;
 }) {
   // Until the dossier arrives, fall back to the sparse data we already
   // have from the calendar / search (so the header doesn't flicker).
@@ -2471,6 +2483,30 @@ function CustomerDossierPanel({
             </div>
           )}
         </div>
+
+        {/* カルテ写真 / 添付ファイル — 患者単位の添付を表示・追加する。
+            新規予約 (appointmentId=null) のときは顧客単位、既存予約の
+            ときは予約単位の添付として扱う。 */}
+        {customer && (
+          <div className="rounded-xl border bg-white p-5 shadow-sm lg:col-span-3">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-bold text-gray-900">
+                カルテ写真・添付
+              </div>
+              <div className="text-[11px] text-gray-400">
+                {appointmentId != null
+                  ? "この予約に添付"
+                  : "顧客に添付"}
+              </div>
+            </div>
+            <CustomerAttachmentsSection
+              brandId={brandId}
+              shopId={shopId}
+              customerId={customer.id}
+              appointmentId={appointmentId}
+            />
+          </div>
+        )}
 
         {/* Visit history */}
         <div className="rounded-xl border bg-white p-5 shadow-sm lg:col-span-2">

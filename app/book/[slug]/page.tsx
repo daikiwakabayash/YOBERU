@@ -66,10 +66,11 @@ export default async function PublicBookingPage({
           name: string;
           price: number;
           duration: number;
+          price_disp_type: boolean | null;
         }>(
           supabase
             .from("menus")
-            .select("menu_manage_id, name, price, duration")
+            .select("menu_manage_id, name, price, duration, price_disp_type")
             .in("menu_manage_id", menuIds)
             .is("deleted_at", null)
             .order("sort_number")
@@ -230,7 +231,13 @@ export default async function PublicBookingPage({
         areas={areas}
         shops={shops}
         staffs={staffs}
-        menus={menus}
+        menus={menus.map((m) => ({
+          menu_manage_id: m.menu_manage_id,
+          name: m.name,
+          price: m.price,
+          duration: m.duration,
+          priceDispType: !!m.price_disp_type,
+        }))}
         utmSource={utm_source ?? null}
         lang={initialLang}
         availabilityByShop={availabilityByShop}

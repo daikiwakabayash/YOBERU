@@ -1,9 +1,18 @@
 import type { MarketingData } from "../services/getMarketingData";
+import type { LineFriendStats } from "../services/getLineFriendStats";
 import { Card } from "@/components/ui/card";
-import { Users, DollarSign, Target, AlertTriangle, TrendingUp } from "lucide-react";
+import {
+  Users,
+  DollarSign,
+  Target,
+  AlertTriangle,
+  TrendingUp,
+  MessageCircle,
+} from "lucide-react";
 
 interface MarketingOverviewProps {
   data: MarketingData;
+  lineFriendStats?: LineFriendStats;
 }
 
 function yen(n: number): string {
@@ -24,7 +33,10 @@ function num(n: number): string {
  * Hero cards: 集客 / CPA / 入会率 / キャンセル率 + secondary row of
  * 広告費 / 売上 / ROAS / 平均客単価.
  */
-export function MarketingOverview({ data }: MarketingOverviewProps) {
+export function MarketingOverview({
+  data,
+  lineFriendStats,
+}: MarketingOverviewProps) {
   const t = data.totals;
   return (
     <div className="space-y-4">
@@ -63,6 +75,35 @@ export function MarketingOverview({ data }: MarketingOverviewProps) {
           subtext={`${num(t.cancelCount)}名キャンセル`}
         />
       </div>
+
+      {/* LINE friend hero row — 友だち化率は CAC 回収期間に直結するので
+          独立のセクションで強調する */}
+      {lineFriendStats && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <HeroCard
+            icon={<MessageCircle className="h-3 w-3 text-emerald-600" />}
+            iconBg="bg-emerald-100"
+            label="LINE友だち化率 (全体)"
+            topRightLabel="リテンション"
+            value={pct(lineFriendStats.friendRate)}
+            subtext={`${num(lineFriendStats.lineFriends)}名 / 全 ${num(
+              lineFriendStats.totalCustomers
+            )}名`}
+          />
+          <HeroCard
+            icon={<MessageCircle className="h-3 w-3 text-emerald-600" />}
+            iconBg="bg-emerald-100"
+            label="当月新規の友だち化率"
+            topRightLabel="導線効果"
+            value={pct(lineFriendStats.newCustomerFriendRate)}
+            subtext={
+              lineFriendStats.newCustomerTotal > 0
+                ? `当月新規 ${num(lineFriendStats.newCustomerTotal)}名中`
+                : "当月の新規顧客はまだいません"
+            }
+          />
+        </div>
+      )}
 
       {/* Secondary pastel row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
