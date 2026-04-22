@@ -1931,6 +1931,22 @@ export function AppointmentDetailSheet({
               </span>
             </div>
 
+            {/* 消化売上バッジ: 既に消化済みの予約 (consumedAmount > 0) か、
+                活性プランがあって消化対象メニューが選ばれている場合に
+                「このプランから ¥X 消化」を表示する。
+                会計 (sales) = 当日入金, 消化額 = プラン前金の消費 の
+                二本立て運用を担当スタッフに可視化する。 */}
+            {!isNew && (appointment?.consumedAmount ?? 0) > 0 && (
+              <div className="flex items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs">
+                <span className="font-bold text-cyan-800">
+                  プラン消化額
+                </span>
+                <span className="font-black text-cyan-900">
+                  ¥{(appointment?.consumedAmount ?? 0).toLocaleString()}
+                </span>
+              </div>
+            )}
+
             {/* ===== G口コミ / H口コミ checkboxes =====
                 Stored on the customer row so once checked, the flag
                 survives across every future visit. Fed into the 経営

@@ -155,7 +155,9 @@ async function autoConsumePlanForAppointment(
 
   const { data: plans } = await supabase
     .from("customer_plans")
-    .select("id, plan_type, used_count, total_count, purchased_at")
+    .select(
+      "id, plan_type, used_count, total_count, price_snapshot, purchased_at"
+    )
     .eq("customer_id", customerId)
     .eq("status", 0)
     .is("deleted_at", null)
@@ -188,9 +190,21 @@ async function autoConsumePlanForAppointment(
     candidate.total_count != null &&
     nextUsed >= (candidate.total_count as number);
 
+  // 消化額の計算: price_snapshot / total_count を基本に、ticket の最終回だけ
+  // 端数を吸収する。詳細は computePerVisitConsumedAmount を参照。
+  const consumedAmount = computePerVisitConsumedAmount({
+    planType: candidate.plan_type as "ticket" | "subscription",
+    priceSnapshot: (candidate.price_snapshot as number | null) ?? 0,
+    totalCount: (candidate.total_count as number | null) ?? null,
+    nextUsedCount: nextUsed,
+  });
+
   await supabase
     .from("appointments")
-    .update({ consumed_plan_id: candidate.id })
+    .update({
+      consumed_plan_id: candidate.id,
+      consumed_amount: consumedAmount,
+    })
     .eq("id", appointmentId);
   await supabase
     .from("customer_plans")
@@ -199,6 +213,26 @@ async function autoConsumePlanForAppointment(
       status: exhausted ? 1 : 0,
     })
     .eq("id", candidate.id);
+}
+
+/**
+ * 1 予約あたりの消化額の計算ロジック (customerPlanActions と同一)。
+ * ここでは server action の呼び合いを避けるためローカルに複製している。
+ */
+function computePerVisitConsumedAmount(args: {
+  planType: "ticket" | "subscription";
+  priceSnapshot: number;
+  totalCount: number | null;
+  nextUsedCount: number;
+}): number {
+  const { planType, priceSnapshot, totalCount, nextUsedCount } = args;
+  if (!priceSnapshot || priceSnapshot <= 0) return 0;
+  if (!totalCount || totalCount <= 0) return 0;
+  const perVisit = Math.floor(priceSnapshot / totalCount);
+  if (planType === "ticket" && nextUsedCount >= totalCount) {
+    return priceSnapshot - perVisit * (totalCount - 1);
+  }
+  return perVisit;
 }
 
 /**

@@ -71,6 +71,12 @@ export interface NewCustomerAnalytics {
     newSales: number; // 当月 visit_count = 1 の完了 sales
     existingSales: number; // 当月 visit_count > 1 の完了 sales
     totalSales: number;
+    /**
+     * 当月の消化売上 (status=2 の appointments.consumed_amount 合計)。
+     * 前金で販売したプランが実際に来店で消化された金額を、会計額とは
+     * 別軸で計上する。
+     */
+    consumedSales: number;
   };
 }
 
@@ -169,15 +175,24 @@ export async function getNewCustomerAnalytics(params: {
     // 何もない月でも 既存売上 だけは出したいので続行する。
     const existingRes = await supabase
       .from("appointments")
-      .select("sales, status, visit_count")
+      .select("sales, consumed_amount, status, visit_count")
       .eq("shop_id", shopId)
       .eq("status", 2)
       .gte("start_at", startTs)
       .lt("start_at", endTsExclusive)
       .is("deleted_at", null);
-    const existingSales = (existingRes.data ?? [])
+    const existingRows = (existingRes.data ?? []) as Array<{
+      sales: number | null;
+      consumed_amount: number | null;
+      visit_count: number | null;
+    }>;
+    const existingSales = existingRows
       .filter((r) => (r.visit_count ?? 0) > 1)
       .reduce((sum, r) => sum + (r.sales ?? 0), 0);
+    const consumedSales = existingRows.reduce(
+      (sum, r) => sum + (r.consumed_amount ?? 0),
+      0
+    );
     return {
       yearMonth,
       rows: [],
@@ -186,6 +201,7 @@ export async function getNewCustomerAnalytics(params: {
         newSales: 0,
         existingSales,
         totalSales: existingSales,
+        consumedSales,
       },
     };
   }
@@ -228,7 +244,7 @@ export async function getNewCustomerAnalytics(params: {
       .order("start_at", { ascending: true }),
     supabase
       .from("appointments")
-      .select("sales, visit_count, status")
+      .select("sales, consumed_amount, visit_count, status")
       .eq("shop_id", shopId)
       .eq("status", 2)
       .gte("start_at", startTs)
@@ -265,6 +281,7 @@ export async function getNewCustomerAnalytics(params: {
   const allAppts = (allApptsRes.data ?? []) as ApptRow[];
   const monthAppts = (monthApptsRes.data ?? []) as Array<{
     sales: number | null;
+    consumed_amount: number | null;
     visit_count: number | null;
     status: number;
   }>;
@@ -422,13 +439,19 @@ export async function getNewCustomerAnalytics(params: {
       .map(finalizeBucket),
   ];
 
-  // 6. 新規 vs 既存 sales。
+  // 6. 新規 vs 既存 sales + 消化売上。
+  //    消化売上は完了予約全体 (status=2) の consumed_amount 合計。
+  //    新規/既存を跨いで 1 本の指標として計上する。
   const newSales = monthAppts
     .filter((r) => (r.visit_count ?? 0) === 1)
     .reduce((sum, r) => sum + (r.sales ?? 0), 0);
   const existingSales = monthAppts
     .filter((r) => (r.visit_count ?? 0) > 1)
     .reduce((sum, r) => sum + (r.sales ?? 0), 0);
+  const consumedSales = monthAppts.reduce(
+    (sum, r) => sum + (r.consumed_amount ?? 0),
+    0
+  );
 
   return {
     yearMonth,
@@ -438,6 +461,7 @@ export async function getNewCustomerAnalytics(params: {
       newSales,
       existingSales,
       totalSales: newSales + existingSales,
+      consumedSales,
     },
   };
 }

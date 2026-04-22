@@ -33,6 +33,8 @@ export default async function SalesDashboardPage({
       newCustomerCount: 0,
       existingCustomerSales: 0,
       existingCustomerCount: 0,
+      consumedSales: 0,
+      consumedCount: 0,
       completedCount: 0,
       cancelledCount: 0,
       noShowCount: 0,
