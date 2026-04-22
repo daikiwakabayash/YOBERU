@@ -252,6 +252,12 @@ export function AppointmentDetailSheet({
   const [additionalCharge, setAdditionalCharge] = useState(
     String(appointment?.additionalCharge ?? 0)
   );
+  // 消化額 (deferred revenue)。DB の appointments.consumed_amount に対応。
+  // 既存予約では stamp された値をそのまま表示、新規は 0。
+  // スタッフが手入力で上書きも可能 (60分券で 30 分施術を受けた等の例外対応)。
+  const [consumedAmount, setConsumedAmount] = useState(
+    String(appointment?.consumedAmount ?? 0)
+  );
 
   // ---- 会員プラン ----
   //
@@ -668,6 +674,8 @@ export function AppointmentDetailSheet({
       form.set("customer_record", customerRecord);
       form.set("is_member_join", isMemberJoin ? "true" : "false");
       form.set("is_continued_billing", isContinuedBilling ? "true" : "false");
+      // 消化額は 0 も含めて送る (入力欄をクリアした場合にも反映させるため)
+      form.set("consumed_amount", String(Number(consumedAmount) || 0));
 
       const result = await updateAppointment(appointment.id, form);
       if ("error" in result && result.error) {
@@ -1063,6 +1071,10 @@ export function AppointmentDetailSheet({
         if (visitSourceId) {
           form.set("visit_source_id", String(visitSourceId));
         }
+        // 新規予約作成と同時に消化額を stamp (手入力時のみ)
+        if (Number(consumedAmount) > 0) {
+          form.set("consumed_amount", consumedAmount);
+        }
 
         const result = await createAppointment(form);
         if ("error" in result && result.error) {
@@ -1110,6 +1122,12 @@ export function AppointmentDetailSheet({
         }
         if (Number(additionalCharge)) {
           form.set("additional_charge", additionalCharge);
+        }
+        // スタッフが手入力した消化額を送る。autoConsumePlanForAppointment が
+        // completeAppointment 内で stamp した値を上書きしたい場合に使う。
+        // 0 のときは上書きしない (autoConsume 値を残すため)。
+        if (Number(consumedAmount) > 0) {
+          form.set("consumed_amount", consumedAmount);
         }
 
         await updateAppointment(appointment.id, form);
@@ -1931,21 +1949,42 @@ export function AppointmentDetailSheet({
               </span>
             </div>
 
-            {/* 消化売上バッジ: 既に消化済みの予約 (consumedAmount > 0) か、
-                活性プランがあって消化対象メニューが選ばれている場合に
-                「このプランから ¥X 消化」を表示する。
-                会計 (sales) = 当日入金, 消化額 = プラン前金の消費 の
-                二本立て運用を担当スタッフに可視化する。 */}
-            {!isNew && (appointment?.consumedAmount ?? 0) > 0 && (
-              <div className="flex items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs">
-                <span className="font-bold text-cyan-800">
+            {/* 消化額 (deferred revenue): 会計 (sales) = 当日入金 とは別軸で、
+                前金で販売したチケット/サブスクがこの来店で消化された金額。
+                自動消化が走った予約では autoConsumePlanForAppointment が
+                値を stamp するが、ここではスタッフが手入力で上書きも可能。
+                常時表示で「入力忘れ」を防ぎ、0 の場合もフィールドの存在が
+                見えるようにする。 */}
+            <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-3">
+              <div className="mb-1 flex items-center justify-between">
+                <Label className="text-[11px] font-bold text-cyan-800">
                   プラン消化額
-                </span>
-                <span className="font-black text-cyan-900">
-                  ¥{(appointment?.consumedAmount ?? 0).toLocaleString()}
+                </Label>
+                <span className="text-[10px] text-cyan-700/80">
+                  会計とは別軸 / 前金プランの実消費分
                 </span>
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  value={consumedAmount}
+                  onChange={(e) => setConsumedAmount(e.target.value)}
+                  className="h-8 flex-1 text-right text-sm"
+                  placeholder="0"
+                />
+                <span className="text-xs text-cyan-700">円</span>
+              </div>
+              {activePlans.length > 0 && (
+                <p className="mt-1 text-[10px] text-cyan-700/80">
+                  アクティブプランあり ({activePlans[0].menu_name_snapshot}
+                  {activePlans[0].total_count != null
+                    ? ` ${activePlans[0].used_count}/${activePlans[0].total_count}`
+                    : ""}
+                  )。会計確定時に自動で消化額が入力されます。
+                </p>
+              )}
+            </div>
 
             {/* ===== G口コミ / H口コミ checkboxes =====
                 Stored on the customer row so once checked, the flag

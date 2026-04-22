@@ -42,6 +42,9 @@ export const appointmentSchema = z.object({
       return false;
     }, z.boolean())
     .optional(),
+  // 消化額 (deferred revenue): スタッフが手入力した値を保存。
+  // 空文字 / 未指定なら 0 扱い。
+  consumed_amount: z.coerce.number().int().min(0).optional(),
 });
 
 export type AppointmentFormValues = z.infer<typeof appointmentSchema>;
