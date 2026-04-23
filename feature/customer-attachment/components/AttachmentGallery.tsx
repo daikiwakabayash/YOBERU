@@ -15,7 +15,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Camera, ImagePlus, FileText, Trash2, X, Download } from "lucide-react";
 import { toast } from "sonner";
 import {
-  uploadCustomerAttachment,
   deleteCustomerAttachment,
 } from "../actions/attachmentActions";
 import {
@@ -81,15 +80,27 @@ export function AttachmentGallery({
         fd.set("attachment_type", selectedType);
         fd.set("memo", memo);
         try {
-          const res = await uploadCustomerAttachment(fd);
-          if ("error" in res && res.error) {
+          // Server Action ではなく Route Handler を使う。
+          // Next.js 16 + Turbopack で File を含む FormData の server action
+          // シリアライズが落ちてファイル本体が送られない問題があるため。
+          const resp = await fetch("/api/customer-attachments/upload", {
+            method: "POST",
+            body: fd,
+          });
+          const json = (await resp.json().catch(() => ({}))) as {
+            success?: boolean;
+            id?: number;
+            error?: string;
+          };
+          if (!resp.ok || json.error) {
+            const errMsg = json.error ?? `HTTP ${resp.status}`;
             console.error("[AttachmentGallery] upload error", {
               file: f.name,
               size: f.size,
-              error: res.error,
+              status: resp.status,
+              error: errMsg,
             });
-            // エラーメッセージは読み切れるよう長めに表示 (10 秒)。
-            toast.error(`${f.name}: ${res.error}`, { duration: 10000 });
+            toast.error(`${f.name}: ${errMsg}`, { duration: 10000 });
           } else {
             ok++;
           }
@@ -97,7 +108,6 @@ export function AttachmentGallery({
           const msg =
             e instanceof Error ? e.message : "不明なエラー";
           console.error("[AttachmentGallery] upload exception", e);
-          // 典型的にはここに「Body exceeded 1MB」等の Next.js 制限が来る
           toast.error(
             `${f.name}: 送信に失敗しました (${msg}). ファイルが大きすぎる場合は 10MB 以下に圧縮してください。`,
             { duration: 10000 }
