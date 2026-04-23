@@ -3,6 +3,15 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { AttachmentType } from "@/feature/customer-attachment/types";
 
+// 必ずサーバー側で動的に処理する (cookie 経由の認証 + FormData multipart)。
+// runtime=nodejs にして Edge ではなく Node ランタイム強制
+// (Supabase Storage SDK の Buffer 依存を確実に動かすため)。
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+// 1 ファイル上限 10MB を許容するため Vercel デフォルトの 4.5MB を回避。
+// Pro プランは 1 ファイル最大 ~30MB まで実行可能。
+export const maxDuration = 30;
+
 /**
  * カルテ添付ファイルのアップロード専用エンドポイント。
  *
@@ -50,6 +59,12 @@ export async function POST(request: NextRequest) {
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
+    console.warn("[/api/customer-attachments/upload] no file in FormData", {
+      fileType: typeof file,
+      isFile: file instanceof File,
+      size: file instanceof File ? file.size : undefined,
+      keys: Array.from(formData.keys()),
+    });
     return NextResponse.json(
       { error: "ファイルが選択されていません" },
       { status: 400 }
@@ -86,6 +101,19 @@ export async function POST(request: NextRequest) {
   const memo = String(formData.get("memo") || "") || null;
 
   const supabase = await createClient();
+
+  // 明示的に認証ユーザーを確認 (middleware 任せだが二重チェック)
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+  if (authErr || !user) {
+    console.error("[/api/customer-attachments/upload] not authenticated", authErr);
+    return NextResponse.json(
+      { error: "ログインが切れています。ページを再読み込みしてログインし直してください。" },
+      { status: 401 }
+    );
+  }
 
   // ファイル名サニタイズ: path separator と空白/ハイフンを _ に。
   const safeName = file.name
