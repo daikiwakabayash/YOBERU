@@ -17,7 +17,13 @@
  *
  * channel access token は shops.line_channel_access_token に格納されて
  * いる前提 (migration 00013)。
+ *
+ * 送信したメッセージは `line_messages` に outbound として保存する
+ * (migration 00030)。これによりダッシュボード `/line-chat` 画面で
+ * 店舗-顧客のスレッドが時系列で表示できる。
  */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push";
 
@@ -28,6 +34,19 @@ export interface SendLineInput {
   text: string;
   /** 店舗の channel access token (shops.line_channel_access_token) */
   channelAccessToken: string;
+  /**
+   * 監査ログ (line_messages) に outbound として保存する際の追加情報。
+   * 省略時は保存しない (後方互換)。
+   */
+  audit?: {
+    supabase: SupabaseClient;
+    shopId: number;
+    customerId?: number | null;
+    /** 'reminder' / 'booking_confirm' / 'reengagement' / 'questionnaire' / 'chat_reply' 等 */
+    source: string;
+    /** chat_reply の場合に、送信したスタッフ (users.id) */
+    sentByUserId?: number | null;
+  };
 }
 
 export interface SendLineResult {
@@ -56,41 +75,66 @@ export async function sendLineMessage(
       ? `${input.text.slice(0, 4990)}...(以下省略)`
       : input.text;
 
-  try {
-    const res = await fetch(LINE_PUSH_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.channelAccessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        to: input.to,
-        messages: [{ type: "text", text }],
-      }),
-    });
+  const result = await (async (): Promise<SendLineResult> => {
+    try {
+      const res = await fetch(LINE_PUSH_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.channelAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: input.to,
+          messages: [{ type: "text", text }],
+        }),
+      });
 
-    const requestId = res.headers.get("x-line-request-id") ?? undefined;
+      const requestId = res.headers.get("x-line-request-id") ?? undefined;
 
-    if (!res.ok) {
-      let detail = "";
-      try {
-        const j = (await res.json()) as { message?: string };
-        detail = j?.message ?? "";
-      } catch {
-        /* ignore */
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const j = (await res.json()) as { message?: string };
+          detail = j?.message ?? "";
+        } catch {
+          /* ignore */
+        }
+        return {
+          success: false,
+          error: `LINE 送信失敗 (status=${res.status}) ${detail}`.trim(),
+          requestId,
+        };
       }
+
+      return { success: true, requestId };
+    } catch (err) {
       return {
         success: false,
-        error: `LINE 送信失敗 (status=${res.status}) ${detail}`.trim(),
-        requestId,
+        error: err instanceof Error ? err.message : "LINE 送信時の例外",
       };
     }
+  })();
 
-    return { success: true, requestId };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "LINE 送信時の例外",
-    };
+  // 送信ログを保存 (失敗時も残す)。保存エラーは握りつぶす
+  // (本来の送信結果に影響させない)。
+  if (input.audit) {
+    try {
+      await input.audit.supabase.from("line_messages").insert({
+        shop_id: input.audit.shopId,
+        customer_id: input.audit.customerId ?? null,
+        line_user_id: input.to,
+        direction: "outbound",
+        message_type: "text",
+        text,
+        source: input.audit.source,
+        sent_by_user_id: input.audit.sentByUserId ?? null,
+        delivery_status: result.success ? "success" : "failed",
+        error_message: result.error ?? null,
+      });
+    } catch (e) {
+      console.error("[sendLineMessage] line_messages 保存失敗", e);
+    }
   }
+
+  return result;
 }

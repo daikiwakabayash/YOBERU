@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/helper/lib/supabase/server";
 import { sendEmail } from "@/helper/lib/email/sendEmail";
+import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
 import type { ReminderSetting } from "@/feature/booking-link/types";
 
 /**
@@ -44,11 +45,15 @@ interface AppointmentForReminder {
 }
 
 interface ReminderContext {
+  customer_id: number;
   customer_name: string;
   customer_email: string | null;
   customer_phone: string | null;
+  customer_line_user_id: string | null;
+  shop_id: number;
   shop_name: string;
   shop_email: string | null;
+  shop_line_channel_access_token: string | null;
   staff_name: string;
   menu_name: string;
   date: string;
@@ -179,7 +184,7 @@ export async function GET(request: NextRequest) {
         const [customer, staff, menu, shop] = await Promise.all([
           supabase
             .from("customers")
-            .select("last_name, first_name, email, phone_number_1")
+            .select("last_name, first_name, email, phone_number_1, line_user_id")
             .eq("id", appt.customer_id)
             .single(),
           supabase
@@ -194,17 +199,23 @@ export async function GET(request: NextRequest) {
             .maybeSingle(),
           supabase
             .from("shops")
-            .select("name, email1")
+            .select("name, email1, line_channel_access_token")
             .eq("id", appt.shop_id)
             .single(),
         ]);
 
         const ctx: ReminderContext = {
+          customer_id: appt.customer_id,
           customer_name: `${customer.data?.last_name ?? ""} ${customer.data?.first_name ?? ""}`.trim() || "お客様",
           customer_email: customer.data?.email ?? null,
           customer_phone: customer.data?.phone_number_1 ?? null,
+          customer_line_user_id:
+            (customer.data?.line_user_id as string | null) ?? null,
+          shop_id: appt.shop_id,
           shop_name: shop.data?.name ?? "店舗",
           shop_email: shop.data?.email1 ?? null,
+          shop_line_channel_access_token:
+            (shop.data?.line_channel_access_token as string | null) ?? null,
           staff_name: staff.data?.name ?? "担当",
           menu_name: menu.data?.name ?? "メニュー",
           date: appt.start_at.slice(0, 10),
@@ -212,14 +223,69 @@ export async function GET(request: NextRequest) {
           offset_days: setting.offset_days,
         };
 
-        // 5. Send
+        // 5. Send。setting.type が 'line' でも、顧客が未連携なら email に
+        // フォールバック。逆に 'email' でも line_user_id があれば LINE 優先
+        // (メール疲れ / 到達率向上目的)。実送信チャネルを effectiveType に
+        // 記録して reminder_logs に残す。
         let sendResult: { success: boolean; error?: string };
-        if (setting.type === "email") {
+        let effectiveType: "email" | "line" | "sms" = setting.type;
+        const body = renderTemplate(setting.template, ctx);
+        const subject = renderTemplate(setting.subject ?? "", ctx);
+
+        const canSendLine =
+          !!ctx.customer_line_user_id && !!ctx.shop_line_channel_access_token;
+
+        if (setting.type === "line" || (setting.type === "email" && canSendLine)) {
+          if (canSendLine) {
+            effectiveType = "line";
+            sendResult = await sendLineMessage({
+              to: ctx.customer_line_user_id!,
+              text: body,
+              channelAccessToken: ctx.shop_line_channel_access_token!,
+              audit: {
+                supabase,
+                shopId: ctx.shop_id,
+                customerId: ctx.customer_id,
+                source: "reminder",
+              },
+            });
+          } else if (setting.type === "email") {
+            // キープ: email で送る
+            effectiveType = "email";
+            if (!ctx.customer_email) {
+              sendResult = { success: false, error: "メールアドレスなし" };
+            } else {
+              sendResult = await sendEmail({
+                to: ctx.customer_email,
+                subject,
+                body,
+                fromName: ctx.shop_name,
+                replyTo: ctx.shop_email,
+              });
+            }
+          } else {
+            // setting=line だが未連携 → email フォールバック
+            if (ctx.customer_email) {
+              effectiveType = "email";
+              sendResult = await sendEmail({
+                to: ctx.customer_email,
+                subject,
+                body,
+                fromName: ctx.shop_name,
+                replyTo: ctx.shop_email,
+              });
+            } else {
+              sendResult = {
+                success: false,
+                error: "LINE 未連携でメールも無いため送信できません",
+              };
+            }
+          }
+        } else if (setting.type === "email") {
+          effectiveType = "email";
           if (!ctx.customer_email) {
             sendResult = { success: false, error: "メールアドレスなし" };
           } else {
-            const subject = renderTemplate(setting.subject ?? "", ctx);
-            const body = renderTemplate(setting.template, ctx);
             sendResult = await sendEmail({
               to: ctx.customer_email,
               subject,
@@ -228,19 +294,11 @@ export async function GET(request: NextRequest) {
               replyTo: ctx.shop_email,
             });
           }
-        } else if (setting.type === "sms") {
-          // TODO: wire up Twilio or similar
-          console.log("[REMINDER SMS]", {
-            to: ctx.customer_phone,
-            body: renderTemplate(setting.template, ctx),
-          });
-          sendResult = { success: true };
         } else {
-          // line
-          // TODO: wire up LINE Messaging API
-          console.log("[REMINDER LINE]", {
-            customer: ctx.customer_name,
-            body: renderTemplate(setting.template, ctx),
+          // sms: 未実装
+          console.log("[REMINDER SMS] (未実装)", {
+            to: ctx.customer_phone,
+            body,
           });
           sendResult = { success: true };
         }
@@ -253,11 +311,12 @@ export async function GET(request: NextRequest) {
           offset_days: setting.offset_days,
           status: sendResult.success ? "sent" : "failed",
           error_message: sendResult.error ?? null,
+          channel: effectiveType,
         });
 
         results.push({
           appointment_id: appt.id,
-          type: setting.type,
+          type: effectiveType,
           status: sendResult.success ? "sent" : "failed",
           error: sendResult.error,
         });

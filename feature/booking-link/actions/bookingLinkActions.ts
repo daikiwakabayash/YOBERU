@@ -574,6 +574,18 @@ export async function submitPublicBooking(formData: FormData) {
     console.error("[submitPublicBooking] 確認メール送信失敗", e);
   }
 
+  // 5. LINE 連携済顧客には確認 + 問診票案内を LINE でも送る。
+  //    初回予約時は line_user_id は未設定なので sendBookingLineNotice は
+  //    skip される。再来予約の場合のみ LINE が飛ぶ。
+  try {
+    const { sendBookingLineNotice } = await import(
+      "@/feature/line-chat/services/sendBookingLineNotice"
+    );
+    await sendBookingLineNotice(apptInsert.data.id as number);
+  } catch (e) {
+    console.error("[submitPublicBooking] LINE 通知失敗", e);
+  }
+
   revalidatePath("/reservation");
   return { success: true };
 }

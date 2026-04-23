@@ -25,6 +25,7 @@ import {
   Crown,
   CalendarX2,
   HeartHandshake,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -42,6 +43,7 @@ const navigation = [
     label: "顧客管理",
     items: [
       { name: "顧客一覧", href: "/customer", icon: Users },
+      { name: "LINE チャット", href: "/line-chat", icon: MessageCircle },
     ],
   },
   {
