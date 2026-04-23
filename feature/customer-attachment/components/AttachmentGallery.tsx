@@ -34,6 +34,12 @@ interface AttachmentGalleryProps {
   attachments: CustomerAttachment[];
   /** コンパクト表示 (カルテ横サムネ用)。false なら上部にアップロードボタン + 設定UI。 */
   compact?: boolean;
+  /**
+   * 親の CustomerAttachmentsSection に「一覧を取り直して」と伝えるコールバック。
+   * upload / delete 成功後に呼ぶ。router.refresh() では client state の
+   * attachments が更新されないため必須。
+   */
+  onChanged?: () => void;
 }
 
 export function AttachmentGallery({
@@ -43,6 +49,7 @@ export function AttachmentGallery({
   appointmentId,
   attachments,
   compact = false,
+  onChanged,
 }: AttachmentGalleryProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +108,7 @@ export function AttachmentGallery({
         toast.success(`${ok} 件アップロードしました`);
         setMemo("");
         router.refresh();
+        onChanged?.();
       }
     });
   }
@@ -115,6 +123,7 @@ export function AttachmentGallery({
       }
       toast.success("削除しました");
       router.refresh();
+      onChanged?.();
     });
   }
 
