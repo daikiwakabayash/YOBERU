@@ -332,7 +332,7 @@ export async function createAppointment(formData: FormData) {
 
   if (error) return { error: error.message };
 
-  // 通常予約 (type=0) かつ実顧客が紐付いているときのみ確認メール送信。
+  // 通常予約 (type=0) かつ実顧客が紐付いているときのみ確認メール / LINE 送信。
   // ミーティング / その他のブロック予約は顧客ではないのでスキップ。
   // 送信失敗は例外を投げず、予約作成は成功扱いにする。
   if (!isSlotBlock && inserted?.id) {
@@ -343,6 +343,14 @@ export async function createAppointment(formData: FormData) {
       await sendBookingConfirmationEmail(inserted.id as number, null);
     } catch (e) {
       console.error("[createAppointment] 確認メール送信失敗", e);
+    }
+    try {
+      const { sendBookingLineNotice } = await import(
+        "@/feature/line-chat/services/sendBookingLineNotice"
+      );
+      await sendBookingLineNotice(inserted.id as number);
+    } catch (e) {
+      console.error("[createAppointment] LINE 通知失敗", e);
     }
   }
 

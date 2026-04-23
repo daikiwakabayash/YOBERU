@@ -10,6 +10,8 @@ import crypto from "crypto";
  *               pending linkage (via the `state` query param the user
  *               clicked through from the booking confirmation page)
  *   - unfollow: clears the line_user_id so we stop sending reminders
+ *   - message:  persists the text to line_messages (inbound) so the
+ *               dashboard /line-chat view can render a thread
  *
  * Authentication: validates the X-Line-Signature header using the
  * shop's channel_secret (HMAC-SHA256). We look up the secret from the
@@ -17,13 +19,24 @@ import crypto from "crypto";
  * payload. If validation fails, 403.
  *
  * Path: POST /api/line/webhook
+ * Full webhook URL to register in the LINE Developers console:
+ *   https://<your-vercel-domain>/api/line/webhook
  */
+
+interface LineMessage {
+  id?: string;
+  type: string;
+  text?: string;
+  stickerId?: string;
+  packageId?: string;
+}
 
 interface LineEvent {
   type: string;
   source?: { type: string; userId?: string };
   replyToken?: string;
   timestamp?: number;
+  message?: LineMessage;
 }
 
 interface LineWebhookBody {
@@ -51,10 +64,6 @@ export async function POST(req: NextRequest) {
   let shopId: number | null = null;
 
   try {
-    // Try matching by destination (bot userId → line_channel_id).
-    // If the shop stored the bot's userId in line_channel_id this
-    // works directly. Otherwise we fall back to the first shop that
-    // has a non-null line_channel_secret.
     const { data: shopRow } = body.destination
       ? await supabase
           .from("shops")
@@ -69,16 +78,16 @@ export async function POST(req: NextRequest) {
       shopId = shopRow.id as number;
     } else {
       // Fallback: first shop with a configured secret
-      const { data: any } = await supabase
+      const { data: anyShop } = await supabase
         .from("shops")
         .select("id, line_channel_secret")
         .not("line_channel_secret", "is", null)
         .is("deleted_at", null)
         .limit(1)
         .maybeSingle();
-      if (any?.line_channel_secret) {
-        channelSecret = any.line_channel_secret as string;
-        shopId = any.id as number;
+      if (anyShop?.line_channel_secret) {
+        channelSecret = anyShop.line_channel_secret as string;
+        shopId = anyShop.id as number;
       }
     }
   } catch {
@@ -99,29 +108,29 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  async function lookupCustomerId(
+    lineUserId: string
+  ): Promise<number | null> {
+    const { data } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("line_user_id", lineUserId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    return (data?.id as number | undefined) ?? null;
+  }
+
   // Process events
   for (const event of body.events ?? []) {
     const lineUserId = event.source?.userId;
     if (!lineUserId) continue;
 
     if (event.type === "follow") {
-      // User followed (友だち追加). Link their line_user_id to the
-      // customer row. We try two strategies:
-      //
-      //   1. If the follow came via a `liff.state` deeplink that
-      //      embeds a customer_id, update that specific row.
-      //   2. Otherwise, look for an UNLINKED customer in this shop
-      //      whose line_id matches (self-reported ID) or who has a
-      //      recent appointment (latest today or later) and hasn't
-      //      been linked yet. This handles the "register → follow"
-      //      flow where the customer clicks the LINE button right
-      //      after booking.
-      //
-      // Strategy 2 is intentionally loose for the MVP — once LIFF
-      // linking is set up, strategy 1 takes over and is exact.
-
+      // User followed (友だち追加). Link their line_user_id to a
+      // customer row. Strategy: pick the most-recently-booked customer
+      // in this shop that does not yet have a line_user_id attached.
+      // Once LIFF is wired up (state param), switch to exact match.
       if (shopId) {
-        // Strategy 2: link the most-recently-booked unlinked customer
         const { data: recentAppt } = await supabase
           .from("appointments")
           .select("customer_id")
@@ -133,7 +142,6 @@ export async function POST(req: NextRequest) {
 
         for (const appt of recentAppt ?? []) {
           const custId = appt.customer_id as number;
-          // Only link if line_user_id is currently NULL
           const { data: updated } = await supabase
             .from("customers")
             .update({ line_user_id: lineUserId })
@@ -145,22 +153,24 @@ export async function POST(req: NextRequest) {
             console.log(
               `[LINE webhook] Linked userId ${lineUserId} → customer ${custId}`
             );
-            break; // Link only one
+            break;
           }
         }
       }
 
-      // Send a welcome reply
-      if (channelSecret) {
+      // Welcome reply + persist as outbound in line_messages
+      if (shopId) {
         try {
-          const { data: shop } = shopId
-            ? await supabase
-                .from("shops")
-                .select("name, line_channel_access_token")
-                .eq("id", shopId)
-                .maybeSingle()
-            : { data: null };
+          const { data: shop } = await supabase
+            .from("shops")
+            .select("name, line_channel_access_token")
+            .eq("id", shopId)
+            .maybeSingle();
           const token = shop?.line_channel_access_token as string | null;
+          const welcomeText = `友だち追加ありがとうございます！\n${
+            (shop?.name as string) ?? "当院"
+          }の予約リマインドをお届けします。\nご質問がありましたら、このトーク画面からお気軽にメッセージをお送りください。`;
+
           if (token && event.replyToken) {
             await fetch("https://api.line.me/v2/bot/message/reply", {
               method: "POST",
@@ -170,31 +180,74 @@ export async function POST(req: NextRequest) {
               },
               body: JSON.stringify({
                 replyToken: event.replyToken,
-                messages: [
-                  {
-                    type: "text",
-                    text: `友だち追加ありがとうございます！\n${
-                      (shop?.name as string) ?? "当院"
-                    }の予約リマインドをお届けします。`,
-                  },
-                ],
+                messages: [{ type: "text", text: welcomeText }],
               }),
             });
           }
+
+          await supabase.from("line_messages").insert({
+            shop_id: shopId,
+            customer_id: await lookupCustomerId(lineUserId),
+            line_user_id: lineUserId,
+            direction: "outbound",
+            message_type: "text",
+            text: welcomeText,
+            source: "follow_welcome",
+            delivery_status: token ? "success" : "failed",
+          });
         } catch (e) {
-          console.error("[LINE webhook] reply failed", e);
+          console.error("[LINE webhook] welcome failed", e);
         }
       }
     } else if (event.type === "unfollow") {
-      // User unfollowed (ブロック). Clear their line_user_id so
-      // the reminder cron doesn't try to push to a blocked user.
+      // User blocked the bot. Drop the linkage and log a system entry.
       await supabase
         .from("customers")
         .update({ line_user_id: null })
         .eq("line_user_id", lineUserId);
+      if (shopId) {
+        await supabase.from("line_messages").insert({
+          shop_id: shopId,
+          line_user_id: lineUserId,
+          direction: "inbound",
+          message_type: "system",
+          text: "(ブロック / 友だち削除)",
+          source: "webhook",
+        });
+      }
       console.log(
         `[LINE webhook] Cleared line_user_id for blocked user ${lineUserId}`
       );
+    } else if (event.type === "message") {
+      // Persist incoming messages so staff can respond from the dashboard.
+      if (!shopId) continue;
+      const msg = event.message ?? { type: "unknown" };
+      const customerId = await lookupCustomerId(lineUserId);
+
+      let text: string | null = null;
+      const type = msg.type ?? "unknown";
+      if (type === "text") {
+        text = msg.text ?? "";
+      } else if (type === "sticker") {
+        text = `(スタンプ package=${msg.packageId ?? "?"} sticker=${msg.stickerId ?? "?"})`;
+      } else if (type === "image") {
+        text = "(画像が送信されました)";
+      } else if (type === "location") {
+        text = "(位置情報が送信されました)";
+      } else {
+        text = `(${type} メッセージ)`;
+      }
+
+      await supabase.from("line_messages").insert({
+        shop_id: shopId,
+        customer_id: customerId,
+        line_user_id: lineUserId,
+        direction: "inbound",
+        message_type: type,
+        text,
+        line_message_id: msg.id ?? null,
+        source: "webhook",
+      });
     }
   }
 
