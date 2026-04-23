@@ -23,6 +23,7 @@ import {
   updateAppointment,
   cancelAppointment,
   sameDayCancelAppointment,
+  restoreAppointment,
 } from "../actions/reservationActions";
 import {
   checkinAppointment,
@@ -632,6 +633,30 @@ export function AppointmentDetailSheet({
     }
     setStatus(4);
     toast.success("当日キャンセルとして記録しました");
+    onClose();
+  }
+
+  // -----------------------------------------------------------------------
+  // キャンセル取消: キャンセル済み (status 3 / 4 / 99) の予約を待機 (0)
+  // に戻す。誤キャンセルや再来店確定時の巻き戻しを想定。
+  // 会計金額 (sales / consumed_amount) は元々キャンセル時には変わって
+  // いないのでそのまま残す。
+  // -----------------------------------------------------------------------
+  async function handleRestore() {
+    if (!appointment) return;
+    if (!confirm("この予約を『キャンセル前』の状態 (待機) に戻します。よろしいですか？")) {
+      return;
+    }
+    setSaving(true);
+    const result = await restoreAppointment(appointment.id);
+    setSaving(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setStatus(0);
+    toast.success("キャンセルを取消しました");
+    router.refresh();
     onClose();
   }
 
@@ -2098,6 +2123,21 @@ export function AppointmentDetailSheet({
               disabled={saving}
             >
               {saving ? "処理中..." : "当日キャンセル"}
+            </Button>
+          )}
+
+          {/* ===== キャンセル取消 button (cancelled / no-show only) =====
+              status 3 (キャンセル) / 4 (当日キャンセル) / 99 (no-show) を
+              待機 (0) に戻す。誤キャンセルや再来店確定時の巻き戻し用。 */}
+          {!isNew && (status === 3 || status === 4 || status === 99) && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-2 border-emerald-500 py-5 text-base font-bold text-emerald-700 hover:bg-emerald-50"
+              onClick={handleRestore}
+              disabled={saving}
+            >
+              {saving ? "処理中..." : "キャンセル取消 (待機に戻す)"}
             </Button>
           )}
 

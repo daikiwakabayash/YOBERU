@@ -492,6 +492,35 @@ export async function sameDayCancelAppointment(id: number, reason: string) {
   return { success: true };
 }
 
+/**
+ * Undo a cancellation: flip a status=3 (通常キャンセル) / status=4 (当日
+ * キャンセル) / status=99 (no-show) 予約 を status=0 (待機) に戻し、
+ * cancelled_at をクリアする。
+ *
+ * 操作ミスや再来店確定時の取消を想定。sales / consumed_amount 等の
+ * 会計系カラムは触らない (元々キャンセル前に入力されていた値は維持)。
+ * visit_count / last_visit_date も変更しない — 当日キャンセルは
+ * completeAppointment を経由していないため visit_count は元々加算
+ * されていない。
+ */
+export async function restoreAppointment(id: number) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("appointments")
+    .update({
+      status: 0,
+      cancelled_at: null,
+    })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reservation");
+  revalidatePath(`/reservation/${id}`);
+  return { success: true };
+}
+
 export async function deleteAppointment(id: number) {
   const supabase = await createClient();
 
