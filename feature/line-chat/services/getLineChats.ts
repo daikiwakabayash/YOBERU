@@ -31,7 +31,20 @@ export async function getLineChats(shopId: number): Promise<LineChatSummary[]> {
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(500);
-  if (error) throw error;
+  if (error) {
+    // migration 00030 (line_messages) が未適用な環境では table 不在で
+    // PGRST205 (relation does not exist) が返り 500 になる。LINE 双方向
+    // チャットは optional 機能なので、テーブルが無いケースは「メッセージ
+    // 0 件」として静かに扱い、ダッシュボード全体を落とさない。
+    const msg = error.message ?? "";
+    if (
+      msg.includes("line_messages") ||
+      (error.code === "PGRST205" || error.code === "42P01")
+    ) {
+      return [];
+    }
+    throw error;
+  }
 
   type Row = NonNullable<typeof messages>[number];
   const rows = (messages ?? []) as Row[];
