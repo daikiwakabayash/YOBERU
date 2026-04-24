@@ -23,6 +23,7 @@ import {
   updateAppointment,
   cancelAppointment,
   sameDayCancelAppointment,
+  uncancelAppointment,
 } from "../actions/reservationActions";
 import {
   checkinAppointment,
@@ -626,6 +627,38 @@ export function AppointmentDetailSheet({
     }
     setStatus(4);
     toast.success("当日キャンセルとして記録しました");
+    onClose();
+  }
+
+  // -----------------------------------------------------------------------
+  // キャンセル取り消し: status 3 / 4 / 99 を待機 (0) に戻す。
+  // 同じスタッフ・同じ時間に別予約が入っていたら server action 側が
+  // warning を返すので、その場合は toast.warning で通知 (止めない)。
+  // キャンセル理由メモは消える旨を confirm で予告する。
+  // -----------------------------------------------------------------------
+  async function handleUncancel() {
+    if (!appointment) return;
+    if (
+      !confirm(
+        "キャンセルを取り消して予約を待機状態に戻します。\nキャンセル理由のメモは削除されます。よろしいですか？"
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    const result = await uncancelAppointment(appointment.id);
+    setSaving(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setStatus(0);
+    setCustomerRecord("");
+    if (result.warning) {
+      toast.warning(`キャンセルを取り消しました（${result.warning}）`);
+    } else {
+      toast.success("キャンセルを取り消しました");
+    }
     onClose();
   }
 
@@ -1309,6 +1342,23 @@ export function AppointmentDetailSheet({
                 onClick={handleCancel}
               >
                 予約の取り消し
+              </Button>
+            </div>
+          )}
+
+          {/* ------- Uncancel: revert キャンセル / 当日キャンセル / no-show
+                     back to 待機 (status 0). 同時刻に別予約があっても
+                     warning を出すだけで通す (server action 側で判定)。 */}
+          {!isNew && (status === 3 || status === 4 || status === 99) && (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={saving}
+                className="flex-1 border-blue-300 text-blue-600 hover:bg-blue-50"
+                onClick={handleUncancel}
+              >
+                キャンセルを取り消す
               </Button>
             </div>
           )}
