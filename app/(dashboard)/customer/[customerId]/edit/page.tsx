@@ -1,8 +1,9 @@
-import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { CustomerBackButton } from "@/feature/customer/components/CustomerBackButton";
 import { CustomerForm } from "@/feature/customer/components/CustomerForm";
 import { getCustomer } from "@/feature/customer/services/getCustomers";
 import { getStaffs } from "@/feature/staff/services/getStaffs";
@@ -23,13 +24,47 @@ export default async function CustomerEditPage({
 }: CustomerEditPageProps) {
   const { customerId } = await params;
   const id = Number(customerId);
-  if (isNaN(id)) notFound();
 
+  // 詳細ページと同じ方針: 顧客が見つからなくても 404 にせず、
+  // 戻るボタン付きの説明 UI を表示する。予約パネル経由で来た人が
+  // 予約表へ戻れなくなる事故を防ぐため。
   let customer;
-  try {
-    customer = await getCustomer(id);
-  } catch {
-    notFound();
+  if (!isNaN(id)) {
+    try {
+      customer = await getCustomer(id);
+    } catch {
+      customer = undefined;
+    }
+  }
+  if (!customer) {
+    return (
+      <div>
+        <PageHeader
+          title="顧客が見つかりません"
+          description={`ID: ${customerId}`}
+          actions={
+            <div className="flex items-center gap-2">
+              <CustomerBackButton />
+              <Link href="/customer">
+                <Button variant="outline" size="sm">
+                  顧客一覧へ
+                </Button>
+              </Link>
+            </div>
+          }
+        />
+        <div className="p-6">
+          <Card>
+            <CardContent className="space-y-2 py-8 text-center text-sm text-gray-500">
+              <p>編集対象の顧客が見つかりませんでした。</p>
+              <p className="text-xs text-gray-400">
+                顧客が削除済みか、URL の ID が正しくない可能性があります。
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
   }
 
   const brandId = await getActiveBrandId();
@@ -85,12 +120,15 @@ export default async function CustomerEditPage({
         title="顧客情報の編集"
         description={fullName}
         actions={
-          <Link href={`/customer/${id}`}>
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              戻る
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <CustomerBackButton />
+            <Link href={`/customer/${id}`}>
+              <Button variant="outline" size="sm">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                顧客詳細へ
+              </Button>
+            </Link>
+          </div>
         }
       />
       <div className="p-6">

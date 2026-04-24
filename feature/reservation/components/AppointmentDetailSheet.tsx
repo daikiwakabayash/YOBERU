@@ -1295,12 +1295,27 @@ export function AppointmentDetailSheet({
                 </span>
               )}
             </SheetTitle>
-            <Badge
-              variant="outline"
-              className={`ml-2 shrink-0 text-xs ${statusInfo.cls}`}
-            >
-              {statusInfo.label}
-            </Badge>
+            {/* キャンセル系 (3/4/99) は badge 自体をクリック可能にして
+                ワンタップで取り消し操作に入れるようにする (ボタンを探す
+                までもなく、状態表示そのものから戻せる)。 */}
+            {!isNew && (status === 3 || status === 4 || status === 99) ? (
+              <button
+                type="button"
+                onClick={handleUncancel}
+                disabled={saving}
+                title="クリックでキャンセルを取り消す"
+                className={`ml-2 inline-flex shrink-0 cursor-pointer items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${statusInfo.cls}`}
+              >
+                {statusInfo.label}
+              </button>
+            ) : (
+              <Badge
+                variant="outline"
+                className={`ml-2 shrink-0 text-xs ${statusInfo.cls}`}
+              >
+                {statusInfo.label}
+              </Badge>
+            )}
           </div>
         </SheetHeader>
 

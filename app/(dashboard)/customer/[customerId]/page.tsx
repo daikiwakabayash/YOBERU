@@ -1,9 +1,9 @@
-import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { CustomerBackButton } from "@/feature/customer/components/CustomerBackButton";
 import {
   Table,
   TableBody,
@@ -55,14 +55,49 @@ export default async function CustomerDetailPage({
 }: CustomerDetailPageProps) {
   const { customerId } = await params;
   const id = Number(customerId);
-  if (isNaN(id)) notFound();
 
+  // 旧実装は customer が見つからないと notFound() で標準 404 を出していたが、
+  // それだと「予約パネルから飛んできた人」が予約表へ戻れず詰んでしまう。
+  // ハードな 404 をやめて、本ページ内に「顧客が見つかりません」UI と
+  // 「前のページに戻る / 顧客一覧へ」ボタンを描画する形に置き換える。
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let customer: any;
-  try {
-    customer = await getCustomer(id);
-  } catch {
-    notFound();
+  let customer: any = null;
+  if (!isNaN(id)) {
+    try {
+      customer = await getCustomer(id);
+    } catch {
+      customer = null;
+    }
+  }
+  if (!customer) {
+    return (
+      <div>
+        <PageHeader
+          title="顧客が見つかりません"
+          description={`ID: ${customerId}`}
+          actions={
+            <div className="flex items-center gap-2">
+              <CustomerBackButton />
+              <Link href="/customer">
+                <Button variant="outline" size="sm">
+                  顧客一覧へ
+                </Button>
+              </Link>
+            </div>
+          }
+        />
+        <div className="p-6">
+          <Card>
+            <CardContent className="space-y-2 py-8 text-center text-sm text-gray-500">
+              <p>この顧客は削除されたか、まだ登録されていません。</p>
+              <p className="text-xs text-gray-400">
+                予約に紐付いている顧客レコードが消えている場合は、予約パネル側で顧客を再選択してください。
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
   }
 
   // Fetch appointment history
@@ -140,6 +175,7 @@ export default async function CustomerDetailPage({
         description={`顧客コード: ${customer.code ?? "-"}`}
         actions={
           <div className="flex items-center gap-2">
+            <CustomerBackButton />
             <Link href="/customer/register">
               <Button size="sm">
                 <UserPlus className="mr-1 h-4 w-4" />
