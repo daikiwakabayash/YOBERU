@@ -24,6 +24,7 @@ import {
   cancelAppointment,
   sameDayCancelAppointment,
   uncancelAppointment,
+  deleteAppointment,
 } from "../actions/reservationActions";
 import {
   checkinAppointment,
@@ -659,6 +660,32 @@ export function AppointmentDetailSheet({
     } else {
       toast.success("キャンセルを取り消しました");
     }
+    onClose();
+  }
+
+  // -----------------------------------------------------------------------
+  // 完全削除: キャンセル済の予約を予約表から消す。
+  // deleteAppointment は soft delete (deleted_at を立てるだけ) なので、
+  // DB 上は履歴として残るが、calendar / availability クエリは
+  // deleted_at IS NULL で絞っているため画面からは消える。
+  // -----------------------------------------------------------------------
+  async function handleDelete() {
+    if (!appointment) return;
+    if (
+      !confirm(
+        "この予約を予約表から完全に削除します。\n削除すると予約表には表示されなくなります。よろしいですか？"
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    const result = await deleteAppointment(appointment.id);
+    setSaving(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("予約を削除しました");
     onClose();
   }
 
@@ -1361,9 +1388,10 @@ export function AppointmentDetailSheet({
             </div>
           )}
 
-          {/* ------- Uncancel: revert キャンセル / 当日キャンセル / no-show
-                     back to 待機 (status 0). 同時刻に別予約があっても
-                     warning を出すだけで通す (server action 側で判定)。 */}
+          {/* ------- Uncancel + 完全削除: status 3 / 4 / 99 の予約に対して。
+                     - 「キャンセルを取り消す」: 待機 (0) に戻す。
+                     - 「予約表から削除」: soft delete (deleted_at) して
+                       カレンダーから消す。履歴は DB に残る。 */}
           {!isNew && (status === 3 || status === 4 || status === 99) && (
             <div className="flex gap-2">
               <Button
@@ -1374,6 +1402,15 @@ export function AppointmentDetailSheet({
                 onClick={handleUncancel}
               >
                 キャンセルを取り消す
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={saving}
+                className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                onClick={handleDelete}
+              >
+                予約表から削除
               </Button>
             </div>
           )}
