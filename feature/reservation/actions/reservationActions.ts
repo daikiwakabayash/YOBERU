@@ -379,6 +379,10 @@ export async function updateAppointment(id: number, formData: FormData) {
   if (raw.payment_method) updateData.payment_method = raw.payment_method;
   if (raw.additional_charge !== undefined)
     updateData.additional_charge = Number(raw.additional_charge);
+  // 消化額 (deferred revenue): スタッフが予約シートで手入力した値を反映。
+  // 0 も含めて上書きを許可する (完了後に修正できるように)。
+  if (raw.consumed_amount !== undefined)
+    updateData.consumed_amount = Number(raw.consumed_amount) || 0;
   if (raw.is_member_join !== undefined)
     updateData.is_member_join = raw.is_member_join === "true";
   // 継続決済: 後からフラグ反転できるように update でも受け付ける。
@@ -486,6 +490,35 @@ export async function sameDayCancelAppointment(id: number, reason: string) {
       status: 4,
       cancelled_at: new Date().toISOString(),
       customer_record: reason || null,
+    })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reservation");
+  revalidatePath(`/reservation/${id}`);
+  return { success: true };
+}
+
+/**
+ * Undo a cancellation: flip a status=3 (通常キャンセル) / status=4 (当日
+ * キャンセル) / status=99 (no-show) 予約 を status=0 (待機) に戻し、
+ * cancelled_at をクリアする。
+ *
+ * 操作ミスや再来店確定時の取消を想定。sales / consumed_amount 等の
+ * 会計系カラムは触らない (元々キャンセル前に入力されていた値は維持)。
+ * visit_count / last_visit_date も変更しない — 当日キャンセルは
+ * completeAppointment を経由していないため visit_count は元々加算
+ * されていない。
+ */
+export async function restoreAppointment(id: number) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("appointments")
+    .update({
+      status: 0,
+      cancelled_at: null,
     })
     .eq("id", id);
 

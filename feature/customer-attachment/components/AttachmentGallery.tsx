@@ -15,7 +15,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Camera, ImagePlus, FileText, Trash2, X, Download } from "lucide-react";
 import { toast } from "sonner";
 import {
-  uploadCustomerAttachment,
   deleteCustomerAttachment,
 } from "../actions/attachmentActions";
 import {
@@ -34,6 +33,12 @@ interface AttachmentGalleryProps {
   attachments: CustomerAttachment[];
   /** コンパクト表示 (カルテ横サムネ用)。false なら上部にアップロードボタン + 設定UI。 */
   compact?: boolean;
+  /**
+   * 親の CustomerAttachmentsSection に「一覧を取り直して」と伝えるコールバック。
+   * upload / delete 成功後に呼ぶ。router.refresh() では client state の
+   * attachments が更新されないため必須。
+   */
+  onChanged?: () => void;
 }
 
 export function AttachmentGallery({
@@ -43,6 +48,7 @@ export function AttachmentGallery({
   appointmentId,
   attachments,
   compact = false,
+  onChanged,
 }: AttachmentGalleryProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,15 +60,41 @@ export function AttachmentGallery({
   const [lightbox, setLightbox] = useState<CustomerAttachment | null>(
     null
   );
+  /**
+   * 最後の upload 試行結果をユーザーに見える形で残す。toast は数秒で
+   * 消えるが、これは消さないので「保存できているか」がいつでも分かる。
+   */
+  const [lastResult, setLastResult] = useState<{
+    kind: "success" | "error" | "info";
+    message: string;
+    detail?: string;
+  } | null>(null);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    if (files.length === 0) return;
+    console.log("[AttachmentGallery] handleFileChange fired", {
+      filesCount: files.length,
+      names: files.map((f) => f.name),
+      sizes: files.map((f) => f.size),
+    });
+    if (files.length === 0) {
+      setLastResult({
+        kind: "info",
+        message: "ファイルが選択されませんでした",
+        detail: "ファイル選択ダイアログがキャンセルされた可能性があります。",
+      });
+      return;
+    }
     e.target.value = ""; // allow re-upload of same file
 
     startTransition(async () => {
       let ok = 0;
+      let lastErr: string | null = null;
       for (const f of files) {
+        setLastResult({
+          kind: "info",
+          message: `アップロード中: ${f.name} (${(f.size / 1024).toFixed(0)} KB)`,
+        });
         const fd = new FormData();
         fd.set("file", f);
         fd.set("brand_id", String(brandId));
@@ -73,24 +105,59 @@ export function AttachmentGallery({
         }
         fd.set("attachment_type", selectedType);
         fd.set("memo", memo);
+
+        console.log("[AttachmentGallery] POST /api/customer-attachments/upload", {
+          file: f.name,
+          size: f.size,
+          mime: f.type,
+          brandId,
+          shopId,
+          customerId,
+          appointmentId,
+          attachmentType: selectedType,
+        });
+
         try {
-          const res = await uploadCustomerAttachment(fd);
-          if ("error" in res && res.error) {
+          // Server Action ではなく Route Handler を使う。
+          // Next.js 16 + Turbopack で File を含む FormData の server action
+          // シリアライズが落ちてファイル本体が送られない問題があるため。
+          const resp = await fetch("/api/customer-attachments/upload", {
+            method: "POST",
+            body: fd,
+            credentials: "same-origin",
+          });
+          const text = await resp.text();
+          let json: { success?: boolean; id?: number; error?: string } = {};
+          try {
+            json = JSON.parse(text);
+          } catch {
+            console.error(
+              "[AttachmentGallery] response is not JSON",
+              { status: resp.status, text: text.slice(0, 500) }
+            );
+          }
+          console.log("[AttachmentGallery] upload response", {
+            status: resp.status,
+            ok: resp.ok,
+            json,
+          });
+          if (!resp.ok || json.error) {
+            const errMsg = json.error ?? `HTTP ${resp.status}: ${text.slice(0, 200)}`;
+            lastErr = errMsg;
             console.error("[AttachmentGallery] upload error", {
               file: f.name,
               size: f.size,
-              error: res.error,
+              status: resp.status,
+              error: errMsg,
             });
-            // エラーメッセージは読み切れるよう長めに表示 (10 秒)。
-            toast.error(`${f.name}: ${res.error}`, { duration: 10000 });
+            toast.error(`${f.name}: ${errMsg}`, { duration: 10000 });
           } else {
             ok++;
           }
         } catch (e) {
-          const msg =
-            e instanceof Error ? e.message : "不明なエラー";
+          const msg = e instanceof Error ? e.message : "不明なエラー";
+          lastErr = msg;
           console.error("[AttachmentGallery] upload exception", e);
-          // 典型的にはここに「Body exceeded 1MB」等の Next.js 制限が来る
           toast.error(
             `${f.name}: 送信に失敗しました (${msg}). ファイルが大きすぎる場合は 10MB 以下に圧縮してください。`,
             { duration: 10000 }
@@ -99,8 +166,19 @@ export function AttachmentGallery({
       }
       if (ok > 0) {
         toast.success(`${ok} 件アップロードしました`);
+        setLastResult({
+          kind: "success",
+          message: `${ok} 件アップロード成功`,
+        });
         setMemo("");
         router.refresh();
+        onChanged?.();
+      } else {
+        setLastResult({
+          kind: "error",
+          message: "アップロードに失敗しました",
+          detail: lastErr ?? "不明なエラー",
+        });
       }
     });
   }
@@ -115,6 +193,7 @@ export function AttachmentGallery({
       }
       toast.success("削除しました");
       router.refresh();
+      onChanged?.();
     });
   }
 
@@ -199,6 +278,28 @@ export function AttachmentGallery({
             画像 (JPEG / PNG / HEIC) または PDF、1 ファイル最大 10MB。
             携帯からは「カメラで撮影」を押すと直接撮影できます。
           </p>
+
+          {/* 直近のアップロード結果バナー: toast は数秒で消えるが、これは
+              ファイル選択イベントが発火しているか / アップロードが成功
+              したか / どこで失敗したか を画面に残し続ける。 */}
+          {lastResult && (
+            <div
+              className={`rounded-md border p-2 text-[11px] ${
+                lastResult.kind === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : lastResult.kind === "error"
+                    ? "border-red-200 bg-red-50 text-red-700"
+                    : "border-blue-200 bg-blue-50 text-blue-800"
+              }`}
+            >
+              <div className="font-bold">{lastResult.message}</div>
+              {lastResult.detail && (
+                <div className="mt-0.5 text-[10px] opacity-80">
+                  {lastResult.detail}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

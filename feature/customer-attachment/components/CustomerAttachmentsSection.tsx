@@ -81,6 +81,7 @@ export function CustomerAttachmentsSection({
       appointmentId={appointmentId ?? null}
       attachments={attachments}
       compact={compact}
+      onChanged={() => setRefreshNonce((n) => n + 1)}
     />
   );
 }
