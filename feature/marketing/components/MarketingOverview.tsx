@@ -133,9 +133,14 @@ export function MarketingOverview({
           tone="bg-amber-50 border-amber-100"
         />
         <MiniCard
-          label="口コミ数"
-          value={`${num(t.reviewCount)}件`}
+          label="G 口コミ"
+          value={`${num(t.googleReviewCount)}件`}
           tone="bg-gray-50 border-gray-100"
+        />
+        <MiniCard
+          label="H 口コミ"
+          value={`${num(t.hotpepperReviewCount)}件`}
+          tone="bg-orange-50 border-orange-100"
         />
       </div>
 
