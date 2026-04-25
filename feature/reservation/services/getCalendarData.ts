@@ -260,12 +260,15 @@ export async function getCalendarData(
   };
   const appointments = (apptRes.data ?? []) as unknown as RawAppointment[];
 
-  // The "新規" badge means "this customer was first registered today".
-  // 患者DB から引っ張ってきた既存顧客 (= customers.created_at が今日より
-  // 前) は、たとえこの予約がシステム上の最初の予約だったとしても新規
-  // 扱いにしないのが運用ルール (本日のシフトに紐づくスタッフが手動で
-  // 患者検索 → 既存ヒット → 予約パネルから入れた場合がこのケース)。
-  const dateStartMs = new Date(`${date}T00:00:00+09:00`).getTime();
+  // 「新規」= この予約が顧客の人生初予約のとき。
+  // appointments.visit_count は createAppointment 時に「その時点での
+  // customers.visit_count + 1」で stamp されるので、visit_count == 1 が
+  // ちょうど「初回予約」を意味する。
+  //
+  // 旧実装は「customer.created_at がカレンダー表示日 >= の場合」を新規と
+  // していたが、本日 (4/25) 登録した顧客の 5/1 予約は created_at < 5/1 で
+  // false に倒れて「会員」表示になる不具合があった。visit_count を素直に
+  // 見ることでこの未来日問題を解消する。
 
   // Build source map from the pre-fetched data (batched above).
   const sourceMap = new Map<
@@ -386,19 +389,8 @@ export async function getCalendarData(
     const apptVisitCount =
       (a.visit_count as number | null) ?? customer?.visit_count ?? 0;
 
-    // 新規 (新規) badge: TRUE only when the customer was registered today.
-    // If they were already in the patient DB before today (= pulled from
-    // 顧客検索 in the booking panel) they're "既存" no matter what
-    // visit_count says. Falls back to the visit_count snapshot for the
-    // (rare) case where customer.created_at is missing.
-    let isNewCustomer: boolean;
-    if (customer?.created_at) {
-      const createdMs = new Date(customer.created_at).getTime();
-      isNewCustomer =
-        Number.isFinite(createdMs) && createdMs >= dateStartMs;
-    } else {
-      isNewCustomer = apptVisitCount === 1;
-    }
+    // 新規 = この予約が顧客の初回予約 (visit_count == 1)
+    const isNewCustomer = apptVisitCount === 1;
 
     // Resolve slot block metadata once so the UI can render the row
     // as "ミーティング / 休憩 / その他" instead of the system-placeholder
