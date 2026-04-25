@@ -3,7 +3,7 @@ import {
   getActiveBrandId,
   getActiveShopId,
 } from "@/helper/lib/shop-context";
-import { getStaffMonthlyCompensationForShop } from "@/feature/payroll/services/getStaffMonthlyCompensation";
+import { getStaffMonthlyPayrollForShop } from "@/feature/payroll/services/getStaffMonthlyPayroll";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PayrollTable } from "@/feature/payroll/components/PayrollTable";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ export default async function PayrollPage({ searchParams }: Props) {
 
   const shopId = await getActiveShopId();
   const brandId = await getActiveBrandId();
-  const rows = await getStaffMonthlyCompensationForShop({
+  const rows = await getStaffMonthlyPayrollForShop({
     shopId,
     brandId,
     yearMonth,
@@ -38,7 +38,7 @@ export default async function PayrollPage({ searchParams }: Props) {
     <div>
       <PageHeader
         title="給与計算"
-        description={`${yearMonth} 月の業務委託費を表示します (Phase 1: 計算+表示のみ)`}
+        description={`${yearMonth} 月の業務委託費 + 諸手当を表示します (Phase 2)`}
         actions={
           <Link href="/payroll/tiers">
             <Button variant="outline" size="sm">
