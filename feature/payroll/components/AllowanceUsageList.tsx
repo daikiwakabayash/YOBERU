@@ -6,10 +6,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2, Plus } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Trash2, Plus, Save } from "lucide-react";
 import {
   addAllowanceUsage,
   deleteAllowanceUsage,
+  saveAllowanceDefault,
 } from "../actions/allowanceActions";
 import type { AllowanceCode } from "../allowanceTypes";
 
@@ -32,6 +34,15 @@ interface Props {
   rows: UsageRow[];
   /** 補足説明 (受給条件 / 上限等) */
   hint?: string;
+  /**
+   * デフォルト保存値。enabled=true ならフォームに amount/note を prefill。
+   * 未保存 (= null) なら従来どおり空白で開く。
+   */
+  defaultValue: {
+    amount: number;
+    note: string | null;
+    enabled: boolean;
+  } | null;
 }
 
 export function AllowanceUsageList({
@@ -43,11 +54,23 @@ export function AllowanceUsageList({
   balanceLabel,
   rows,
   hint,
+  defaultValue,
 }: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
+
+  // prefill: enabled なデフォルトがあれば値を入れる。チェックボックスも
+  // 同じく enabled に倒す → ユーザーは「そのまま登録 → 翌月も同じ値で
+  // prefill」のフローで何もしなくて良い。
+  const [amount, setAmount] = useState<string>(
+    defaultValue?.enabled ? String(defaultValue.amount) : ""
+  );
+  const [note, setNote] = useState<string>(
+    defaultValue?.enabled ? defaultValue.note ?? "" : ""
+  );
+  const [saveAsDefault, setSaveAsDefault] = useState<boolean>(
+    !!defaultValue?.enabled
+  );
 
   function submit() {
     const amt = Number(amount);
@@ -65,6 +88,7 @@ export function AllowanceUsageList({
       }
     }
     start(async () => {
+      // 1. 当月の使用記録を 1 行追加
       const res = await addAllowanceUsage({
         staffId,
         allowanceType,
@@ -76,13 +100,43 @@ export function AllowanceUsageList({
         toast.error(res.error);
         return;
       }
-      if (res.warning) {
-        toast.warning(`${label} を記録 (注意: ${res.warning})`);
-      } else {
-        toast.success(`${label} の使用を記録しました`);
+
+      // 2. 「毎月同じ値を使う」がチェックされていればデフォルトとして保存。
+      //    チェックが外れていて、かつ既存のデフォルトが enabled だった場合は
+      //    enabled=false に倒して prefill を停止する。
+      if (saveAsDefault) {
+        await saveAllowanceDefault({
+          staffId,
+          allowanceType,
+          amount: amt,
+          note: note.trim() || null,
+          enabled: true,
+        });
+      } else if (defaultValue?.enabled) {
+        await saveAllowanceDefault({
+          staffId,
+          allowanceType,
+          amount: defaultValue.amount,
+          note: defaultValue.note,
+          enabled: false,
+        });
       }
-      setAmount("");
-      setNote("");
+
+      const baseMsg = `${label} の使用を記録しました`;
+      if (res.warning) {
+        toast.warning(`${baseMsg} (注意: ${res.warning})`);
+      } else {
+        toast.success(baseMsg);
+      }
+
+      // 入力リセット (チェックが入っていれば次回も同じ値で prefill されるので
+      // form 自体もデフォルト値に戻す)。
+      if (saveAsDefault) {
+        // そのまま値を残しておく (次月に open し直すと prefill される)
+      } else {
+        setAmount("");
+        setNote("");
+      }
       router.refresh();
     });
   }
@@ -149,40 +203,62 @@ export function AllowanceUsageList({
       )}
 
       {/* 新規追加フォーム */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr_auto]">
-        <div>
-          <Label className="text-[10px] text-gray-500">
-            金額 ({yearMonth})
-          </Label>
-          <Input
-            type="number"
-            min={1}
-            step={1}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="例: 5000"
+      <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr_auto]">
+          <div>
+            <Label className="text-[10px] text-gray-500">
+              金額 ({yearMonth})
+            </Label>
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="例: 5000"
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] text-gray-500">メモ (任意)</Label>
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="例: 研修会参加費 / セミナーチケット"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              type="button"
+              size="sm"
+              onClick={submit}
+              disabled={pending}
+              className="w-full"
+            >
+              <Plus className="mr-1 h-3 w-3" />
+              記録
+            </Button>
+          </div>
+        </div>
+
+        {/* デフォルト保存チェック */}
+        <label className="flex items-center gap-2 text-xs text-gray-600">
+          <Checkbox
+            checked={saveAsDefault}
+            onCheckedChange={(v) => setSaveAsDefault(v === true)}
           />
-        </div>
-        <div>
-          <Label className="text-[10px] text-gray-500">メモ (任意)</Label>
-          <Input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="例: 研修会参加費 / セミナーチケット"
-          />
-        </div>
-        <div className="flex items-end">
-          <Button
-            type="button"
-            size="sm"
-            onClick={submit}
-            disabled={pending}
-            className="w-full"
-          >
-            <Plus className="mr-1 h-3 w-3" />
-            記録
-          </Button>
-        </div>
+          <span>
+            この金額・メモを毎月のデフォルトとして保存する
+            <span className="ml-1 text-[10px] text-gray-400">
+              (チェックを外せば翌月以降は空白で開きます)
+            </span>
+          </span>
+          {defaultValue?.enabled && (
+            <span className="ml-auto inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+              <Save className="h-3 w-3" />
+              デフォルト保存中
+            </span>
+          )}
+        </label>
       </div>
     </div>
   );

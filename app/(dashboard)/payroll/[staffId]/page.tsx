@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AllowanceUsageList, type UsageRow } from "@/feature/payroll/components/AllowanceUsageList";
 import { InvoiceActionsBar } from "@/feature/payroll/components/InvoiceActionsBar";
+import { getAllowanceDefaults } from "@/feature/payroll/services/getAllowanceDefaults";
 import {
   ALLOWANCE_BY_CODE,
   CLAIM_CODES,
@@ -99,6 +100,9 @@ export default async function StaffPayrollDetailPage({
       .order("id", { ascending: true }),
   ]);
   const usageData = usageRes.data;
+
+  // 各手当のデフォルト保存値 (Map<allowanceCode, {amount, note, enabled}>)
+  const allowanceDefaults = await getAllowanceDefaults(staffId);
 
   // staffs.user_id → users.email (請求書のメール送信先)
   let staffEmail: string | null = null;
@@ -261,10 +265,10 @@ export default async function StaffPayrollDetailPage({
                 }
               />
               <KV
-                label="健康手当 (売上 ≥ 100万)"
+                label="美容手当 (売上 ≥ 100万)"
                 value={
-                  row.allowances.healthAmount > 0
-                    ? yen(row.allowances.healthAmount)
+                  row.allowances.beautyAmount > 0
+                    ? yen(row.allowances.beautyAmount)
                     : "条件未達"
                 }
               />
@@ -280,8 +284,8 @@ export default async function StaffPayrollDetailPage({
             <div className="text-xs text-gray-500">
               ※ 売上 (税込) {yen(row.salesInclTax)} →{" "}
               {row.allowances.isSalesAboveThreshold
-                ? "100 万円以上 (健康・住宅・繰越手当 対象)"
-                : "100 万円未達 (健康・住宅・繰越手当 対象外)"}
+                ? "100 万円以上 (美容・住宅・繰越手当 対象)"
+                : "100 万円未達 (美容・住宅・繰越手当 対象外)"}
             </div>
           </CardContent>
         </Card>
@@ -354,6 +358,7 @@ export default async function StaffPayrollDetailPage({
               label="勉強代手当の使用記録"
               balance={row.allowances.study.balance}
               rows={studyRows}
+              defaultValue={allowanceDefaults.get("study") ?? null}
             />
             <AllowanceUsageList
               staffId={staffId}
@@ -362,6 +367,7 @@ export default async function StaffPayrollDetailPage({
               label="イベントアクセス手当の使用記録"
               balance={row.allowances.eventAccess.balance}
               rows={eventRows}
+              defaultValue={allowanceDefaults.get("event_access") ?? null}
             />
           </CardContent>
         </Card>
@@ -404,6 +410,7 @@ export default async function StaffPayrollDetailPage({
                     balanceLabel={meta.monthlyCapYen ? "今月残枠" : "今月使用累計"}
                     rows={rows}
                     hint={hint || undefined}
+                    defaultValue={allowanceDefaults.get(code as AllowanceCode) ?? null}
                   />
                 );
               })}

@@ -54,6 +54,7 @@ export default async function StaffDetailPage({ params }: StaffDetailPageProps) 
     birthday: s.birthday ?? "",
     children_count: s.children_count ?? 0,
     monthly_min_salary: s.monthly_min_salary ?? 260000,
+    payroll_email: s.payroll_email ?? "",
   };
 
   return (

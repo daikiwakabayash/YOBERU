@@ -68,7 +68,7 @@ export async function getStaffInvoiceData(params: {
   const [staffRes, shopRes] = await Promise.all([
     supabase
       .from("staffs")
-      .select("user_id")
+      .select("user_id, payroll_email")
       .eq("id", staffId)
       .maybeSingle(),
     supabase
@@ -78,12 +78,20 @@ export async function getStaffInvoiceData(params: {
       .maybeSingle(),
   ]);
 
-  let staffEmail: string | null = null;
-  if (staffRes.data?.user_id) {
+  // 1. staffs.payroll_email が入っていればそれを最優先 (ログインメールと
+  //    請求書受信メールを分けたいケース)。
+  // 2. なければ staffs.user_id → users.email を使う。
+  // 3. それでも空ならスタッフのメール未登録扱い。
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sd: any = staffRes.data ?? {};
+  const overrideEmail = (sd.payroll_email as string | null | undefined) ?? null;
+  let staffEmail: string | null =
+    overrideEmail && overrideEmail.trim().length > 0 ? overrideEmail.trim() : null;
+  if (!staffEmail && sd.user_id) {
     const userRes = await supabase
       .from("users")
       .select("email")
-      .eq("id", staffRes.data.user_id)
+      .eq("id", sd.user_id)
       .maybeSingle();
     staffEmail = (userRes.data?.email as string | null) ?? null;
   }
@@ -149,10 +157,10 @@ export async function getStaffInvoiceData(params: {
       group: "allowance_auto",
     });
   }
-  if (row.allowances.healthAmount > 0) {
+  if (row.allowances.beautyAmount > 0) {
     lines.push({
-      label: "健康手当",
-      amount: row.allowances.healthAmount,
+      label: "美容手当",
+      amount: row.allowances.beautyAmount,
       note: "税込売上 ≥ 100 万",
       group: "allowance_auto",
     });

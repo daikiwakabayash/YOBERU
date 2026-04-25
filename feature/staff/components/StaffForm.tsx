@@ -103,6 +103,7 @@ export function StaffForm({
       birthday: "",
       children_count: 0,
       monthly_min_salary: 260000,
+      payroll_email: "",
     },
   });
 
@@ -349,7 +350,21 @@ export function StaffForm({
                   {...form.register("children_count")}
                 />
                 <p className="text-[10px] text-gray-400">
-                  Phase 2 で 1 人 5,000 円の子供手当に反映
+                  1 人 5,000 円の子供手当に反映
+                </p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="payroll_email">
+                  請求書 受信メール (任意)
+                </Label>
+                <Input
+                  id="payroll_email"
+                  type="email"
+                  placeholder="未設定ならログインメール (users.email) を使用"
+                  {...form.register("payroll_email")}
+                />
+                <p className="text-[10px] text-gray-400">
+                  毎月の請求書はこのアドレスへ送られます。空欄ならログイン用メール宛。
                 </p>
               </div>
             </div>
