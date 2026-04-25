@@ -7,6 +7,7 @@ import type {
   StaffMonthlyCompensation,
 } from "./getStaffMonthlyCompensation";
 import type { AllowanceSummary, CarryoverState } from "./getStaffAllowances";
+import { CLAIM_CODES, type AllowanceCode } from "../allowanceTypes";
 
 /**
  * /payroll の一覧表示用に「業務委託費 + 諸手当 + 合計」を 1 回のクエリ
@@ -25,7 +26,11 @@ import type { AllowanceSummary, CarryoverState } from "./getStaffAllowances";
 
 export interface StaffMonthlyPayrollRow extends StaffMonthlyCompensation {
   allowances: AllowanceSummary;
-  // 月の支払予定総額 (税込) = 業務委託費 + 諸手当
+  // claim 型手当の当月使用額 (allowance_code → 当月使用額の合計)。
+  // 美容 / 家族 / 通勤 / 宿泊 / 紹介 / リクルート / 健康診断 / 引越し / 歯科 が対象。
+  claimAllowanceUsage: Record<string, number>;
+  claimAllowanceTotal: number;
+  // 月の支払予定総額 (税込) = 業務委託費 + 諸手当 (auto + carryover 当月使用 + claim)
   totalInclTax: number;
 }
 
@@ -79,19 +84,44 @@ export async function getStaffMonthlyPayrollForShop(params: {
 
   // 使用記録: staff_id × type × YTD / this_month
   type Used = { ytd: number; thisMonth: number };
-  const usedByStaff = new Map<number, { study: Used; event: Used }>();
-  for (const u of usageRes) {
-    const sid = u.staff_id;
+  const usedByStaff = new Map<
+    number,
+    {
+      study: Used;
+      event: Used;
+      // claim 型 (美容 / 家族 / 通勤 / ...) の当月使用額
+      claimByCode: Map<AllowanceCode, number>;
+    }
+  >();
+  const ensure = (sid: number) => {
     if (!usedByStaff.has(sid)) {
       usedByStaff.set(sid, {
         study: { ytd: 0, thisMonth: 0 },
         event: { ytd: 0, thisMonth: 0 },
+        claimByCode: new Map(),
       });
     }
-    const bucket = usedByStaff.get(sid)!;
-    const target = u.allowance_type === "study" ? bucket.study : bucket.event;
-    target.ytd += u.amount;
-    if (u.year_month === yearMonth) target.thisMonth += u.amount;
+    return usedByStaff.get(sid)!;
+  };
+  const claimSet = new Set<string>(CLAIM_CODES);
+  for (const u of usageRes) {
+    const bucket = ensure(u.staff_id);
+    if (u.allowance_type === "study") {
+      bucket.study.ytd += u.amount;
+      if (u.year_month === yearMonth) bucket.study.thisMonth += u.amount;
+    } else if (u.allowance_type === "event_access") {
+      bucket.event.ytd += u.amount;
+      if (u.year_month === yearMonth) bucket.event.thisMonth += u.amount;
+    } else if (claimSet.has(u.allowance_type)) {
+      // claim 型は当月使用額のみ集計 (繰越なし)
+      if (u.year_month === yearMonth) {
+        const code = u.allowance_type as AllowanceCode;
+        bucket.claimByCode.set(
+          code,
+          (bucket.claimByCode.get(code) ?? 0) + u.amount
+        );
+      }
+    }
   }
 
   return staffRes.map((s) =>
@@ -104,6 +134,7 @@ export async function getStaffMonthlyPayrollForShop(params: {
       used: usedByStaff.get(s.id) ?? {
         study: { ytd: 0, thisMonth: 0 },
         event: { ytd: 0, thisMonth: 0 },
+        claimByCode: new Map(),
       },
     })
   );
@@ -121,7 +152,8 @@ interface StaffRow {
 
 interface UsageRow {
   staff_id: number;
-  allowance_type: "study" | "event_access";
+  // study / event_access (carryover) + claim 型 (Phase 2.5)
+  allowance_type: AllowanceCode | string;
   year_month: string;
   amount: number;
 }
@@ -191,7 +223,7 @@ async function fetchUsageRobust(
   void shopId;
   return (res.data ?? []).map((r) => ({
     staff_id: r.staff_id as number,
-    allowance_type: r.allowance_type as "study" | "event_access",
+    allowance_type: r.allowance_type as string,
     year_month: r.year_month as string,
     amount: (r.amount as number) ?? 0,
   }));
@@ -218,7 +250,11 @@ function computePayrollRow(args: {
   salesInclTaxThisMonth: number;
   salesAccrualMonths: number;
   tiers: CompensationTier[];
-  used: { study: { ytd: number; thisMonth: number }; event: { ytd: number; thisMonth: number } };
+  used: {
+    study: { ytd: number; thisMonth: number };
+    event: { ytd: number; thisMonth: number };
+    claimByCode: Map<AllowanceCode, number>;
+  };
 }): StaffMonthlyPayrollRow {
   const { staff, month, salesInclTaxThisMonth, salesAccrualMonths, tiers, used } = args;
 
@@ -272,13 +308,23 @@ function computePayrollRow(args: {
     usedThisMonth: used.event.thisMonth,
   };
 
+  // claim 型 (美容 / 家族 / 通勤 / 宿泊 / 紹介 / リクルート / 健康診断 /
+  // 引越し / 歯科) の当月使用額を Record にまとめて、合計も出す。
+  const claimAllowanceUsage: Record<string, number> = {};
+  let claimAllowanceTotal = 0;
+  for (const [code, amt] of used.claimByCode.entries()) {
+    claimAllowanceUsage[code] = amt;
+    claimAllowanceTotal += amt;
+  }
+
   const monthlyAllowanceTotal =
     childrenAmount +
     birthdayAmount +
     healthAmount +
     housingAmount +
     used.study.thisMonth +
-    used.event.thisMonth;
+    used.event.thisMonth +
+    claimAllowanceTotal;
 
   const allowances: AllowanceSummary = {
     childrenAmount,
@@ -309,6 +355,8 @@ function computePayrollRow(args: {
     compensationInclTax,
     compensationExclTax,
     allowances,
+    claimAllowanceUsage,
+    claimAllowanceTotal,
     totalInclTax,
   };
 }

@@ -12,6 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AllowanceUsageList, type UsageRow } from "@/feature/payroll/components/AllowanceUsageList";
+import {
+  ALLOWANCE_BY_CODE,
+  CLAIM_CODES,
+  NON_CASH_BENEFITS,
+  type AllowanceCode,
+} from "@/feature/payroll/allowanceTypes";
 import { toLocalDateString } from "@/helper/utils/time";
 
 export const dynamic = "force-dynamic";
@@ -87,6 +93,9 @@ export default async function StaffPayrollDetailPage({
 
   const studyRows: UsageRow[] = [];
   const eventRows: UsageRow[] = [];
+  // claim 型 (美容 / 家族 / 通勤 / ...) の使用履歴を allowance_code ごとに分類
+  const claimRowsByCode: Record<string, UsageRow[]> = {};
+  for (const code of CLAIM_CODES) claimRowsByCode[code] = [];
   for (const u of usageData ?? []) {
     const r: UsageRow = {
       id: u.id as number,
@@ -94,8 +103,10 @@ export default async function StaffPayrollDetailPage({
       amount: u.amount as number,
       note: (u.note as string | null) ?? null,
     };
-    if (u.allowance_type === "study") studyRows.push(r);
-    else if (u.allowance_type === "event_access") eventRows.push(r);
+    const t = u.allowance_type as string;
+    if (t === "study") studyRows.push(r);
+    else if (t === "event_access") eventRows.push(r);
+    else if (claimRowsByCode[t]) claimRowsByCode[t].push(r);
   }
 
   const isRegular = row.employmentType === "regular";
@@ -316,6 +327,72 @@ export default async function StaffPayrollDetailPage({
           </CardContent>
         </Card>
 
+        {/* 諸手当 — 都度請求 (claim 型) */}
+        <Card>
+          <CardContent className="space-y-4 p-4">
+            <div>
+              <h2 className="text-base font-bold">
+                諸手当 (都度請求)
+              </h2>
+              <p className="text-xs text-gray-500">
+                美容 / 家族 / 通勤 / 宿泊 / 紹介 / リクルート / 健康診断 /
+                引越し / 歯科。当月使用額をその場で記録すると、当月の請求
+                合計に加算されます (繰越概念なし)。
+              </p>
+            </div>
+            <div className="space-y-3">
+              {CLAIM_CODES.map((code) => {
+                const meta = ALLOWANCE_BY_CODE[code as AllowanceCode];
+                const rows = claimRowsByCode[code] ?? [];
+                const usedThisMonth = rows
+                  .filter((r) => r.yearMonth === yearMonth)
+                  .reduce((s, r) => s + r.amount, 0);
+                const hint = [meta.eligibility, meta.description]
+                  .filter(Boolean)
+                  .join(" / ");
+                return (
+                  <AllowanceUsageList
+                    key={code}
+                    staffId={staffId}
+                    yearMonth={yearMonth}
+                    allowanceType={code as AllowanceCode}
+                    label={meta.label}
+                    balance={
+                      meta.monthlyCapYen
+                        ? Math.max(0, meta.monthlyCapYen - usedThisMonth)
+                        : usedThisMonth
+                    }
+                    balanceLabel={meta.monthlyCapYen ? "今月残枠" : "今月使用累計"}
+                    rows={rows}
+                    hint={hint || undefined}
+                  />
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 非現金の福利厚生 */}
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div>
+              <h2 className="text-base font-bold">非現金の福利厚生</h2>
+              <p className="text-xs text-gray-500">
+                請求書には載らない (現金支給ではない) 福利厚生。利用方法を
+                確認したいときの参考に。
+              </p>
+            </div>
+            <ul className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+              {NON_CASH_BENEFITS.map((b) => (
+                <li key={b.label} className="rounded border bg-gray-50 p-3">
+                  <div className="font-bold">{b.label}</div>
+                  <div className="text-xs text-gray-600">{b.description}</div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+
         {/* 月の支払総額 */}
         <Card className="border-orange-200 bg-orange-50/30">
           <CardContent className="space-y-1 p-4">
@@ -326,6 +403,9 @@ export default async function StaffPayrollDetailPage({
             <div className="text-[11px] text-gray-500">
               業務委託費 {yen(row.compensationInclTax)} + 諸手当{" "}
               {yen(row.allowances.monthlyTotal)}
+              {row.claimAllowanceTotal > 0 && (
+                <> (うち都度請求 {yen(row.claimAllowanceTotal)})</>
+              )}
             </div>
           </CardContent>
         </Card>

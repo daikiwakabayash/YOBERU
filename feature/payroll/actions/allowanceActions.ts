@@ -2,21 +2,30 @@
 
 import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import {
+  ALLOWANCE_BY_CODE,
+  type AllowanceCode,
+} from "../allowanceTypes";
+
+const VALID_CODES = new Set<string>(Object.keys(ALLOWANCE_BY_CODE));
 
 /**
- * 繰越あり手当 (study / event_access) の使用を 1 行追加する。
- * 残枠を超えていてもサーバー側では止めず、入力された額を素直に記録する
- * (運用上「ちょっとオーバーするけど OK」を許容したい場面があるため)。
- * 残枠の警告は UI 側 (CarryoverClaimForm) で確認ダイアログを出して
- * ユーザー自身に判断させる。
+ * 諸手当の使用額を 1 行追加する。
+ *
+ * 対象: carryover (study / event_access) と claim (美容 / 家族 / 通勤 /
+ * 宿泊 / 紹介 / リクルート / 健康診断 / 引越し / 歯科)。
+ *
+ * 残枠超過 / 月額上限超過は **サーバー側では止めない** (warning として
+ * 返却)。「ちょっとオーバーするけど OK」を許容したい運用があるため
+ * 確認は UI 側 confirm に委ねる。
  */
 export async function addAllowanceUsage(params: {
   staffId: number;
-  allowanceType: "study" | "event_access";
-  yearMonth: string; // 'YYYY-MM'
+  allowanceType: string; // AllowanceCode を期待するが string で受ける
+  yearMonth: string;
   amount: number;
   note?: string | null;
-}): Promise<{ success?: true; error?: string }> {
+}): Promise<{ success?: true; error?: string; warning?: string }> {
   const supabase = await createClient();
   const { staffId, allowanceType, yearMonth, amount, note } = params;
 
@@ -26,11 +35,30 @@ export async function addAllowanceUsage(params: {
   if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
     return { error: "年月の形式が不正です (YYYY-MM)" };
   }
-  if (allowanceType !== "study" && allowanceType !== "event_access") {
-    return { error: "対象外の手当種別です" };
+  if (!VALID_CODES.has(allowanceType)) {
+    return { error: `対象外の手当種別です: ${allowanceType}` };
   }
 
+  const meta = ALLOWANCE_BY_CODE[allowanceType as AllowanceCode];
   const year = Number(yearMonth.slice(0, 4));
+
+  // monthlyCapYen が指定されている手当 (例: 通勤 = 20000) は当月の使用合計
+  // と新規入力額を足してチェックする (警告のみ、ブロックしない)。
+  let warning: string | undefined;
+  if (meta.monthlyCapYen) {
+    const { data: existing } = await supabase
+      .from("allowance_usage")
+      .select("amount")
+      .eq("staff_id", staffId)
+      .eq("allowance_type", allowanceType)
+      .eq("year_month", yearMonth)
+      .is("deleted_at", null);
+    const usedThisMonth =
+      (existing ?? []).reduce((s, r) => s + ((r.amount as number) ?? 0), 0);
+    if (usedThisMonth + amount > meta.monthlyCapYen) {
+      warning = `月額上限 ¥${meta.monthlyCapYen.toLocaleString()} を超えています (合計 ¥${(usedThisMonth + amount).toLocaleString()})`;
+    }
+  }
 
   const { error } = await supabase.from("allowance_usage").insert({
     staff_id: staffId,
@@ -44,14 +72,13 @@ export async function addAllowanceUsage(params: {
 
   revalidatePath("/payroll");
   revalidatePath(`/payroll/${staffId}`);
-  return { success: true };
+  return warning ? { success: true, warning } : { success: true };
 }
 
 export async function deleteAllowanceUsage(
   id: number
 ): Promise<{ success?: true; error?: string }> {
   const supabase = await createClient();
-  // staff_id を引いてからソフト削除 → revalidatePath
   const { data: row } = await supabase
     .from("allowance_usage")
     .select("staff_id")

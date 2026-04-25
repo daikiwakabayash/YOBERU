@@ -11,6 +11,7 @@ import {
   addAllowanceUsage,
   deleteAllowanceUsage,
 } from "../actions/allowanceActions";
+import type { AllowanceCode } from "../allowanceTypes";
 
 export interface UsageRow {
   id: number;
@@ -22,10 +23,15 @@ export interface UsageRow {
 interface Props {
   staffId: number;
   yearMonth: string;
-  allowanceType: "study" | "event_access";
+  allowanceType: AllowanceCode;
   label: string;
-  balance: number; // 現在の残枠 (累積付与 - 累積使用)
-  rows: UsageRow[]; // 当年内の使用履歴
+  /** carryover (study/event) は残枠、claim は当月使用累計を見せる */
+  balance?: number;
+  /** "残枠" / "当月使用" 等のラベル切替用 */
+  balanceLabel?: string;
+  rows: UsageRow[];
+  /** 補足説明 (受給条件 / 上限等) */
+  hint?: string;
 }
 
 export function AllowanceUsageList({
@@ -34,7 +40,9 @@ export function AllowanceUsageList({
   allowanceType,
   label,
   balance,
+  balanceLabel,
   rows,
+  hint,
 }: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -47,7 +55,7 @@ export function AllowanceUsageList({
       toast.error("金額は 1 円以上で入力してください");
       return;
     }
-    if (amt > balance) {
+    if (balance != null && amt > balance) {
       if (
         !confirm(
           `残枠 (¥${balance.toLocaleString()}) を超えています。それでも記録しますか？`
@@ -68,7 +76,11 @@ export function AllowanceUsageList({
         toast.error(res.error);
         return;
       }
-      toast.success(`${label} の使用を記録しました`);
+      if (res.warning) {
+        toast.warning(`${label} を記録 (注意: ${res.warning})`);
+      } else {
+        toast.success(`${label} の使用を記録しました`);
+      }
       setAmount("");
       setNote("");
       router.refresh();
@@ -92,13 +104,16 @@ export function AllowanceUsageList({
     <div className="space-y-3 rounded-lg border bg-white p-4">
       <div className="flex items-baseline justify-between">
         <h3 className="text-sm font-bold">{label}</h3>
-        <span className="text-xs text-gray-500">
-          残枠:{" "}
-          <span className="font-bold text-blue-700">
-            ¥{balance.toLocaleString()}
+        {balance != null && (
+          <span className="text-xs text-gray-500">
+            {balanceLabel ?? "残枠"}:{" "}
+            <span className="font-bold text-blue-700">
+              ¥{balance.toLocaleString()}
+            </span>
           </span>
-        </span>
+        )}
       </div>
+      {hint && <p className="text-[11px] text-gray-500">{hint}</p>}
 
       {/* 当年使用履歴 */}
       {rows.length === 0 ? (
