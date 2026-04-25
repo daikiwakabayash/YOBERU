@@ -26,6 +26,12 @@ export interface SendEmailInput {
   fromName?: string;
   /** Reply-To アドレス。通常は店舗の連絡先 (shops.email1) を入れる */
   replyTo?: string | null;
+  /**
+   * HTML 本文を直接指定したいとき (給与計算の請求書 HTML など)。
+   * 指定時は body の自動 HTML 生成を上書きする。プレーンテキストフォールバック
+   * (text/plain) は body の値が引き続き使われる。
+   */
+  htmlBody?: string;
 }
 
 export interface SendEmailResult {
@@ -78,6 +84,7 @@ export async function sendEmail({
   body,
   fromName,
   replyTo,
+  htmlBody,
 }: SendEmailInput): Promise<SendEmailResult> {
   if (!to) return { success: false, error: "宛先メールアドレスなし" };
 
@@ -91,7 +98,9 @@ export async function sendEmail({
   }
 
   const from = buildFromHeader(fromName, DEFAULT_FROM);
-  const html = plainTextToHtml(body);
+  // 呼び出し元で HTML を組み立てたいケース (請求書) は htmlBody を優先。
+  // 指定がなければ従来どおり body から auto-generate する。
+  const html = htmlBody ?? plainTextToHtml(body);
 
   const payload: Record<string, unknown> = {
     from,

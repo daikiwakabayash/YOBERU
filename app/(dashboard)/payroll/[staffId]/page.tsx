@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AllowanceUsageList, type UsageRow } from "@/feature/payroll/components/AllowanceUsageList";
+import { InvoiceActionsBar } from "@/feature/payroll/components/InvoiceActionsBar";
 import {
   ALLOWANCE_BY_CODE,
   CLAIM_CODES,
@@ -80,16 +81,36 @@ export default async function StaffPayrollDetailPage({
     );
   }
 
-  // 当年の使用履歴を 2 種別ぶん取得
+  // 当年の使用履歴を 2 種別ぶん取得 + staff のメールアドレスを取得
   const supabase = await createClient();
-  const { data: usageData } = await supabase
-    .from("allowance_usage")
-    .select("id, allowance_type, year_month, amount, note")
-    .eq("staff_id", staffId)
-    .eq("year", year)
-    .is("deleted_at", null)
-    .order("year_month", { ascending: true })
-    .order("id", { ascending: true });
+  const [staffUserRes, usageRes] = await Promise.all([
+    supabase
+      .from("staffs")
+      .select("user_id")
+      .eq("id", staffId)
+      .maybeSingle(),
+    supabase
+      .from("allowance_usage")
+      .select("id, allowance_type, year_month, amount, note")
+      .eq("staff_id", staffId)
+      .eq("year", year)
+      .is("deleted_at", null)
+      .order("year_month", { ascending: true })
+      .order("id", { ascending: true }),
+  ]);
+  const usageData = usageRes.data;
+
+  // staffs.user_id → users.email (請求書のメール送信先)
+  let staffEmail: string | null = null;
+  const userId = staffUserRes.data?.user_id as number | null | undefined;
+  if (userId) {
+    const userRes = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+    staffEmail = (userRes.data?.email as string | null) ?? null;
+  }
 
   const studyRows: UsageRow[] = [];
   const eventRows: UsageRow[] = [];
@@ -127,6 +148,24 @@ export default async function StaffPayrollDetailPage({
       />
 
       <div className="space-y-6 p-6">
+        {/* 請求書 (PDF / メール) アクション */}
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <div className="text-sm font-bold">請求書 ({yearMonth})</div>
+            <InvoiceActionsBar
+              staffId={staffId}
+              yearMonth={yearMonth}
+              staffEmail={staffEmail}
+            />
+            {!staffEmail && (
+              <p className="text-[11px] text-amber-700">
+                ⚠ メール送信にはこのスタッフに紐付く users.email が必要です。
+                未登録の場合はスタッフ管理 / Supabase 側で email を設定してください。
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         {/* スタッフ概要 */}
         <Card>
           <CardContent className="grid grid-cols-2 gap-4 p-4 text-sm sm:grid-cols-4">
