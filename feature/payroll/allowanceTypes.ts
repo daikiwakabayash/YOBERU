@@ -24,8 +24,8 @@ export type AllowanceCode =
   // Phase 2 既存
   | "study"
   | "event_access"
-  // Phase 2.5 追加 (claim 型)
-  | "beauty"
+  // claim 型 (毎月の使用額を都度入力)
+  | "health"
   | "family"
   | "commute"
   | "accommodation"
@@ -66,10 +66,10 @@ export const ALLOWANCE_META: AllowanceMeta[] = [
     eligibility: "税込売上 ≥ 100 万 で月 10,000 円累積、年内繰越、12 月リセット",
   },
   {
-    code: "beauty",
-    label: "美容手当",
+    code: "health",
+    label: "健康手当",
     category: "claim",
-    eligibility: "税込売上 ≥ 100 万 のとき (繰越不可、請求書へ記載)",
+    eligibility: "税込売上 ≥ 100 万 のとき (ジム代等の毎月固定額を記録)",
   },
   {
     code: "family",

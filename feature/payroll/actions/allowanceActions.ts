@@ -75,6 +75,51 @@ export async function addAllowanceUsage(params: {
   return warning ? { success: true, warning } : { success: true };
 }
 
+/**
+ * スタッフの「毎月同じ金額・メモを使う」デフォルト値を保存 / 解除する。
+ *
+ * - enabled=true で upsert すれば、次月以降の入力フォームに金額とメモが
+ *   prefill される。
+ * - enabled=false にすると prefill を停止する (DB 行は残るが無効化)。
+ *
+ * 同じ staff_id × allowance_type で 1 行制約なので onConflict で upsert。
+ */
+export async function saveAllowanceDefault(params: {
+  staffId: number;
+  allowanceType: string;
+  amount: number;
+  note?: string | null;
+  enabled: boolean;
+}): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const { staffId, allowanceType, amount, note, enabled } = params;
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    return { error: "金額は 0 以上の整数で入力してください" };
+  }
+  if (!VALID_CODES.has(allowanceType)) {
+    return { error: `対象外の手当種別です: ${allowanceType}` };
+  }
+
+  const { error } = await supabase
+    .from("allowance_defaults")
+    .upsert(
+      {
+        staff_id: staffId,
+        allowance_type: allowanceType,
+        amount: Math.round(amount),
+        note: note || null,
+        enabled,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "staff_id,allowance_type" }
+    );
+  if (error) return { error: error.message };
+
+  revalidatePath(`/payroll/${staffId}`);
+  return { success: true };
+}
+
 export async function deleteAllowanceUsage(
   id: number
 ): Promise<{ success?: true; error?: string }> {

@@ -34,7 +34,7 @@ export interface StaffMonthlyPayrollRow extends StaffMonthlyCompensation {
   totalInclTax: number;
 }
 
-const HEALTH_AMOUNT = 10000;
+const BEAUTY_AMOUNT = 10000;
 const HOUSING_AMOUNT = 20000;
 const STUDY_AMOUNT = 10000;
 const CHILD_AMOUNT = 5000;
@@ -289,7 +289,9 @@ function computePayrollRow(args: {
     }
   }
 
-  const healthAmount = isSalesAboveThreshold ? HEALTH_AMOUNT : 0;
+  // 健康手当は claim 型に再分類されたため auto では 0 (claim 集計経由)
+  const healthAmount = 0;
+  const beautyAmount = isSalesAboveThreshold ? BEAUTY_AMOUNT : 0;
   // 住宅手当は業務委託・正社員問わず付与
   const housingAmount = isSalesAboveThreshold ? HOUSING_AMOUNT : 0;
 
@@ -320,7 +322,7 @@ function computePayrollRow(args: {
   const monthlyAllowanceTotal =
     childrenAmount +
     birthdayAmount +
-    healthAmount +
+    beautyAmount +
     housingAmount +
     used.study.thisMonth +
     used.event.thisMonth +
@@ -330,6 +332,7 @@ function computePayrollRow(args: {
     childrenAmount,
     birthdayAmount,
     healthAmount,
+    beautyAmount,
     housingAmount,
     study,
     eventAccess,
