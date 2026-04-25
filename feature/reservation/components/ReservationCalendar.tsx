@@ -1,14 +1,10 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 import type { CalendarData, CalendarAppointment } from "../types";
 import { timeToMinutes, minutesToTime } from "@/helper/utils/time";
 import { AppointmentDetailSheet } from "./AppointmentDetailSheet";
-import {
-  updateAppointment,
-  uncancelAppointment,
-} from "../actions/reservationActions";
+import { updateAppointment } from "../actions/reservationActions";
 import { toast } from "sonner";
 
 interface ReservationCalendarProps {
@@ -60,35 +56,6 @@ export function ReservationCalendar({
     time: string;
   } | null>(null);
   const [nowMinutes, setNowMinutes] = useState<number | null>(null);
-  const router = useRouter();
-
-  // カレンダーセル上のキャンセル badge を直接クリックして取り消すフロー。
-  // 詳細パネルを開かずワンクリックで待機 (status=0) に戻せるよう、各
-  // ReservationBlock から呼び出される。成功後は router.refresh() で
-  // サーバーコンポーネントを再描画させる。
-  const handleUncancelFromBadge = useCallback(
-    async (appt: CalendarAppointment) => {
-      if (
-        !confirm(
-          `${appt.customerName} のキャンセルを取り消して予約を待機状態に戻します。\nキャンセル理由のメモは削除されます。よろしいですか？`
-        )
-      ) {
-        return;
-      }
-      const result = await uncancelAppointment(appt.id);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      if (result.warning) {
-        toast.warning(`キャンセルを取り消しました（${result.warning}）`);
-      } else {
-        toast.success("キャンセルを取り消しました");
-      }
-      router.refresh();
-    },
-    [router]
-  );
 
   // Display rule: show staff with shift OR existing appointment.
   const staffHasAppt = useMemo(() => {
@@ -697,18 +664,17 @@ export function ReservationCalendar({
 
                       const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
 
-                      // Cancelled: narrow bottom strip.
-                      // バッジ (「キャンセル」「当日」テキスト) をクリック
-                      // すると詳細パネルを開かず、その場で取り消しアクション
-                      // を発火する。外側の <div> クリックは従来どおり詳細
-                      // パネルを開く。HTML 的に button の入れ子を避けるため、
-                      // 外側は role="button" な <div> にしている。
+                      // Cancelled: narrow bottom strip。
+                      // 30 分枠だとバッジがセル幅の大部分を占めるので、
+                      // 「badge を押した = キャンセル取り消し」というショート
+                      // カットは誤タップ多発を招いてしまった。badge をタップ
+                      // しても他のセル領域と同じく詳細パネルを開くだけにし、
+                      // 取り消し / 削除はパネル内のボタンから明示操作させる。
                       if (isAnyCancelled) {
                         return (
-                          <div
+                          <button
                             key={appt.id}
-                            role="button"
-                            tabIndex={0}
+                            type="button"
                             data-appt={appt.id}
                             className={`absolute overflow-hidden rounded-md border text-left ${borderColor} ${bgColor} px-1 py-0.5 transition-shadow hover:shadow-md cursor-pointer`}
                             style={{
@@ -723,33 +689,20 @@ export function ReservationCalendar({
                               e.stopPropagation();
                               setSelectedAppt(appt);
                             }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                setSelectedAppt(appt);
-                              }
-                            }}
                             onMouseDown={(e) => e.stopPropagation()}
                             title={`${appt.customerName} (${isSameDayCancelled ? "当日キャンセル" : "キャンセル"}) - タップで詳細`}
                           >
                             <div className="flex items-center gap-1 truncate">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleUncancelFromBadge(appt);
-                                }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                title="クリックでキャンセルを取り消す"
-                                className={`shrink-0 cursor-pointer rounded px-1 py-0 text-[8px] font-bold transition-opacity hover:opacity-70 ${statusBadgeColor}`}
+                              <span
+                                className={`shrink-0 rounded px-1 py-0 text-[8px] font-bold ${statusBadgeColor}`}
                               >
                                 {isSameDayCancelled ? "当日" : "キャンセル"}
-                              </button>
+                              </span>
                               <span className="truncate text-[9px] font-bold text-gray-700 line-through">
                                 {appt.customerName}
                               </span>
                             </div>
-                          </div>
+                          </button>
                         );
                       }
 

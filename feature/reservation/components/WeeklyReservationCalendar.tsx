@@ -1,16 +1,12 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 import type { CalendarAppointment } from "../types";
 import type { WeeklyCalendarData } from "../services/getWeeklyCalendarData";
 import { timeToMinutes, minutesToTime, toLocalDateString } from "@/helper/utils/time";
 import { WEEKDAY_LABELS_JP } from "@/helper/utils/weekday";
 import { AppointmentDetailSheet } from "./AppointmentDetailSheet";
-import {
-  updateAppointment,
-  uncancelAppointment,
-} from "../actions/reservationActions";
+import { updateAppointment } from "../actions/reservationActions";
 import { toast } from "sonner";
 
 interface WeeklyReservationCalendarProps {
@@ -75,34 +71,6 @@ export function WeeklyReservationCalendar({
     time: string;
   } | null>(null);
   const [nowMinutes, setNowMinutes] = useState<number | null>(null);
-  const router = useRouter();
-
-  // カレンダー上のキャンセル badge を直接クリックして取り消すフロー。
-  // 詳細パネルを開かずワンクリックで status=0 (待機) に戻し、
-  // router.refresh() で予約表を再描画する。
-  const handleUncancelFromBadge = useCallback(
-    async (appt: CalendarAppointment) => {
-      if (
-        !confirm(
-          `${appt.customerName} のキャンセルを取り消して予約を待機状態に戻します。\nキャンセル理由のメモは削除されます。よろしいですか？`
-        )
-      ) {
-        return;
-      }
-      const result = await uncancelAppointment(appt.id);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      if (result.warning) {
-        toast.warning(`キャンセルを取り消しました（${result.warning}）`);
-      } else {
-        toast.success("キャンセルを取り消しました");
-      }
-      router.refresh();
-    },
-    [router]
-  );
 
   const startHour = timeSlots.length > 0 ? timeToMinutes(timeSlots[0]) : 540;
   const endMinute =
@@ -773,30 +741,13 @@ export function WeeklyReservationCalendar({
                                 会員
                               </span>
                             )}
-                            {statusBadge &&
-                              (isCancelled ? (
-                                /* キャンセル/no-show バッジは直クリックで取り消しを発火。
-                                   親 div の mousedown はドラッグ開始用なので
-                                   stopPropagation で握り潰す必要がある。 */
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleUncancelFromBadge(appt);
-                                  }}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  title="クリックでキャンセルを取り消す"
-                                  className={`shrink-0 cursor-pointer rounded px-1 py-0 text-[10px] font-bold transition-opacity hover:opacity-70 ${statusBadgeColor}`}
-                                >
-                                  {statusBadge}
-                                </button>
-                              ) : (
-                                <span
-                                  className={`shrink-0 rounded px-1 py-0 text-[10px] font-bold ${statusBadgeColor}`}
-                                >
-                                  {statusBadge}
-                                </span>
-                              ))}
+                            {statusBadge && (
+                              <span
+                                className={`shrink-0 rounded px-1 py-0 text-[10px] font-bold ${statusBadgeColor}`}
+                              >
+                                {statusBadge}
+                              </span>
+                            )}
                             <span className="min-w-0 flex-1 truncate text-[10px] leading-none text-gray-600">
                               {appt.menuName}
                               {appt.duration > 0 && `（${appt.duration}分）`}
