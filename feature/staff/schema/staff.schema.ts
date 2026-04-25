@@ -24,6 +24,8 @@ export const staffSchema = z.object({
   birthday: z.string().optional().nullable().or(z.literal("")),
   children_count: z.coerce.number().int().min(0).default(0),
   monthly_min_salary: z.coerce.number().int().min(0).default(260000),
+  // 残業代計算用の時給ベース (空欄なら monthly_min_salary / 160h でフォールバック)
+  hourly_wage: z.coerce.number().int().min(0).optional().nullable(),
   // 請求書メール送信先 (空 / 未設定なら users.email を使う)
   payroll_email: z
     .string()

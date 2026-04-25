@@ -7,10 +7,8 @@ import {
 import { sendEmail } from "@/helper/lib/email/sendEmail";
 import { getStaffInvoiceData } from "../services/getStaffInvoiceData";
 import { renderInvoiceHtml } from "../components/InvoiceDocument";
-import {
-  applyTemplate,
-  getPayrollEmailTemplate,
-} from "../services/getPayrollEmailTemplate";
+import { applyTemplate } from "../applyTemplate";
+import { getPayrollEmailTemplate } from "../services/getPayrollEmailTemplate";
 
 /**
  * スタッフに当月分の請求書をメール送信する。

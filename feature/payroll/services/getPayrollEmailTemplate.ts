@@ -32,19 +32,3 @@ export async function getPayrollEmailTemplate(
     bodyTemplate: (data?.payroll_email_body_template as string | null) ?? null,
   };
 }
-
-/**
- * テンプレート文字列内の {{placeholder}} を実際の値で置換する。
- * 未対応のプレースホルダはそのまま残す (誤入力検知のヒント)。
- */
-export function applyTemplate(
-  tmpl: string,
-  vars: Record<string, string | number>
-): string {
-  return tmpl.replace(/\{\{(\w+)\}\}/g, (_, name) => {
-    if (Object.prototype.hasOwnProperty.call(vars, name)) {
-      return String(vars[name]);
-    }
-    return `{{${name}}}`;
-  });
-}

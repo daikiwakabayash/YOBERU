@@ -69,6 +69,10 @@ export async function createStaff(formData: FormData) {
     monthly_min_salary: raw.monthly_min_salary
       ? Number(raw.monthly_min_salary)
       : 260000,
+    hourly_wage:
+      raw.hourly_wage != null && raw.hourly_wage !== ""
+        ? Number(raw.hourly_wage)
+        : null,
     payroll_email: raw.payroll_email ? String(raw.payroll_email) : "",
   });
 
@@ -122,6 +126,10 @@ export async function updateStaff(id: number, formData: FormData) {
     monthly_min_salary: raw.monthly_min_salary
       ? Number(raw.monthly_min_salary)
       : 260000,
+    hourly_wage:
+      raw.hourly_wage != null && raw.hourly_wage !== ""
+        ? Number(raw.hourly_wage)
+        : null,
     payroll_email: raw.payroll_email ? String(raw.payroll_email) : "",
   });
 

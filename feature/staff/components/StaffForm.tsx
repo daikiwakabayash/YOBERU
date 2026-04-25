@@ -103,6 +103,7 @@ export function StaffForm({
       birthday: "",
       children_count: 0,
       monthly_min_salary: 260000,
+      hourly_wage: null,
       payroll_email: "",
     },
   });
@@ -351,6 +352,22 @@ export function StaffForm({
                 />
                 <p className="text-[10px] text-gray-400">
                   1 人 5,000 円の子供手当に反映
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="hourly_wage">
+                  時給 (円, 残業計算用 / 任意)
+                </Label>
+                <Input
+                  id="hourly_wage"
+                  type="number"
+                  min={0}
+                  step={1}
+                  placeholder="空欄なら月給 ÷ 160h で自動換算"
+                  {...form.register("hourly_wage")}
+                />
+                <p className="text-[10px] text-gray-400">
+                  残業代 (1.25 倍 / 1.5 倍 / 深夜 / 休日) はこの時給を基準に計算します。
                 </p>
               </div>
               <div className="space-y-2 sm:col-span-2">
