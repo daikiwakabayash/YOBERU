@@ -293,21 +293,11 @@ export async function getWeeklyCalendarData(
     const apptVisitCount =
       (a.visit_count as number | null) ?? customer?.visit_count ?? 0;
 
-    // 新規 only when customer.created_at is on the appointment's day
-    // (Asia/Tokyo). Otherwise the customer existed before today and is
-    // 既存. Falls back to visit_count snapshot if the column is missing.
-    const apptDay = (a.start_at ?? "").slice(0, 10); // YYYY-MM-DD
-    const apptDayStartMs = apptDay
-      ? new Date(`${apptDay}T00:00:00+09:00`).getTime()
-      : NaN;
-    let isNewCustomer: boolean;
-    if (customer?.created_at && Number.isFinite(apptDayStartMs)) {
-      const createdMs = new Date(customer.created_at).getTime();
-      isNewCustomer =
-        Number.isFinite(createdMs) && createdMs >= apptDayStartMs;
-    } else {
-      isNewCustomer = apptVisitCount === 1;
-    }
+    // 新規 = この予約が顧客の初回予約 (visit_count == 1)。
+    // 旧実装は customer.created_at >= apptDayStartMs を見ていたが、
+    // 今日 (4/25) 登録した顧客の 5/1 予約が「会員」表示になる不具合が
+    // あった (created_at < 5/1 のため false に倒れる)。
+    const isNewCustomer = apptVisitCount === 1;
 
     const slotBlock = resolveSlotBlock(
       a.type,
@@ -357,7 +347,7 @@ export async function getWeeklyCalendarData(
   //    から 11 時しか空いていない" bug.
   //
   //    Fetch the selected staff's shifts for each day in parallel.
-  let weekShifts: Array<{
+  const weekShifts: Array<{
     startTime: string | null;
     endTime: string | null;
   }> = [];

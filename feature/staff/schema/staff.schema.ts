@@ -16,6 +16,14 @@ export const staffSchema = z.object({
   shift_sunday: z.coerce.number().int().optional().nullable(),
   shift_holiday: z.coerce.number().int().optional().nullable(),
   is_public: z.boolean().default(true),
+  // 給与計算 (Phase 1) 用属性
+  employment_type: z
+    .enum(["contractor", "regular"])
+    .default("contractor"),
+  hired_at: z.string().optional().nullable().or(z.literal("")),
+  birthday: z.string().optional().nullable().or(z.literal("")),
+  children_count: z.coerce.number().int().min(0).default(0),
+  monthly_min_salary: z.coerce.number().int().min(0).default(260000),
 });
 
 export type StaffFormValues = z.infer<typeof staffSchema>;

@@ -496,6 +496,64 @@ export async function sameDayCancelAppointment(id: number, reason: string) {
   return { success: true };
 }
 
+/**
+ * Revert a cancelled / no-show appointment back to 待機 (status = 0).
+ *
+ * Targets status 3 (通常キャンセル), 4 (当日キャンセル), 99 (no-show).
+ * Clears `cancelled_at` so the row re-enters staff availability checks,
+ * and wipes `customer_record` (the staff-typed cancel reason) per the
+ * product decision.
+ *
+ * Slot-overlap policy: 警告して許可. We run `checkStaffAvailability`
+ * against the row's saved staff/time, but always perform the update.
+ * If a conflicting appointment is found, return it as a non-fatal
+ * `warning` string so the UI can surface a toast — the user is then
+ * expected to reschedule one of the two.
+ */
+export async function uncancelAppointment(id: number): Promise<{
+  success?: true;
+  error?: string;
+  warning?: string;
+}> {
+  const supabase = await createClient();
+
+  const { data: current, error: fetchErr } = await supabase
+    .from("appointments")
+    .select("shop_id, staff_id, start_at, end_at")
+    .eq("id", id)
+    .single();
+  if (fetchErr || !current) {
+    return { error: fetchErr?.message ?? "予約が見つかりません" };
+  }
+
+  const check = await checkStaffAvailability({
+    shopId: current.shop_id as number,
+    staffId: current.staff_id as number,
+    startAt: current.start_at as string,
+    endAt: current.end_at as string,
+    excludeAppointmentId: id,
+  });
+
+  const { error } = await supabase
+    .from("appointments")
+    .update({
+      status: 0,
+      cancelled_at: null,
+      customer_record: null,
+    })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reservation");
+  revalidatePath(`/reservation/${id}`);
+
+  if (!check.available && check.conflict) {
+    return { success: true, warning: conflictMessage(check.conflict) };
+  }
+  return { success: true };
+}
+
 export async function deleteAppointment(id: number) {
   const supabase = await createClient();
 

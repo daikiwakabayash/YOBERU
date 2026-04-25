@@ -23,6 +23,8 @@ import {
   updateAppointment,
   cancelAppointment,
   sameDayCancelAppointment,
+  uncancelAppointment,
+  deleteAppointment,
 } from "../actions/reservationActions";
 import {
   checkinAppointment,
@@ -626,6 +628,64 @@ export function AppointmentDetailSheet({
     }
     setStatus(4);
     toast.success("当日キャンセルとして記録しました");
+    onClose();
+  }
+
+  // -----------------------------------------------------------------------
+  // キャンセル取り消し: status 3 / 4 / 99 を待機 (0) に戻す。
+  // 同じスタッフ・同じ時間に別予約が入っていたら server action 側が
+  // warning を返すので、その場合は toast.warning で通知 (止めない)。
+  // キャンセル理由メモは消える旨を confirm で予告する。
+  // -----------------------------------------------------------------------
+  async function handleUncancel() {
+    if (!appointment) return;
+    if (
+      !confirm(
+        "キャンセルを取り消して予約を待機状態に戻します。\nキャンセル理由のメモは削除されます。よろしいですか？"
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    const result = await uncancelAppointment(appointment.id);
+    setSaving(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setStatus(0);
+    setCustomerRecord("");
+    if (result.warning) {
+      toast.warning(`キャンセルを取り消しました（${result.warning}）`);
+    } else {
+      toast.success("キャンセルを取り消しました");
+    }
+    onClose();
+  }
+
+  // -----------------------------------------------------------------------
+  // 完全削除: キャンセル済の予約を予約表から消す。
+  // deleteAppointment は soft delete (deleted_at を立てるだけ) なので、
+  // DB 上は履歴として残るが、calendar / availability クエリは
+  // deleted_at IS NULL で絞っているため画面からは消える。
+  // -----------------------------------------------------------------------
+  async function handleDelete() {
+    if (!appointment) return;
+    if (
+      !confirm(
+        "この予約を予約表から完全に削除します。\n削除すると予約表には表示されなくなります。よろしいですか？"
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    const result = await deleteAppointment(appointment.id);
+    setSaving(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("予約を削除しました");
     onClose();
   }
 
@@ -1262,6 +1322,9 @@ export function AppointmentDetailSheet({
                 </span>
               )}
             </SheetTitle>
+            {/* badge は表示専用。キャンセル取り消し / 削除はパネル内の
+                明示的ボタン (handleUncancel / handleDelete) からのみ実行
+                させ、誤タップで状態が変わらないようにする。 */}
             <Badge
               variant="outline"
               className={`ml-2 shrink-0 text-xs ${statusInfo.cls}`}
@@ -1309,6 +1372,33 @@ export function AppointmentDetailSheet({
                 onClick={handleCancel}
               >
                 予約の取り消し
+              </Button>
+            </div>
+          )}
+
+          {/* ------- Uncancel + 完全削除: status 3 / 4 / 99 の予約に対して。
+                     - 「キャンセルを取り消す」: 待機 (0) に戻す。
+                     - 「予約表から削除」: soft delete (deleted_at) して
+                       カレンダーから消す。履歴は DB に残る。 */}
+          {!isNew && (status === 3 || status === 4 || status === 99) && (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={saving}
+                className="flex-1 border-blue-300 text-blue-600 hover:bg-blue-50"
+                onClick={handleUncancel}
+              >
+                キャンセルを取り消す
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={saving}
+                className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                onClick={handleDelete}
+              >
+                予約表から削除
               </Button>
             </div>
           )}

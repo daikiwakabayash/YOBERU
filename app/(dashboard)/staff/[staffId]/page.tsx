@@ -27,23 +27,33 @@ export default async function StaffDetailPage({ params }: StaffDetailPageProps) 
     // If fetching fails, show form with empty patterns
   }
 
+  // migration 00031 未適用な環境では employment_type 等のカラムが取得できない
+  // ので、いずれもオプショナルに受けてフォームのデフォルトに倒す。
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const s: any = staff;
   const initialData = {
-    id: staff.id,
-    brand_id: staff.brand_id,
-    shop_id: staff.shop_id,
-    name: staff.name,
-    capacity: staff.capacity ?? 1,
-    phone_number: staff.phone_number ?? "",
-    allocate_order: staff.allocate_order ?? 0,
-    shift_monday: staff.shift_monday ?? null,
-    shift_tuesday: staff.shift_tuesday ?? null,
-    shift_wednesday: staff.shift_wednesday ?? null,
-    shift_thursday: staff.shift_thursday ?? null,
-    shift_friday: staff.shift_friday ?? null,
-    shift_saturday: staff.shift_saturday ?? null,
-    shift_sunday: staff.shift_sunday ?? null,
-    shift_holiday: staff.shift_holiday ?? null,
-    is_public: staff.is_public ?? true,
+    id: s.id,
+    brand_id: s.brand_id,
+    shop_id: s.shop_id,
+    name: s.name,
+    capacity: s.capacity ?? 1,
+    phone_number: s.phone_number ?? "",
+    allocate_order: s.allocate_order ?? 0,
+    shift_monday: s.shift_monday ?? null,
+    shift_tuesday: s.shift_tuesday ?? null,
+    shift_wednesday: s.shift_wednesday ?? null,
+    shift_thursday: s.shift_thursday ?? null,
+    shift_friday: s.shift_friday ?? null,
+    shift_saturday: s.shift_saturday ?? null,
+    shift_sunday: s.shift_sunday ?? null,
+    shift_holiday: s.shift_holiday ?? null,
+    is_public: s.is_public ?? true,
+    employment_type:
+      s.employment_type === "regular" ? ("regular" as const) : ("contractor" as const),
+    hired_at: s.hired_at ?? "",
+    birthday: s.birthday ?? "",
+    children_count: s.children_count ?? 0,
+    monthly_min_salary: s.monthly_min_salary ?? 260000,
   };
 
   return (

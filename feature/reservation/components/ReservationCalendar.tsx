@@ -664,7 +664,12 @@ export function ReservationCalendar({
 
                       const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
 
-                      // Cancelled: narrow bottom strip
+                      // Cancelled: narrow bottom strip。
+                      // 30 分枠だとバッジがセル幅の大部分を占めるので、
+                      // 「badge を押した = キャンセル取り消し」というショート
+                      // カットは誤タップ多発を招いてしまった。badge をタップ
+                      // しても他のセル領域と同じく詳細パネルを開くだけにし、
+                      // 取り消し / 削除はパネル内のボタンから明示操作させる。
                       if (isAnyCancelled) {
                         return (
                           <button

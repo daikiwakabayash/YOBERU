@@ -18,7 +18,9 @@ export interface MarketingTotals {
   adSpend: number;           // 広告費合計
   sales: number;             // 売上 (status = 2 のみ)
   consumedSales: number;     // 消化売上 (前金プランの実消費、status = 2)
-  reviewCount: number;       // 口コミ数 (未実装: 0)
+  googleReviewCount: number; // Google 口コミ受領数 (期間内)
+  hotpepperReviewCount: number; // HotPepper 口コミ受領数 (期間内)
+  reviewCount: number;       // 合計 (= G + H、後方互換)
   joinRate: number;          // 入会数 / 実来院数
   cancelRate: number;        // キャンセル / 予約総数
   cpa: number;               // 広告費 / 実来院数
@@ -62,6 +64,8 @@ function emptyTotals(): MarketingTotals {
     adSpend: 0,
     sales: 0,
     consumedSales: 0,
+    googleReviewCount: 0,
+    hotpepperReviewCount: 0,
     reviewCount: 0,
     joinRate: 0,
     cancelRate: 0,
@@ -187,28 +191,47 @@ export async function getMarketingData(params: {
     apptQuery = apptQuery.eq("staff_id", staffId);
   }
 
-  const [apptRes, sourcesRes, shopRes, adSpendRes] = await Promise.all([
-    apptQuery,
-    supabase
-      .from("visit_sources")
-      .select("id, name")
-      .eq("shop_id", shopId)
-      .is("deleted_at", null),
-    supabase.from("shops").select("id, name").eq("id", shopId).maybeSingle(),
-    supabase
-      .from("ad_spend")
-      .select(
-        "visit_source_id, year_month, amount, impressions, clicks, conversions, ctr, cvr, cpm"
-      )
-      .eq("shop_id", shopId)
-      .gte("year_month", startMonth)
-      .lte("year_month", endMonth)
-      .is("deleted_at", null),
-  ]);
+  // 口コミは customers.google_review_received_at / hotpepper_review_received_at
+  // に「受領タイムスタンプ」が立っているレコードを期間で絞って数える。
+  // 顧客は shop_id で絞るが、来店経路 (visit_source_id) を持たないので
+  // bySource バケットには加算せず、totals + byMonth のみに反映する。
+  const reviewsQuery = supabase
+    .from("customers")
+    .select("google_review_received_at, hotpepper_review_received_at")
+    .eq("shop_id", shopId)
+    .is("deleted_at", null)
+    .or(
+      [
+        `and(google_review_received_at.gte.${startTs},google_review_received_at.lt.${endTsExclusive})`,
+        `and(hotpepper_review_received_at.gte.${startTs},hotpepper_review_received_at.lt.${endTsExclusive})`,
+      ].join(",")
+    );
+
+  const [apptRes, sourcesRes, shopRes, adSpendRes, reviewsRes] =
+    await Promise.all([
+      apptQuery,
+      supabase
+        .from("visit_sources")
+        .select("id, name")
+        .eq("shop_id", shopId)
+        .is("deleted_at", null),
+      supabase.from("shops").select("id, name").eq("id", shopId).maybeSingle(),
+      supabase
+        .from("ad_spend")
+        .select(
+          "visit_source_id, year_month, amount, impressions, clicks, conversions, ctr, cvr, cpm"
+        )
+        .eq("shop_id", shopId)
+        .gte("year_month", startMonth)
+        .lte("year_month", endMonth)
+        .is("deleted_at", null),
+      reviewsQuery,
+    ]);
 
   const appointments = apptRes.data ?? [];
   const sources = sourcesRes.data ?? [];
   const adSpendRows = adSpendRes.data ?? [];
+  const reviewRows = reviewsRes.data ?? [];
 
   const sourceNameMap = new Map<number, string>(
     sources.map((s) => [s.id as number, s.name as string])
@@ -323,6 +346,38 @@ export async function getMarketingData(params: {
     sb.impressions += imp;
     sb.clicks += clk;
     if (cvrVal > sb.cvr) sb.cvr = cvrVal;
+  }
+
+  // 2.5. 口コミ受領数を totals + byMonth に集計。
+  // 1 顧客で G と H 両方の受領日が立っていたら両方カウント (= 合計に
+  // 2 加算される)。月バケットへの分配は受領タイムスタンプの先頭 7 文字
+  // (YYYY-MM) を JST 月として使用 (appointmentYearMonth と同じ方針)。
+  for (const r of reviewRows as Array<{
+    google_review_received_at: string | null;
+    hotpepper_review_received_at: string | null;
+  }>) {
+    const gAt = r.google_review_received_at;
+    if (gAt && gAt >= startTs && gAt < endTsExclusive) {
+      totals.googleReviewCount += 1;
+      totals.reviewCount += 1;
+      const ym = gAt.slice(0, 7);
+      const mb = monthBuckets.get(ym);
+      if (mb) {
+        mb.googleReviewCount += 1;
+        mb.reviewCount += 1;
+      }
+    }
+    const hAt = r.hotpepper_review_received_at;
+    if (hAt && hAt >= startTs && hAt < endTsExclusive) {
+      totals.hotpepperReviewCount += 1;
+      totals.reviewCount += 1;
+      const ym = hAt.slice(0, 7);
+      const mb = monthBuckets.get(ym);
+      if (mb) {
+        mb.hotpepperReviewCount += 1;
+        mb.reviewCount += 1;
+      }
+    }
   }
 
   // 3. Finalize rates/derived numbers
