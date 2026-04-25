@@ -98,6 +98,11 @@ export function StaffForm({
       shift_sunday: null,
       shift_holiday: null,
       is_public: true,
+      employment_type: "contractor",
+      hired_at: "",
+      birthday: "",
+      children_count: 0,
+      monthly_min_salary: 260000,
     },
   });
 
@@ -268,6 +273,85 @@ export function StaffForm({
                   />
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* 給与計算属性 (Phase 1) */}
+          <Separator />
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-medium">給与計算情報</h3>
+              <p className="text-xs text-muted-foreground">
+                給与計算ページ (/payroll) で使う属性です。雇用形態 / 入社日 / 誕生日 / 子供数 / 月次最低保証額。
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="employment_type">雇用形態</Label>
+                <Controller
+                  control={form.control}
+                  name="employment_type"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? "contractor"}
+                      onValueChange={(v) =>
+                        field.onChange(v === "regular" ? "regular" : "contractor")
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="contractor">業務委託</SelectItem>
+                        <SelectItem value="regular">正社員</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="monthly_min_salary">
+                  月次最低保証額 (税込, 業務委託のみ)
+                </Label>
+                <Input
+                  id="monthly_min_salary"
+                  type="number"
+                  min={0}
+                  step={1000}
+                  {...form.register("monthly_min_salary")}
+                />
+                <p className="text-[10px] text-gray-400">
+                  例: 入社 2 年未満 = 240000、2 年以上 = 260000
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="hired_at">入社日</Label>
+                <Input
+                  id="hired_at"
+                  type="date"
+                  {...form.register("hired_at")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="birthday">誕生日</Label>
+                <Input
+                  id="birthday"
+                  type="date"
+                  {...form.register("birthday")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="children_count">子供の数</Label>
+                <Input
+                  id="children_count"
+                  type="number"
+                  min={0}
+                  {...form.register("children_count")}
+                />
+                <p className="text-[10px] text-gray-400">
+                  Phase 2 で 1 人 5,000 円の子供手当に反映
+                </p>
+              </div>
             </div>
           </div>
 

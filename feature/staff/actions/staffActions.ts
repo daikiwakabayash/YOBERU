@@ -60,6 +60,15 @@ export async function createStaff(formData: FormData) {
     shift_sunday: raw.shift_sunday ? Number(raw.shift_sunday) : null,
     shift_holiday: raw.shift_holiday ? Number(raw.shift_holiday) : null,
     is_public: raw.is_public === "true",
+    // 給与計算属性
+    employment_type:
+      raw.employment_type === "regular" ? "regular" : "contractor",
+    hired_at: raw.hired_at || null,
+    birthday: raw.birthday || null,
+    children_count: raw.children_count ? Number(raw.children_count) : 0,
+    monthly_min_salary: raw.monthly_min_salary
+      ? Number(raw.monthly_min_salary)
+      : 260000,
   });
 
   if (!parsed.success) {
@@ -103,6 +112,15 @@ export async function updateStaff(id: number, formData: FormData) {
     shift_sunday: raw.shift_sunday ? Number(raw.shift_sunday) : null,
     shift_holiday: raw.shift_holiday ? Number(raw.shift_holiday) : null,
     is_public: raw.is_public === "true",
+    // 給与計算属性
+    employment_type:
+      raw.employment_type === "regular" ? "regular" : "contractor",
+    hired_at: raw.hired_at || null,
+    birthday: raw.birthday || null,
+    children_count: raw.children_count ? Number(raw.children_count) : 0,
+    monthly_min_salary: raw.monthly_min_salary
+      ? Number(raw.monthly_min_salary)
+      : 260000,
   });
 
   if (!parsed.success) {

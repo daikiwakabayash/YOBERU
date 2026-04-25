@@ -26,6 +26,7 @@ import {
   CalendarX2,
   HeartHandshake,
   MessageCircle,
+  Calculator,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -66,6 +67,12 @@ const navigation = [
     items: [
       { name: "出勤パターン", href: "/shift-pattern", icon: Settings },
       { name: "出勤表", href: "/shift-schedule", icon: Clock },
+    ],
+  },
+  {
+    label: "給与・請求",
+    items: [
+      { name: "給与計算", href: "/payroll", icon: Calculator },
     ],
   },
   {
