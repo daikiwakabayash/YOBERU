@@ -24,7 +24,10 @@ export interface AllowanceSummary {
   // 当月分の自動付与額 (¥)
   childrenAmount: number;
   birthdayAmount: number;
+  /** @deprecated 健康手当は claim 型に再分類されました。auto では常に 0。 */
   healthAmount: number;
+  /** 美容手当 (税込売上 ≥ 100万 で 10,000 自動付与) */
+  beautyAmount: number;
   housingAmount: number;
   // 繰越手当の年内累積 (Jan〜表示月) と残枠
   study: CarryoverState;
@@ -46,7 +49,9 @@ export interface CarryoverState {
   usedThisMonth: number;     // 当月内の使用額 (請求書計上用)
 }
 
-const HEALTH_AMOUNT = 10000;
+// 美容手当 (auto, 税込売上 ≥ 100 万)
+const BEAUTY_AMOUNT = 10000;
+// 住宅手当 (auto, 税込売上 ≥ 100 万)
 const HOUSING_AMOUNT = 20000;
 // 勉強 / イベントアクセスは同条件・同金額なので 1 定数で兼用
 const CARRYOVER_ACCRUAL_AMOUNT = 10000;
@@ -123,7 +128,10 @@ export async function getStaffAllowanceSummary(params: {
     }
   }
 
-  const healthAmount = isSalesAboveThreshold ? HEALTH_AMOUNT : 0;
+  // 健康手当は claim 型に移行したため auto では 0 (請求書計上は claim
+  // 入力経由)。型を保つため healthAmount はフィールド残しつつ常に 0。
+  const healthAmount = 0;
+  const beautyAmount = isSalesAboveThreshold ? BEAUTY_AMOUNT : 0;
   const housingAmount = isSalesAboveThreshold ? HOUSING_AMOUNT : 0;
 
   // 繰越手当: 年初〜表示月までの月次売上をスタッフ単位で集計し、
@@ -200,10 +208,12 @@ export async function getStaffAllowanceSummary(params: {
   };
 
   // 当月の請求合計 = 自動付与 + 繰越手当の当月使用額
+  // (health は claim 型なので usedHealthThisMonth が getStaffMonthlyPayroll
+  // 側で claim 集計に含まれる。ここでは auto 分のみ加算)
   const monthlyTotal =
     childrenAmount +
     birthdayAmount +
-    healthAmount +
+    beautyAmount +
     housingAmount +
     usedStudyThisMonth +
     usedEventThisMonth;
@@ -212,6 +222,7 @@ export async function getStaffAllowanceSummary(params: {
     childrenAmount,
     birthdayAmount,
     healthAmount,
+    beautyAmount,
     housingAmount,
     study,
     eventAccess,

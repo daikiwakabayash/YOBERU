@@ -7,6 +7,8 @@ import {
 import { sendEmail } from "@/helper/lib/email/sendEmail";
 import { getStaffInvoiceData } from "../services/getStaffInvoiceData";
 import { renderInvoiceHtml } from "../components/InvoiceDocument";
+import { applyTemplate } from "../applyTemplate";
+import { getPayrollEmailTemplate } from "../services/getPayrollEmailTemplate";
 
 /**
  * スタッフに当月分の請求書をメール送信する。
@@ -54,29 +56,50 @@ export async function sendPayrollInvoiceEmail(params: {
 
   const html = renderInvoiceHtml(data);
 
-  // Plain text フォールバック (HTML 非対応クライアント向け簡易表示)
-  const plainLines: string[] = [
-    `${data.yearMonth} 月 業務委託費 請求書`,
-    "",
-    `${data.staffName} 様`,
-    "",
-    `請求金額 (税込): ¥${data.totalInclTax.toLocaleString()}`,
-    "",
-    "明細:",
-    ...data.lines.map(
-      (l) => `  ${l.label}: ¥${l.amount.toLocaleString()}${l.note ? ` (${l.note})` : ""}`
-    ),
-    "",
-    `発行日: ${data.issueDate}`,
-    `発行元: ${data.shopName}`,
-    "",
-    "※ 詳細は HTML 表示をご確認ください。",
-  ];
+  // ブランドのテンプレートが入っていればプレースホルダ展開して使用、
+  // 未設定なら既定文 (これまでと同じ簡易表示) にフォールバックする。
+  const tmpl = await getPayrollEmailTemplate(brandId);
+  const placeholders = {
+    staff_name: data.staffName,
+    year_month: data.yearMonth,
+    shop_name: data.shopName,
+    total: `¥${data.totalInclTax.toLocaleString()}`,
+    issue_date: data.issueDate,
+  };
+
+  const subject =
+    (tmpl.subjectTemplate &&
+      applyTemplate(tmpl.subjectTemplate, placeholders)) ||
+    `${data.yearMonth} 月分 業務委託費 請求書 (${data.shopName})`;
+
+  let plainBody: string;
+  if (tmpl.bodyTemplate) {
+    plainBody = applyTemplate(tmpl.bodyTemplate, placeholders);
+  } else {
+    plainBody = [
+      `${data.yearMonth} 月 業務委託費 請求書`,
+      "",
+      `${data.staffName} 様`,
+      "",
+      `請求金額 (税込): ¥${data.totalInclTax.toLocaleString()}`,
+      "",
+      "明細:",
+      ...data.lines.map(
+        (l) =>
+          `  ${l.label}: ¥${l.amount.toLocaleString()}${l.note ? ` (${l.note})` : ""}`
+      ),
+      "",
+      `発行日: ${data.issueDate}`,
+      `発行元: ${data.shopName}`,
+      "",
+      "※ 詳細は HTML 表示をご確認ください。",
+    ].join("\n");
+  }
 
   const result = await sendEmail({
     to: data.staffEmail,
-    subject: `${data.yearMonth} 月分 業務委託費 請求書 (${data.shopName})`,
-    body: plainLines.join("\n"),
+    subject,
+    body: plainBody,
     htmlBody: html,
     fromName: data.shopName,
   });

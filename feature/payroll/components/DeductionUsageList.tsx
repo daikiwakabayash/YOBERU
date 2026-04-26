@@ -7,15 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Trash2, Plus, Save } from "lucide-react";
+import { Trash2, Plus, Lock } from "lucide-react";
 import {
-  addAllowanceUsage,
-  deleteAllowanceUsage,
-  saveAllowanceDefault,
-} from "../actions/allowanceActions";
-import type { AllowanceCode } from "../allowanceTypes";
+  addDeductionUsage,
+  deleteDeductionUsage,
+  saveDeductionDefault,
+} from "../actions/deductionActions";
+import type { DeductionCode } from "../deductionTypes";
 
-export interface UsageRow {
+export interface DeductionRow {
   id: number;
   yearMonth: string;
   amount: number;
@@ -25,19 +25,12 @@ export interface UsageRow {
 interface Props {
   staffId: number;
   yearMonth: string;
-  allowanceType: AllowanceCode;
+  deductionType: DeductionCode;
   label: string;
-  /** carryover (study/event) は残枠、claim は当月使用累計を見せる */
-  balance?: number;
-  /** "残枠" / "当月使用" 等のラベル切替用 */
-  balanceLabel?: string;
-  rows: UsageRow[];
-  /** 補足説明 (受給条件 / 上限等) */
-  hint?: string;
-  /**
-   * デフォルト保存値。enabled=true ならフォームに amount/note を prefill。
-   * 未保存 (= null) なら従来どおり空白で開く。
-   */
+  description?: string;
+  /** 当年の使用履歴 */
+  rows: DeductionRow[];
+  /** デフォルト保存値 (enabled=true なら金額・メモを prefill) */
   defaultValue: {
     amount: number;
     note: string | null;
@@ -45,23 +38,26 @@ interface Props {
   } | null;
 }
 
-export function AllowanceUsageList({
+/**
+ * 控除入力 1 種別ぶんのカード。AllowanceUsageList と同じ
+ * 「金額入力 + 固定保存チェック + 履歴一覧」UI パターンに揃えている。
+ *
+ * - チェックを ON で記録すると defaults に保存され、翌月開いたときに
+ *   自動で同じ金額・メモが入る (= 固定運用)。
+ * - チェックを OFF に倒して記録すると固定解除 → 翌月は空白に戻る。
+ */
+export function DeductionUsageList({
   staffId,
   yearMonth,
-  allowanceType,
+  deductionType,
   label,
-  balance,
-  balanceLabel,
+  description,
   rows,
-  hint,
   defaultValue,
 }: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
-  // prefill: enabled なデフォルトがあれば値を入れる。チェックボックスも
-  // 同じく enabled に倒す → ユーザーは「そのまま登録 → 翌月も同じ値で
-  // prefill」のフローで何もしなくて良い。
   const [amount, setAmount] = useState<string>(
     defaultValue?.enabled ? String(defaultValue.amount) : ""
   );
@@ -72,26 +68,20 @@ export function AllowanceUsageList({
     !!defaultValue?.enabled
   );
 
+  const totalThisMonth = rows
+    .filter((r) => r.yearMonth === yearMonth)
+    .reduce((s, r) => s + r.amount, 0);
+
   function submit() {
     const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      toast.error("金額は 1 円以上で入力してください");
+    if (!Number.isFinite(amt) || amt < 0) {
+      toast.error("控除額は 0 円以上で入力してください");
       return;
     }
-    if (balance != null && amt > balance) {
-      if (
-        !confirm(
-          `残枠 (¥${balance.toLocaleString()}) を超えています。それでも記録しますか？`
-        )
-      ) {
-        return;
-      }
-    }
     start(async () => {
-      // 1. 当月の使用記録を 1 行追加
-      const res = await addAllowanceUsage({
+      const res = await addDeductionUsage({
         staffId,
-        allowanceType,
+        deductionType,
         yearMonth,
         amount: amt,
         note: note.trim() || null,
@@ -101,39 +91,26 @@ export function AllowanceUsageList({
         return;
       }
 
-      // 2. 「毎月同じ値を使う」がチェックされていればデフォルトとして保存。
-      //    チェックが外れていて、かつ既存のデフォルトが enabled だった場合は
-      //    enabled=false に倒して prefill を停止する。
       if (saveAsDefault) {
-        await saveAllowanceDefault({
+        await saveDeductionDefault({
           staffId,
-          allowanceType,
+          deductionType,
           amount: amt,
           note: note.trim() || null,
           enabled: true,
         });
       } else if (defaultValue?.enabled) {
-        await saveAllowanceDefault({
+        await saveDeductionDefault({
           staffId,
-          allowanceType,
+          deductionType,
           amount: defaultValue.amount,
           note: defaultValue.note,
           enabled: false,
         });
       }
 
-      const baseMsg = `${label} の使用を記録しました`;
-      if (res.warning) {
-        toast.warning(`${baseMsg} (注意: ${res.warning})`);
-      } else {
-        toast.success(baseMsg);
-      }
-
-      // 入力リセット (チェックが入っていれば次回も同じ値で prefill されるので
-      // form 自体もデフォルト値に戻す)。
-      if (saveAsDefault) {
-        // そのまま値を残しておく (次月に open し直すと prefill される)
-      } else {
+      toast.success(`${label} を記録しました`);
+      if (!saveAsDefault) {
         setAmount("");
         setNote("");
       }
@@ -142,9 +119,9 @@ export function AllowanceUsageList({
   }
 
   function removeRow(id: number) {
-    if (!confirm("この使用記録を削除します。よろしいですか？")) return;
+    if (!confirm("この控除記録を削除します。よろしいですか？")) return;
     start(async () => {
-      const res = await deleteAllowanceUsage(id);
+      const res = await deleteDeductionUsage(id);
       if (res.error) {
         toast.error(res.error);
         return;
@@ -158,30 +135,22 @@ export function AllowanceUsageList({
     <div className="space-y-3 rounded-lg border bg-white p-4">
       <div className="flex items-baseline justify-between">
         <h3 className="text-sm font-bold">{label}</h3>
-        {balance != null && (
-          <span className="text-xs text-gray-500">
-            {balanceLabel ?? "残枠"}:{" "}
-            <span className="font-bold text-blue-700">
-              ¥{balance.toLocaleString()}
-            </span>
+        <span className="text-xs text-gray-500">
+          今月控除合計:{" "}
+          <span className="font-bold tabular-nums text-rose-700">
+            ¥{totalThisMonth.toLocaleString()}
           </span>
-        )}
+        </span>
       </div>
-      {hint && <p className="text-[11px] text-gray-500">{hint}</p>}
+      {description && <p className="text-[11px] text-gray-500">{description}</p>}
 
-      {/* 当年使用履歴 */}
       {rows.length === 0 ? (
-        <p className="text-xs text-gray-400">今年の使用記録はまだありません</p>
+        <p className="text-xs text-gray-400">今年の控除記録はまだありません</p>
       ) : (
         <ul className="divide-y rounded border text-xs">
           {rows.map((r) => (
-            <li
-              key={r.id}
-              className="flex items-center gap-2 px-3 py-2"
-            >
-              <span className="w-20 shrink-0 text-gray-500">
-                {r.yearMonth}
-              </span>
+            <li key={r.id} className="flex items-center gap-2 px-3 py-2">
+              <span className="w-20 shrink-0 text-gray-500">{r.yearMonth}</span>
               <span className="w-20 shrink-0 tabular-nums font-medium">
                 ¥{r.amount.toLocaleString()}
               </span>
@@ -202,7 +171,6 @@ export function AllowanceUsageList({
         </ul>
       )}
 
-      {/* 新規追加フォーム */}
       <div className="space-y-2">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr_auto]">
           <div>
@@ -211,11 +179,11 @@ export function AllowanceUsageList({
             </Label>
             <Input
               type="number"
-              min={1}
+              min={0}
               step={1}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder="例: 5000"
+              placeholder="例: 12000"
             />
           </div>
           <div>
@@ -223,7 +191,7 @@ export function AllowanceUsageList({
             <Input
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="例: 研修会参加費 / セミナーチケット"
+              placeholder="例: 健康保険組合 X / 標準報酬月額 22 等級"
             />
           </div>
           <div className="flex items-end">
@@ -240,22 +208,21 @@ export function AllowanceUsageList({
           </div>
         </div>
 
-        {/* デフォルト保存チェック */}
         <label className="flex items-center gap-2 text-xs text-gray-600">
           <Checkbox
             checked={saveAsDefault}
             onCheckedChange={(v) => setSaveAsDefault(v === true)}
           />
           <span>
-            この金額・メモを毎月のデフォルトとして保存する
+            この金額・メモを毎月のデフォルト (固定値) として保存する
             <span className="ml-1 text-[10px] text-gray-400">
               (チェックを外せば翌月以降は空白で開きます)
             </span>
           </span>
           {defaultValue?.enabled && (
-            <span className="ml-auto inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
-              <Save className="h-3 w-3" />
-              デフォルト保存中
+            <span className="ml-auto inline-flex items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">
+              <Lock className="h-3 w-3" />
+              固定中
             </span>
           )}
         </label>

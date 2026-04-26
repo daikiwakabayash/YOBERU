@@ -8,6 +8,7 @@ import type {
 } from "./getStaffMonthlyCompensation";
 import type { AllowanceSummary, CarryoverState } from "./getStaffAllowances";
 import { CLAIM_CODES, type AllowanceCode } from "../allowanceTypes";
+import { getDeductionTotalsByStaffForMonth } from "./getStaffDeductionUsage";
 
 /**
  * /payroll の一覧表示用に「業務委託費 + 諸手当 + 合計」を 1 回のクエリ
@@ -32,9 +33,13 @@ export interface StaffMonthlyPayrollRow extends StaffMonthlyCompensation {
   claimAllowanceTotal: number;
   // 月の支払予定総額 (税込) = 業務委託費 + 諸手当 (auto + carryover 当月使用 + claim)
   totalInclTax: number;
+  // 当月の控除合計 (健康保険 / 年金 / 雇用保険 / 所得税 / 住民税 / 介護 / その他)
+  deductionTotal: number;
+  // 差引支給額 = totalInclTax - deductionTotal
+  netPay: number;
 }
 
-const HEALTH_AMOUNT = 10000;
+const BEAUTY_AMOUNT = 10000;
 const HOUSING_AMOUNT = 20000;
 const STUDY_AMOUNT = 10000;
 const CHILD_AMOUNT = 5000;
@@ -56,7 +61,7 @@ export async function getStaffMonthlyPayrollForShop(params: {
   const nextM = month === 12 ? 1 : month + 1;
   const monthEnd = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00+09:00`;
 
-  const [staffRes, apptRes, tiers, usageRes] = await Promise.all([
+  const [staffRes, apptRes, tiers, usageRes, deductionsByStaff] = await Promise.all([
     fetchStaffsRobust(supabase, shopId),
     supabase
       .from("appointments")
@@ -68,6 +73,7 @@ export async function getStaffMonthlyPayrollForShop(params: {
       .is("deleted_at", null),
     getCompensationTiers(brandId),
     fetchUsageRobust(supabase, shopId, year),
+    getDeductionTotalsByStaffForMonth({ shopId, yearMonth }),
   ]);
 
   // 売上: staff_id × month で集計
@@ -136,6 +142,7 @@ export async function getStaffMonthlyPayrollForShop(params: {
         event: { ytd: 0, thisMonth: 0 },
         claimByCode: new Map(),
       },
+      deductionTotal: deductionsByStaff.get(s.id) ?? 0,
     })
   );
 }
@@ -255,8 +262,9 @@ function computePayrollRow(args: {
     event: { ytd: number; thisMonth: number };
     claimByCode: Map<AllowanceCode, number>;
   };
+  deductionTotal: number;
 }): StaffMonthlyPayrollRow {
-  const { staff, month, salesInclTaxThisMonth, salesAccrualMonths, tiers, used } = args;
+  const { staff, month, salesInclTaxThisMonth, salesAccrualMonths, tiers, used, deductionTotal } = args;
 
   // ----- 業務委託費 (Phase 1 と同じ式) -----
   const salesExclTax = Math.round(salesInclTaxThisMonth / 1.1);
@@ -289,7 +297,9 @@ function computePayrollRow(args: {
     }
   }
 
-  const healthAmount = isSalesAboveThreshold ? HEALTH_AMOUNT : 0;
+  // 健康手当は claim 型に再分類されたため auto では 0 (claim 集計経由)
+  const healthAmount = 0;
+  const beautyAmount = isSalesAboveThreshold ? BEAUTY_AMOUNT : 0;
   // 住宅手当は業務委託・正社員問わず付与
   const housingAmount = isSalesAboveThreshold ? HOUSING_AMOUNT : 0;
 
@@ -320,7 +330,7 @@ function computePayrollRow(args: {
   const monthlyAllowanceTotal =
     childrenAmount +
     birthdayAmount +
-    healthAmount +
+    beautyAmount +
     housingAmount +
     used.study.thisMonth +
     used.event.thisMonth +
@@ -330,6 +340,7 @@ function computePayrollRow(args: {
     childrenAmount,
     birthdayAmount,
     healthAmount,
+    beautyAmount,
     housingAmount,
     study,
     eventAccess,
@@ -340,6 +351,7 @@ function computePayrollRow(args: {
   };
 
   const totalInclTax = compensationInclTax + monthlyAllowanceTotal;
+  const netPay = Math.max(0, totalInclTax - deductionTotal);
 
   return {
     staffId: staff.id,
@@ -358,5 +370,7 @@ function computePayrollRow(args: {
     claimAllowanceUsage,
     claimAllowanceTotal,
     totalInclTax,
+    deductionTotal,
+    netPay,
   };
 }

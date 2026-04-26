@@ -27,6 +27,9 @@ import {
   HeartHandshake,
   MessageCircle,
   Calculator,
+  Fingerprint,
+  CalendarCheck,
+  Gift,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -70,9 +73,18 @@ const navigation = [
     ],
   },
   {
+    label: "勤怠管理",
+    items: [
+      { name: "Web 打刻", href: "/punch", icon: Fingerprint },
+      { name: "勤怠記録", href: "/time-tracking", icon: Clock },
+      { name: "有給休暇", href: "/paid-leave", icon: CalendarCheck },
+    ],
+  },
+  {
     label: "給与・請求",
     items: [
       { name: "給与計算", href: "/payroll", icon: Calculator },
+      { name: "福利厚生", href: "/benefits", icon: Gift },
     ],
   },
   {

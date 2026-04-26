@@ -12,13 +12,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AllowanceUsageList, type UsageRow } from "@/feature/payroll/components/AllowanceUsageList";
+import { DeductionUsageList, type DeductionRow } from "@/feature/payroll/components/DeductionUsageList";
 import { InvoiceActionsBar } from "@/feature/payroll/components/InvoiceActionsBar";
+import { getAllowanceDefaults } from "@/feature/payroll/services/getAllowanceDefaults";
+import { getDeductionDefaults } from "@/feature/payroll/services/getDeductionDefaults";
+import { getStaffDeductionUsage } from "@/feature/payroll/services/getStaffDeductionUsage";
+import { getStaffOvertime } from "@/feature/payroll/services/getStaffOvertime";
 import {
   ALLOWANCE_BY_CODE,
   CLAIM_CODES,
   NON_CASH_BENEFITS,
   type AllowanceCode,
 } from "@/feature/payroll/allowanceTypes";
+import { DEDUCTION_META, type DeductionCode } from "@/feature/payroll/deductionTypes";
 import { toLocalDateString } from "@/helper/utils/time";
 
 export const dynamic = "force-dynamic";
@@ -99,6 +105,26 @@ export default async function StaffPayrollDetailPage({
       .order("id", { ascending: true }),
   ]);
   const usageData = usageRes.data;
+
+  // 各手当のデフォルト保存値 (Map<allowanceCode, {amount, note, enabled}>)
+  const allowanceDefaults = await getAllowanceDefaults(staffId);
+
+  // 控除関連: 当年使用履歴 + デフォルト保存値
+  const [deductionUsageRows, deductionDefaults, overtime] = await Promise.all([
+    getStaffDeductionUsage({ staffId, year }),
+    getDeductionDefaults(staffId),
+    getStaffOvertime({ staffId, yearMonth }),
+  ]);
+  const deductionRowsByCode: Record<string, DeductionRow[]> = {};
+  for (const m of DEDUCTION_META) deductionRowsByCode[m.code] = [];
+  for (const u of deductionUsageRows) {
+    deductionRowsByCode[u.deductionType]?.push({
+      id: u.id,
+      yearMonth: u.yearMonth,
+      amount: u.amount,
+      note: u.note,
+    });
+  }
 
   // staffs.user_id → users.email (請求書のメール送信先)
   let staffEmail: string | null = null;
@@ -261,10 +287,10 @@ export default async function StaffPayrollDetailPage({
                 }
               />
               <KV
-                label="健康手当 (売上 ≥ 100万)"
+                label="美容手当 (売上 ≥ 100万)"
                 value={
-                  row.allowances.healthAmount > 0
-                    ? yen(row.allowances.healthAmount)
+                  row.allowances.beautyAmount > 0
+                    ? yen(row.allowances.beautyAmount)
                     : "条件未達"
                 }
               />
@@ -280,8 +306,8 @@ export default async function StaffPayrollDetailPage({
             <div className="text-xs text-gray-500">
               ※ 売上 (税込) {yen(row.salesInclTax)} →{" "}
               {row.allowances.isSalesAboveThreshold
-                ? "100 万円以上 (健康・住宅・繰越手当 対象)"
-                : "100 万円未達 (健康・住宅・繰越手当 対象外)"}
+                ? "100 万円以上 (美容・住宅・繰越手当 対象)"
+                : "100 万円未達 (美容・住宅・繰越手当 対象外)"}
             </div>
           </CardContent>
         </Card>
@@ -354,6 +380,7 @@ export default async function StaffPayrollDetailPage({
               label="勉強代手当の使用記録"
               balance={row.allowances.study.balance}
               rows={studyRows}
+              defaultValue={allowanceDefaults.get("study") ?? null}
             />
             <AllowanceUsageList
               staffId={staffId}
@@ -362,6 +389,7 @@ export default async function StaffPayrollDetailPage({
               label="イベントアクセス手当の使用記録"
               balance={row.allowances.eventAccess.balance}
               rows={eventRows}
+              defaultValue={allowanceDefaults.get("event_access") ?? null}
             />
           </CardContent>
         </Card>
@@ -404,6 +432,7 @@ export default async function StaffPayrollDetailPage({
                     balanceLabel={meta.monthlyCapYen ? "今月残枠" : "今月使用累計"}
                     rows={rows}
                     hint={hint || undefined}
+                    defaultValue={allowanceDefaults.get(code as AllowanceCode) ?? null}
                   />
                 );
               })}
@@ -432,11 +461,113 @@ export default async function StaffPayrollDetailPage({
           </CardContent>
         </Card>
 
+        {/* 残業代 (法定計算) */}
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-base font-bold">残業代 (法定計算)</h2>
+              <span className="text-xs text-gray-500">
+                時給ベース:{" "}
+                <span className="font-bold tabular-nums">
+                  {yen(overtime.hourlyWage)}
+                </span>
+                <span className="ml-1 text-[10px] text-gray-400">
+                  (staffs.hourly_wage が未設定なら月給÷160h)
+                </span>
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+              <KV
+                label="通常 (時間)"
+                value={`${(overtime.breakdown.regularMinutes / 60).toFixed(2)} h`}
+              />
+              <KV
+                label="時間外 1.25倍"
+                value={
+                  <>
+                    {(overtime.breakdown.overtimeMinutes / 60).toFixed(2)} h
+                    <div className="text-[11px] text-gray-500">
+                      {yen(overtime.amounts.overtime)}
+                    </div>
+                  </>
+                }
+              />
+              <KV
+                label="60h超 1.5倍"
+                value={
+                  <>
+                    {(overtime.breakdown.heavyOvertimeMinutes / 60).toFixed(2)} h
+                    <div className="text-[11px] text-gray-500">
+                      {yen(overtime.amounts.heavyOvertime)}
+                    </div>
+                  </>
+                }
+              />
+              <KV
+                label="深夜 +0.25倍"
+                value={
+                  <>
+                    {(overtime.breakdown.nightMinutes / 60).toFixed(2)} h
+                    <div className="text-[11px] text-gray-500">
+                      {yen(overtime.amounts.night)}
+                    </div>
+                  </>
+                }
+              />
+              <KV
+                label="法定休日 1.35倍"
+                value={
+                  <>
+                    {(overtime.breakdown.holidayMinutes / 60).toFixed(2)} h
+                    <div className="text-[11px] text-gray-500">
+                      {yen(overtime.amounts.holiday)}
+                    </div>
+                  </>
+                }
+              />
+            </div>
+            <p className="text-[11px] text-gray-500">
+              ※ Web 打刻 (勤怠記録) からの自動集計。1日 8h・週 40h を法定基準とし、
+              月 60h 超は割増 1.5 倍、22:00–翌5:00 は深夜割増 +0.25 倍を加算。
+              法定休日扱いの設定は今後追加予定 (現状は通常勤務扱い)。
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* 控除 (社保 / 税 / その他) */}
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div>
+              <h2 className="text-base font-bold">控除</h2>
+              <p className="text-xs text-gray-500">
+                健康保険 / 厚生年金 / 雇用保険 / 介護 / 所得税 / 住民税 /
+                その他。各種別ごとに当月の控除額を入力し、
+                「毎月のデフォルトとして保存する」にチェックを入れて記録すれば、
+                翌月以降の入力フォームに自動で同じ金額・メモが入ります (固定運用)。
+              </p>
+            </div>
+            <div className="space-y-3">
+              {DEDUCTION_META.map((meta) => (
+                <DeductionUsageList
+                  key={meta.code}
+                  staffId={staffId}
+                  yearMonth={yearMonth}
+                  deductionType={meta.code as DeductionCode}
+                  label={meta.label}
+                  description={meta.description}
+                  rows={deductionRowsByCode[meta.code] ?? []}
+                  defaultValue={deductionDefaults.get(meta.code as DeductionCode) ?? null}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* 月の支払総額 */}
         <Card className="border-orange-200 bg-orange-50/30">
-          <CardContent className="space-y-1 p-4">
-            <div className="text-xs text-gray-600">{yearMonth} 月 支払総額 (税込)</div>
-            <div className="text-3xl font-black text-orange-700">
+          <CardContent className="space-y-2 p-4">
+            <div className="text-xs text-gray-600">{yearMonth} 月 支給総額 (税込)</div>
+            <div className="text-2xl font-black text-orange-700">
               {yen(row.totalInclTax)}
             </div>
             <div className="text-[11px] text-gray-500">
@@ -446,6 +577,23 @@ export default async function StaffPayrollDetailPage({
                 <> (うち都度請求 {yen(row.claimAllowanceTotal)})</>
               )}
             </div>
+
+            {row.deductionTotal > 0 && (
+              <>
+                <div className="mt-2 flex items-baseline justify-between border-t pt-2">
+                  <span className="text-xs text-gray-600">控除合計</span>
+                  <span className="text-base font-bold tabular-nums text-rose-700">
+                    − {yen(row.deductionTotal)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-gray-600">差引支給額</span>
+                  <span className="text-2xl font-black text-emerald-700">
+                    {yen(row.netPay)}
+                  </span>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
