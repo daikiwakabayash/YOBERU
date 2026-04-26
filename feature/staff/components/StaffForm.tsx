@@ -104,6 +104,7 @@ export function StaffForm({
       children_count: 0,
       monthly_min_salary: 260000,
       hourly_wage: null,
+      login_email: "",
       payroll_email: "",
     },
   });
@@ -368,6 +369,27 @@ export function StaffForm({
                 />
                 <p className="text-[10px] text-gray-400">
                   残業代 (1.25 倍 / 1.5 倍 / 深夜 / 休日) はこの時給を基準に計算します。
+                </p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="login_email">
+                  ログイン用メールアドレス (Web 打刻 / 有給申請の本人確認に使用)
+                </Label>
+                <Input
+                  id="login_email"
+                  type="email"
+                  placeholder="例: tanaka@example.com"
+                  {...form.register("login_email")}
+                />
+                {form.formState.errors.login_email && (
+                  <p className="text-xs text-red-600">
+                    {form.formState.errors.login_email.message}
+                  </p>
+                )}
+                <p className="text-[10px] text-gray-400">
+                  Supabase Auth で同じメールでログインした人が、このスタッフとして
+                  打刻 / 有給申請できるようになります。保存時に users 行を自動作成し
+                  staffs.user_id に紐付けます。
                 </p>
               </div>
               <div className="space-y-2 sm:col-span-2">

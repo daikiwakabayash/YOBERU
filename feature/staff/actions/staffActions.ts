@@ -5,26 +5,55 @@ import { staffSchema } from "../schema/staff.schema";
 import { revalidatePath } from "next/cache";
 
 /**
- * Resolve a user_id to attach to a staff insert.
+ * staffs.user_id に紐付ける users.id を確定する。
  *
- * staffs.user_id is NOT NULL REFERENCES users(id) but the registration UI
- * doesn't currently ask for one (per-user auth → staffs is not wired up
- * yet). To unblock writes:
- *  1. honour an explicit raw.user_id from the form if present
- *  2. otherwise pick the first non-deleted user under the same brand
- *  3. otherwise fall back to id=1 (the seeded brand owner)
- *
- * Always returns a number.
+ * 解決順序:
+ *  1. login_email が指定されていれば users をその email で検索。
+ *     - 既存 → その id を使う
+ *     - 不在 → users 行を新規作成し、その id を使う
+ *  2. raw.user_id が明示的に渡っていればその数値を使う
+ *  3. ブランド配下の最初のユーザー (= 暫定の brand owner) にフォールバック
+ *  4. それも無ければ id=1
  */
 async function resolveUserId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   rawUserId: FormDataEntryValue | undefined,
-  brandId: number
+  brandId: number,
+  staffName: string,
+  loginEmail?: string | null
 ): Promise<number> {
+  // 1. login_email 指定あり: users を upsert
+  if (loginEmail && loginEmail.trim()) {
+    const email = loginEmail.trim();
+    const { data: existing } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+    if (existing?.id) return existing.id as number;
+
+    const { data: created, error: insertErr } = await supabase
+      .from("users")
+      .insert({ email, name: staffName, brand_id: brandId })
+      .select("id")
+      .single();
+    if (!insertErr && created?.id) return created.id as number;
+    // insert に失敗した場合 (race など) もう一度 select して使う
+    const { data: retry } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+    if (retry?.id) return retry.id as number;
+  }
+
+  // 2. 明示的な user_id
   if (rawUserId) {
     const n = Number(rawUserId);
     if (!Number.isNaN(n) && n > 0) return n;
   }
+
+  // 3. ブランド配下の最初のユーザー
   try {
     const { data } = await supabase
       .from("users")
@@ -73,6 +102,7 @@ export async function createStaff(formData: FormData) {
       raw.hourly_wage != null && raw.hourly_wage !== ""
         ? Number(raw.hourly_wage)
         : null,
+    login_email: raw.login_email ? String(raw.login_email).trim() : "",
     payroll_email: raw.payroll_email ? String(raw.payroll_email) : "",
   });
 
@@ -83,11 +113,17 @@ export async function createStaff(formData: FormData) {
   const userId = await resolveUserId(
     supabase,
     raw.user_id,
-    parsed.data.brand_id
+    parsed.data.brand_id,
+    parsed.data.name,
+    parsed.data.login_email
   );
 
+  // login_email は users 側の値であり staffs テーブルには列が無いので
+  // insert ペイロードから外す。
+  const { login_email: _ignored, ...staffPayload } = parsed.data;
+  void _ignored;
   const insertData: Record<string, unknown> = {
-    ...parsed.data,
+    ...staffPayload,
     user_id: userId,
   };
 
@@ -130,6 +166,7 @@ export async function updateStaff(id: number, formData: FormData) {
       raw.hourly_wage != null && raw.hourly_wage !== ""
         ? Number(raw.hourly_wage)
         : null,
+    login_email: raw.login_email ? String(raw.login_email).trim() : "",
     payroll_email: raw.payroll_email ? String(raw.payroll_email) : "",
   });
 
@@ -137,14 +174,35 @@ export async function updateStaff(id: number, formData: FormData) {
     return { error: parsed.error.flatten().fieldErrors };
   }
 
+  // login_email が指定されていれば users を upsert して staffs.user_id を
+  // 付け替える (= ログインユーザーとの紐付けを変更する)。
+  let userIdToSet: number | null = null;
+  if (parsed.data.login_email && parsed.data.login_email.trim()) {
+    userIdToSet = await resolveUserId(
+      supabase,
+      undefined,
+      parsed.data.brand_id,
+      parsed.data.name,
+      parsed.data.login_email
+    );
+  }
+
+  const { login_email: _ignored, ...staffPayload } = parsed.data;
+  void _ignored;
+  const updatePayload: Record<string, unknown> = { ...staffPayload };
+  if (userIdToSet != null) {
+    updatePayload.user_id = userIdToSet;
+  }
+
   const { error } = await supabase
     .from("staffs")
-    .update(parsed.data)
+    .update(updatePayload)
     .eq("id", id);
   if (error) return { error: error.message };
 
   revalidatePath("/staff");
   revalidatePath(`/staff/${id}`);
+  revalidatePath("/punch");
   return { success: true };
 }
 

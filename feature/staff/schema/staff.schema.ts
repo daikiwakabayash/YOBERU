@@ -26,6 +26,14 @@ export const staffSchema = z.object({
   monthly_min_salary: z.coerce.number().int().min(0).default(260000),
   // 残業代計算用の時給ベース (空欄なら monthly_min_salary / 160h でフォールバック)
   hourly_wage: z.coerce.number().int().min(0).optional().nullable(),
+  // ログイン用メールアドレス。Supabase Auth とこのスタッフ行を紐付ける鍵。
+  // 入力すると users.email を upsert し、staffs.user_id を更新する。
+  login_email: z
+    .string()
+    .max(255)
+    .email("メールアドレスの形式が正しくありません")
+    .optional()
+    .or(z.literal("")),
   // 請求書メール送信先 (空 / 未設定なら users.email を使う)
   payroll_email: z
     .string()
