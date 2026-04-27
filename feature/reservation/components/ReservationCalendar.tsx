@@ -316,13 +316,16 @@ export function ReservationCalendar({
           overflow-y を "auto" にすると、 overflow-x:auto と組み合わさって
           ダッシュボード <main> のスクロールバーと二重になり、日付切替時に
           外枠の height が 0 に潰れてカレンダーが消えて見える症状が起きる。
-          overflow-y:clip で縦スクロールは親の <main> に完全に委譲する。 */}
+          overflow-y:clip で縦スクロールは親の <main> に完全に委譲する。
+          touchAction は "pan-x pan-y" にしておかないとモバイルで時間軸の
+          横スクロール (9:00 〜 21:00 まで) ができず、19 時以降が見えなく
+          なる。 */}
       <div
         className="rounded-2xl border bg-white shadow-sm"
         style={{
           overflowX: "auto",
           overflowY: "clip",
-          touchAction: "pan-y",
+          touchAction: "pan-x pan-y",
         }}
       >
         {/* Time header (sticky top) */}
