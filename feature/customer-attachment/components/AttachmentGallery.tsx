@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Camera, ImagePlus, FileText, Trash2, X, Download } from "lucide-react";
+import { Camera, ImagePlus, FileText, Trash2, X, Download, Video, PlayCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   uploadCustomerAttachment,
@@ -47,6 +47,7 @@ export function AttachmentGallery({
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const [uploading, startTransition] = useTransition();
   const [selectedType, setSelectedType] =
     useState<AttachmentType>("before");
@@ -166,7 +167,18 @@ export function AttachmentGallery({
               disabled={uploading}
             >
               <Camera className="mr-1 h-4 w-4" />
-              カメラで撮影
+              写真撮影
+            </Button>
+
+            {/* モバイル: 動画録画 (capture属性 + accept=video/*) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => videoInputRef.current?.click()}
+              disabled={uploading}
+            >
+              <Video className="mr-1 h-4 w-4" />
+              動画録画
             </Button>
           </div>
 
@@ -181,7 +193,7 @@ export function AttachmentGallery({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,application/pdf"
+            accept="image/*,video/*,application/pdf"
             multiple
             className="hidden"
             onChange={handleFileChange}
@@ -194,10 +206,19 @@ export function AttachmentGallery({
             className="hidden"
             onChange={handleFileChange}
           />
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileChange}
+          />
 
           <p className="text-[10px] text-gray-500">
-            画像 (JPEG / PNG / HEIC) または PDF、1 ファイル最大 10MB。
-            携帯からは「カメラで撮影」を押すと直接撮影できます。
+            画像 (JPEG / PNG / HEIC) / 動画 (MP4 / MOV / WebM) / PDF を 1 ファイル最大 100MB まで。
+            携帯からは「写真撮影」「動画録画」で直接撮影できます。
+            ※ 動画は数十 MB を超えるとアップロードに時間がかかります。
           </p>
         </div>
       )}
@@ -252,6 +273,7 @@ function Thumbnail({
   onDelete: () => void;
 }) {
   const isImage = attachment.mimeType.startsWith("image/");
+  const isVideo = attachment.mimeType.startsWith("video/");
   const size = compact ? "h-14 w-14" : "h-32 w-full";
 
   return (
@@ -269,6 +291,23 @@ function Thumbnail({
             className="h-full w-full object-cover transition-transform group-hover:scale-105"
             loading="lazy"
           />
+        ) : isVideo && attachment.url ? (
+          <div className="relative h-full w-full bg-black">
+            {/* preload="metadata" だけで poster 代わりに 1 フレーム目を出す。
+                muted + playsInline でモバイルでも自動展開可能。
+                Lightbox で拡大して再生する想定なので thumbnail 自体は
+                controls なしのプレビュー用とする。 */}
+            <video
+              src={attachment.url}
+              className="h-full w-full object-cover"
+              muted
+              playsInline
+              preload="metadata"
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/30">
+              <PlayCircle className="h-10 w-10 text-white drop-shadow-md" />
+            </div>
+          </div>
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center bg-gray-50 text-gray-400">
             <FileText className="h-8 w-8" />
@@ -329,6 +368,7 @@ function Lightbox({
   onClose: () => void;
 }) {
   const isImage = attachment.mimeType.startsWith("image/");
+  const isVideo = attachment.mimeType.startsWith("video/");
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
@@ -353,6 +393,14 @@ function Lightbox({
             src={attachment.url}
             alt={attachment.fileName}
             className="max-h-[85vh] rounded-lg object-contain"
+          />
+        ) : isVideo && attachment.url ? (
+          <video
+            src={attachment.url}
+            controls
+            playsInline
+            preload="metadata"
+            className="max-h-[85vh] max-w-full rounded-lg bg-black"
           />
         ) : (
           <div className="flex h-64 w-[28rem] flex-col items-center justify-center rounded-lg bg-white p-6 text-gray-600">

@@ -118,7 +118,7 @@ export function ReservationCalendarToolbar({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
       {/* Refresh button: re-runs the server component so new bookings
           from the public link (or other tabs) show up without a full
           page reload. router.refresh() invalidates the Server Component
@@ -210,20 +210,36 @@ export function ReservationCalendarToolbar({
             <button
               type="button"
               onClick={() => setPickerOpen((v) => !v)}
-              className="inline-flex min-w-[200px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-center text-sm font-medium text-gray-900 hover:bg-gray-100"
+              className="inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-center text-xs font-medium text-gray-900 hover:bg-gray-100 sm:min-w-[200px] sm:text-sm"
               aria-label="日付を選択"
             >
               <CalendarDays className="h-4 w-4 text-gray-500" />
-              {displayDate}
+              <span className="whitespace-nowrap">{displayDate}</span>
             </button>
             {pickerOpen && (
-              <div className="absolute left-1/2 top-[calc(100%+4px)] z-50 -translate-x-1/2 rounded-md border bg-white p-2 shadow-lg">
-                <DatePicker
-                  selected={dateObj}
-                  onChange={onPickDate}
-                  inline
+              <>
+                {/* モバイルでは中央モーダル + 半透明背景でタップ閉じ。
+                    デスクトップでは従来通りトリガー直下のドロップダウン。 */}
+                <div
+                  className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+                  onClick={() => setPickerOpen(false)}
+                  aria-hidden
                 />
-              </div>
+                <div
+                  className="
+                    fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2
+                    rounded-md border bg-white p-2 shadow-lg
+                    sm:absolute sm:left-1/2 sm:top-[calc(100%+4px)]
+                    sm:translate-y-0 sm:-translate-x-1/2
+                  "
+                >
+                  <DatePicker
+                    selected={dateObj}
+                    onChange={onPickDate}
+                    inline
+                  />
+                </div>
+              </>
             )}
           </div>
           <Button variant="outline" size="sm" onClick={() => navigateDay(1)}>
@@ -244,20 +260,34 @@ export function ReservationCalendarToolbar({
             <button
               type="button"
               onClick={() => setPickerOpen((v) => !v)}
-              className="inline-flex min-w-[200px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-center text-sm font-medium text-gray-900 hover:bg-gray-100"
+              className="inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-center text-xs font-medium text-gray-900 hover:bg-gray-100 sm:min-w-[200px] sm:text-sm"
               aria-label="日付を選択"
             >
               <CalendarDays className="h-4 w-4 text-gray-500" />
-              {displayDate}
+              <span className="whitespace-nowrap">{displayDate}</span>
             </button>
             {pickerOpen && (
-              <div className="absolute left-1/2 top-[calc(100%+4px)] z-50 -translate-x-1/2 rounded-md border bg-white p-2 shadow-lg">
-                <DatePicker
-                  selected={dateObj}
-                  onChange={onPickDate}
-                  inline
+              <>
+                <div
+                  className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+                  onClick={() => setPickerOpen(false)}
+                  aria-hidden
                 />
-              </div>
+                <div
+                  className="
+                    fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2
+                    rounded-md border bg-white p-2 shadow-lg
+                    sm:absolute sm:left-1/2 sm:top-[calc(100%+4px)]
+                    sm:translate-y-0 sm:-translate-x-1/2
+                  "
+                >
+                  <DatePicker
+                    selected={dateObj}
+                    onChange={onPickDate}
+                    inline
+                  />
+                </div>
+              </>
             )}
           </div>
           <Button variant="outline" size="sm" onClick={() => navigateWeek(1)}>

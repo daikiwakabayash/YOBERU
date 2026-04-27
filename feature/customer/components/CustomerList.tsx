@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, Trash2, Search } from "lucide-react";
+import { Eye, Trash2, Search, ChevronRight, Phone } from "lucide-react";
 import { deleteCustomer } from "../actions/customerActions";
 import { toast } from "sonner";
 import type { Customer } from "../types";
@@ -119,73 +119,134 @@ export function CustomerList({ customers, totalCount }: CustomerListProps) {
         全 {totalCount} 件
       </p>
 
-      {/* Table */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>コード</TableHead>
-            <TableHead>氏名</TableHead>
-            <TableHead>電話番号</TableHead>
-            <TableHead className="text-center">種別</TableHead>
-            <TableHead className="text-right">操作</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {customers.length === 0 ? (
-            <TableRow>
-              <TableCell
-                colSpan={5}
-                className="py-8 text-center text-muted-foreground"
+      {/* モバイル: カード一覧 (sm 未満で表示) */}
+      <ul className="space-y-2 sm:hidden">
+        {customers.length === 0 ? (
+          <li className="rounded-lg border bg-white py-8 text-center text-sm text-muted-foreground">
+            顧客が登録されていません
+          </li>
+        ) : (
+          customers.map((customer) => {
+            const fullName =
+              [customer.last_name, customer.first_name].filter(Boolean).join(" ") ||
+              "-";
+            const typeInfo = TYPE_LABELS[customer.type] ?? TYPE_LABELS[0];
+            return (
+              <li
+                key={customer.id}
+                className="overflow-hidden rounded-lg border bg-white shadow-sm"
               >
-                顧客が登録されていません
-              </TableCell>
-            </TableRow>
-          ) : (
-            customers.map((customer) => {
-              const fullName = [customer.last_name, customer.first_name]
-                .filter(Boolean)
-                .join(" ") || "-";
-              const typeInfo = TYPE_LABELS[customer.type] ?? TYPE_LABELS[0];
-
-              return (
-                <TableRow
-                  key={customer.id}
-                  className="cursor-pointer hover:bg-gray-50"
-                  onClick={() => router.push(`/customer/${customer.id}`)}
+                <Link
+                  href={`/customer/${customer.id}`}
+                  className="flex items-center gap-3 p-3 active:bg-gray-50"
                 >
-                  <TableCell className="font-mono text-sm">
-                    {customer.code}
-                  </TableCell>
-                  <TableCell className="font-medium">{fullName}</TableCell>
-                  <TableCell>{customer.phone_number_1 || "-"}</TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant={typeInfo.variant}>{typeInfo.label}</Badge>
-                  </TableCell>
-                  <TableCell
-                    className="text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex justify-end gap-1">
-                      <Link href={`/customer/${customer.id}`}>
-                        <Button variant="ghost" size="sm" title="カルテ・詳細">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </Link>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(customer.id, fullName)}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-bold text-gray-900">
+                        {fullName}
+                      </span>
+                      <Badge variant={typeInfo.variant} className="shrink-0">
+                        {typeInfo.label}
+                      </Badge>
                     </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
+                    <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
+                      <span className="font-mono">#{customer.code}</span>
+                      {customer.phone_number_1 && (
+                        <span className="inline-flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {customer.phone_number_1}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />
+                </Link>
+                <div className="flex justify-end border-t bg-gray-50/50 px-2 py-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-red-500"
+                    onClick={() => handleDelete(customer.id, fullName)}
+                  >
+                    <Trash2 className="mr-1 h-3 w-3" />
+                    削除
+                  </Button>
+                </div>
+              </li>
+            );
+          })
+        )}
+      </ul>
+
+      {/* デスクトップ: テーブル (sm 以上で表示) */}
+      <div className="hidden sm:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>コード</TableHead>
+              <TableHead>氏名</TableHead>
+              <TableHead>電話番号</TableHead>
+              <TableHead className="text-center">種別</TableHead>
+              <TableHead className="text-right">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {customers.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={5}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  顧客が登録されていません
+                </TableCell>
+              </TableRow>
+            ) : (
+              customers.map((customer) => {
+                const fullName = [customer.last_name, customer.first_name]
+                  .filter(Boolean)
+                  .join(" ") || "-";
+                const typeInfo = TYPE_LABELS[customer.type] ?? TYPE_LABELS[0];
+
+                return (
+                  <TableRow
+                    key={customer.id}
+                    className="cursor-pointer hover:bg-gray-50"
+                    onClick={() => router.push(`/customer/${customer.id}`)}
+                  >
+                    <TableCell className="font-mono text-sm">
+                      {customer.code}
+                    </TableCell>
+                    <TableCell className="font-medium">{fullName}</TableCell>
+                    <TableCell>{customer.phone_number_1 || "-"}</TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant={typeInfo.variant}>{typeInfo.label}</Badge>
+                    </TableCell>
+                    <TableCell
+                      className="text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex justify-end gap-1">
+                        <Link href={`/customer/${customer.id}`}>
+                          <Button variant="ghost" size="sm" title="カルテ・詳細">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(customer.id, fullName)}
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

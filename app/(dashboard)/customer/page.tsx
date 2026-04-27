@@ -45,7 +45,7 @@ export default async function CustomerListPage({ searchParams }: CustomerListPag
           </Link>
         }
       />
-      <div className="p-6">
+      <div className="p-3 sm:p-6">
         <CustomerList customers={customers} totalCount={totalCount} />
       </div>
     </div>

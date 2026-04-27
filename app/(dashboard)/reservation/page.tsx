@@ -179,7 +179,7 @@ export default async function ReservationPage({
             />
           }
         />
-        <div className="p-4">
+        <div className="p-3 sm:p-4">
           <WeeklyReservationCalendar
             data={weekData}
             menus={menus}
@@ -227,7 +227,7 @@ export default async function ReservationPage({
           />
         }
       />
-      <div className="p-4">
+      <div className="p-3 sm:p-4">
         <ReservationCalendar
           data={data}
           date={date}
@@ -238,6 +238,10 @@ export default async function ReservationPage({
           brandId={brandId}
           enableMeetingBooking={enableMeetingBooking}
         />
+        {/* モバイル向けヒント: 時間軸の横スクロール案内 */}
+        <p className="mt-3 text-center text-[10px] text-gray-400 sm:hidden">
+          ← カレンダー内を左右にスワイプすると 19 時以降も表示できます →
+        </p>
       </div>
     </div>
   );

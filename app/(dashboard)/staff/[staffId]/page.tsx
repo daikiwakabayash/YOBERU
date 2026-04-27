@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { StaffForm } from "@/feature/staff/components/StaffForm";
 import { getStaff } from "@/feature/staff/services/getStaffs";
 import { getWorkPatterns } from "@/feature/staff/services/getWorkPatterns";
+import { createClient } from "@/helper/lib/supabase/server";
 
 interface StaffDetailPageProps {
   params: Promise<{ staffId: string }>;
@@ -25,6 +26,24 @@ export default async function StaffDetailPage({ params }: StaffDetailPageProps) 
     workPatterns = await getWorkPatterns(staff.shop_id);
   } catch {
     // If fetching fails, show form with empty patterns
+  }
+
+  // 既存の staffs.user_id → users.email を引いて、フォームの login_email
+  // フィールドに prefill する。これにより「現在の紐付け先が誰か」が
+  // 一目で分かり、変更も同フィールドの編集だけで完結する。
+  let currentLoginEmail = "";
+  try {
+    const supabase = await createClient();
+    if (staff.user_id) {
+      const { data: user } = await supabase
+        .from("users")
+        .select("email")
+        .eq("id", staff.user_id)
+        .maybeSingle();
+      currentLoginEmail = (user?.email as string | null) ?? "";
+    }
+  } catch {
+    // 取得失敗は致命ではないので空欄で続行
   }
 
   // migration 00031 未適用な環境では employment_type 等のカラムが取得できない
@@ -54,6 +73,8 @@ export default async function StaffDetailPage({ params }: StaffDetailPageProps) 
     birthday: s.birthday ?? "",
     children_count: s.children_count ?? 0,
     monthly_min_salary: s.monthly_min_salary ?? 260000,
+    hourly_wage: s.hourly_wage ?? null,
+    login_email: currentLoginEmail,
     payroll_email: s.payroll_email ?? "",
   };
 

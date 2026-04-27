@@ -94,47 +94,39 @@ export async function uploadShopLogo(formData: FormData) {
   const filePath = `${shopId}/logo.${ext}`;
   const BUCKET = "shop-logos";
 
-  // Ensure bucket exists. createBucket returns { error } (doesn't throw).
-  // "already exists" or "Bucket already exists" is fine — anything else
-  // means the anon key doesn't have create-bucket permission and the
-  // user needs to create it via the Supabase Dashboard.
-  const { error: bucketErr } = await supabase.storage.createBucket(BUCKET, {
-    public: true,
-    fileSizeLimit: 2 * 1024 * 1024,
-  });
-  if (bucketErr) {
-    const msg = String(bucketErr.message ?? "");
-    const alreadyExists =
-      msg.includes("already exists") || msg.includes("Duplicate");
-    if (!alreadyExists) {
-      // Bucket doesn't exist and we can't create it. Check if it exists
-      // already (maybe RLS blocks createBucket but allows upload).
-      const { error: getErr } = await supabase.storage.getBucket(BUCKET);
-      if (getErr) {
-        return {
-          error:
-            "Supabase Storage に「shop-logos」バケットが見つかりません。" +
-            "Supabase ダッシュボード → Storage → New bucket で「shop-logos」" +
-            "（Public: ON）を作成してください。",
-        };
-      }
-    }
-  }
+  // バケット存在チェックは行わない:
+  //   - createBucket / getBucket は service_role 鍵が必要で anon では
+  //     必ずエラーを返す。バケットが実在していても "見つかりません" と
+  //     誤検出してしまう。
+  //   - 実際にバケットが無い場合は upload 自体が "Bucket not found" を
+  //     返すので、その時点で具体的な手順を案内すれば充分。
 
   // Upload (upsert so re-upload replaces the old logo)
   const { error: uploadErr } = await supabase.storage
     .from(BUCKET)
     .upload(filePath, file, { upsert: true });
   if (uploadErr) {
-    // Provide actionable error when the bucket is missing or inaccessible
-    const msg = uploadErr.message ?? "";
+    const msg = String(uploadErr.message ?? "");
+    const low = msg.toLowerCase();
+    if (low.includes("bucket") && low.includes("not found")) {
+      return {
+        error:
+          "Supabase Storage に「shop-logos」バケットが見つかりません。" +
+          "Supabase ダッシュボード → Storage → New bucket で「shop-logos」" +
+          "（Public: ON）を作成してください。",
+      };
+    }
     if (
-      msg.toLowerCase().includes("not found") ||
-      msg.toLowerCase().includes("bucket")
+      low.includes("row-level security") ||
+      low.includes("403") ||
+      low.includes("unauthorized") ||
+      low.includes("permission denied")
     ) {
       return {
         error:
-          "shop-logos バケットにアクセスできません。Supabase ダッシュボード → Storage で「shop-logos」バケット (Public: ON) が存在し、INSERT / UPDATE ポリシーが設定されていることを確認してください。",
+          "shop-logos バケットへのアップロード権限がありません。" +
+          "Supabase ダッシュボード → Storage → shop-logos → Policies で " +
+          "INSERT / UPDATE を authenticated に許可してください。",
       };
     }
     return { error: `アップロードに失敗しました: ${msg}` };

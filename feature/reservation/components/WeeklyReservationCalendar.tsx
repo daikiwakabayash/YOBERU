@@ -315,13 +315,14 @@ export function WeeklyReservationCalendar({
     <>
       {/* overflow-x: auto + overflow-y: clip で縦スクロールは <main> に委譲。
           日表示側と同じ理由: overflow-y:auto にすると二重スクロールで
-          日付切替時にカレンダーが潰れる症状が出るため。 */}
+          日付切替時にカレンダーが潰れる症状が出るため。
+          touchAction は "pan-x pan-y" にしてモバイルでも横スクロール可能に。 */}
       <div
         className="rounded-2xl border bg-white shadow-sm"
         style={{
           overflowX: "auto",
           overflowY: "clip",
-          touchAction: "pan-y",
+          touchAction: "pan-x pan-y",
         }}
       >
         {/* Staff banner */}

@@ -192,33 +192,33 @@ export default async function CustomerDetailPage({
         }
       />
 
-      <div className="space-y-6 p-6">
-        {/* Summary Cards */}
-        <div className="grid gap-4 sm:grid-cols-4">
+      <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
+        {/* Summary Cards — モバイルは 2x2、sm 以上で 4 列 */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-4">
           <Card>
-            <CardContent className="pt-4">
-              <div className="text-sm text-muted-foreground">来院回数</div>
-              <div className="text-2xl font-bold">{visitCount}回</div>
+            <CardContent className="p-3 sm:pt-4">
+              <div className="text-xs text-muted-foreground sm:text-sm">来院回数</div>
+              <div className="text-lg font-bold sm:text-2xl">{visitCount}回</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-4">
-              <div className="text-sm text-muted-foreground">累計売上</div>
-              <div className="text-2xl font-bold">
+            <CardContent className="p-3 sm:pt-4">
+              <div className="text-xs text-muted-foreground sm:text-sm">累計売上</div>
+              <div className="text-lg font-bold tabular-nums sm:text-2xl">
                 ¥{totalSales.toLocaleString()}
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-4">
-              <div className="text-sm text-muted-foreground">ステータス</div>
+            <CardContent className="p-3 sm:pt-4">
+              <div className="text-xs text-muted-foreground sm:text-sm">ステータス</div>
               <Badge className={`mt-1 ${typeInfo.color}`}>{typeInfo.label}</Badge>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-4">
-              <div className="text-sm text-muted-foreground">最終来院</div>
-              <div className="text-lg font-bold">
+            <CardContent className="p-3 sm:pt-4">
+              <div className="text-xs text-muted-foreground sm:text-sm">最終来院</div>
+              <div className="text-sm font-bold tabular-nums sm:text-lg">
                 {appointments.length > 0
                   ? (appointments[0].start_at as string).slice(0, 10)
                   : "-"}
