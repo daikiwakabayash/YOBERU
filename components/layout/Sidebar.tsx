@@ -2,102 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  CalendarDays,
-  Users,
-  UserCog,
-  Utensils,
-  Building2,
-  Clock,
-  BarChart3,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  Layers,
-  Grid3X3,
-  Link2,
-  Code2,
-  CreditCard,
-  Megaphone,
-  ClipboardList,
-  Wallet,
-  Sparkles,
-  Crown,
-  CalendarX2,
-  HeartHandshake,
-  MessageCircle,
-  Calculator,
-  Fingerprint,
-  CalendarCheck,
-  Gift,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { NAVIGATION } from "./navigation";
 
-const navigation = [
-  {
-    label: "予約管理",
-    items: [
-      { name: "予約表", href: "/reservation", icon: CalendarDays },
-      { name: "強制リンク作成", href: "/booking-link", icon: Link2 },
-      { name: "タグテンプレート", href: "/tag-template", icon: Code2 },
-    ],
-  },
-  {
-    label: "顧客管理",
-    items: [
-      { name: "顧客一覧", href: "/customer", icon: Users },
-      { name: "LINE チャット", href: "/line-chat", icon: MessageCircle },
-    ],
-  },
-  {
-    label: "マスタ管理",
-    items: [
-      { name: "店舗", href: "/store", icon: Building2 },
-      { name: "スタッフ", href: "/staff", icon: UserCog },
-      { name: "メニューカテゴリ", href: "/menu-category", icon: Layers },
-      { name: "メニュー", href: "/menu", icon: Utensils },
-      { name: "設備", href: "/facility", icon: Grid3X3 },
-      { name: "支払方法", href: "/payment-method", icon: CreditCard },
-      { name: "来店経路", href: "/visit-source", icon: Megaphone },
-      { name: "予約ブロック種別", href: "/slot-block-type", icon: CalendarX2 },
-      { name: "問診票", href: "/questionnaire", icon: ClipboardList },
-      { name: "広告費", href: "/ad-spend", icon: Wallet },
-    ],
-  },
-  {
-    label: "シフト管理",
-    items: [
-      { name: "出勤パターン", href: "/shift-pattern", icon: Settings },
-      { name: "出勤表", href: "/shift-schedule", icon: Clock },
-    ],
-  },
-  {
-    label: "勤怠管理",
-    items: [
-      { name: "Web 打刻", href: "/punch", icon: Fingerprint },
-      { name: "勤怠記録", href: "/time-tracking", icon: Clock },
-      { name: "有給休暇", href: "/paid-leave", icon: CalendarCheck },
-    ],
-  },
-  {
-    label: "給与・請求",
-    items: [
-      { name: "給与計算", href: "/payroll", icon: Calculator },
-      { name: "福利厚生", href: "/benefits", icon: Gift },
-    ],
-  },
-  {
-    label: "分析",
-    items: [
-      { name: "経営指標", href: "/kpi", icon: Crown },
-      { name: "売上", href: "/sales", icon: BarChart3 },
-      { name: "マーケティング", href: "/marketing", icon: Sparkles },
-      { name: "再来店促進", href: "/reengagement", icon: HeartHandshake },
-    ],
-  },
-];
-
+/**
+ * デスクトップ用 サイドバー (lg ≥ で表示)。
+ * モバイルでは MobileSidebar (Sheet) が代わりに表示される。
+ */
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -105,11 +18,10 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r bg-white transition-all duration-200",
+        "hidden h-screen flex-col border-r bg-white transition-all duration-200 lg:flex",
         collapsed ? "w-16" : "w-60"
       )}
     >
-      {/* Logo */}
       <div className="flex h-14 items-center justify-between border-b px-4">
         {!collapsed && (
           <Link href="/" className="text-lg font-bold">
@@ -119,14 +31,14 @@ export function Sidebar() {
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="rounded p-1 hover:bg-gray-100"
+          aria-label={collapsed ? "サイドバー展開" : "サイドバー折りたたみ"}
         >
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-2">
-        {navigation.map((group) => (
+        {NAVIGATION.map((group) => (
           <div key={group.label} className="mb-4">
             {!collapsed && (
               <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">

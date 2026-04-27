@@ -16,7 +16,8 @@ export default function RootLayout({
     <html lang="ja" className="h-full antialiased">
       <body className="min-h-full flex flex-col font-sans">
         {children}
-        <Toaster />
+        {/* モバイルでもエラー / 成功通知が読みやすいよう上部中央に配置 */}
+        <Toaster position="top-center" richColors closeButton />
       </body>
     </html>
   );

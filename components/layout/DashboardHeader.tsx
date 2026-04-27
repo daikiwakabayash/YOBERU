@@ -1,4 +1,5 @@
 import { ShopSelector } from "./ShopSelector";
+import { MobileSidebar } from "./MobileSidebar";
 import { getActiveBrandId, getActiveShopId } from "@/helper/lib/shop-context";
 import { createClient } from "@/helper/lib/supabase/server";
 
@@ -6,6 +7,8 @@ import { createClient } from "@/helper/lib/supabase/server";
  * Server component. Fetches the brand's shops list and current active
  * shop, then renders the top-right ShopSelector. Falls back to a minimal
  * bar when the database isn't reachable.
+ *
+ * モバイルでは左端にハンバーガーメニュー (MobileSidebar) を表示する。
  */
 export async function DashboardHeader() {
   const brandId = await getActiveBrandId();
@@ -29,18 +32,19 @@ export async function DashboardHeader() {
   const activeShop = shops.find((s) => s.id === activeShopId) ?? null;
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b bg-white/95 px-6 backdrop-blur-sm">
-      <div className="flex items-center gap-3 text-xs text-gray-500">
+    <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b bg-white/95 px-3 backdrop-blur-sm sm:px-6">
+      <div className="flex min-w-0 items-center gap-2 text-xs text-gray-500">
+        <MobileSidebar />
         {activeShop ? (
           <>
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
+            <span className="hidden shrink-0 rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700 sm:inline">
               管理中の店舗
             </span>
-            <span className="font-bold text-gray-900">{activeShop.name}</span>
+            <span className="truncate font-bold text-gray-900">{activeShop.name}</span>
           </>
         ) : (
-          <span className="text-amber-600">
-            店舗が選択されていません。店舗マスターから登録してください。
+          <span className="truncate text-amber-600">
+            店舗未選択。店舗マスターから登録してください。
           </span>
         )}
       </div>
