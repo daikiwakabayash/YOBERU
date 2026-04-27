@@ -217,15 +217,29 @@ export function ReservationCalendarToolbar({
               <span className="whitespace-nowrap">{displayDate}</span>
             </button>
             {pickerOpen && (
-              // モバイルで右見切れしないよう、small 以下では右端基準
-              // (right-0)、sm 以上で従来通り中央寄せに切替
-              <div className="absolute right-0 top-[calc(100%+4px)] z-50 max-w-[calc(100vw-1rem)] rounded-md border bg-white p-2 shadow-lg sm:left-1/2 sm:right-auto sm:-translate-x-1/2">
-                <DatePicker
-                  selected={dateObj}
-                  onChange={onPickDate}
-                  inline
+              <>
+                {/* モバイルでは中央モーダル + 半透明背景でタップ閉じ。
+                    デスクトップでは従来通りトリガー直下のドロップダウン。 */}
+                <div
+                  className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+                  onClick={() => setPickerOpen(false)}
+                  aria-hidden
                 />
-              </div>
+                <div
+                  className="
+                    fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2
+                    rounded-md border bg-white p-2 shadow-lg
+                    sm:absolute sm:left-1/2 sm:top-[calc(100%+4px)]
+                    sm:translate-y-0 sm:-translate-x-1/2
+                  "
+                >
+                  <DatePicker
+                    selected={dateObj}
+                    onChange={onPickDate}
+                    inline
+                  />
+                </div>
+              </>
             )}
           </div>
           <Button variant="outline" size="sm" onClick={() => navigateDay(1)}>
@@ -253,15 +267,27 @@ export function ReservationCalendarToolbar({
               <span className="whitespace-nowrap">{displayDate}</span>
             </button>
             {pickerOpen && (
-              // モバイルで右見切れしないよう、small 以下では右端基準
-              // (right-0)、sm 以上で従来通り中央寄せに切替
-              <div className="absolute right-0 top-[calc(100%+4px)] z-50 max-w-[calc(100vw-1rem)] rounded-md border bg-white p-2 shadow-lg sm:left-1/2 sm:right-auto sm:-translate-x-1/2">
-                <DatePicker
-                  selected={dateObj}
-                  onChange={onPickDate}
-                  inline
+              <>
+                <div
+                  className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+                  onClick={() => setPickerOpen(false)}
+                  aria-hidden
                 />
-              </div>
+                <div
+                  className="
+                    fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2
+                    rounded-md border bg-white p-2 shadow-lg
+                    sm:absolute sm:left-1/2 sm:top-[calc(100%+4px)]
+                    sm:translate-y-0 sm:-translate-x-1/2
+                  "
+                >
+                  <DatePicker
+                    selected={dateObj}
+                    onChange={onPickDate}
+                    inline
+                  />
+                </div>
+              </>
             )}
           </div>
           <Button variant="outline" size="sm" onClick={() => navigateWeek(1)}>
