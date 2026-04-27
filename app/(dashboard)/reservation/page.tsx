@@ -3,6 +3,7 @@ import { ReservationCalendar } from "@/feature/reservation/components/Reservatio
 import { WeeklyReservationCalendar } from "@/feature/reservation/components/WeeklyReservationCalendar";
 import { ReservationCalendarToolbar } from "@/feature/reservation/components/ReservationCalendarToolbar";
 import { DateResetOnReload } from "@/feature/reservation/components/DateResetOnReload";
+import { SwipeNavigator } from "@/feature/reservation/components/SwipeNavigator";
 import { getCalendarData } from "@/feature/reservation/services/getCalendarData";
 import { getWeeklyCalendarData } from "@/feature/reservation/services/getWeeklyCalendarData";
 import { generateTimeSlots, toLocalDateString } from "@/helper/utils/time";
@@ -179,18 +180,24 @@ export default async function ReservationPage({
             />
           }
         />
-        <div className="p-4">
-          <WeeklyReservationCalendar
-            data={weekData}
-            menus={menus}
-            visitSources={visitSources}
-            paymentMethods={paymentMethods}
-            shopId={shopId}
-            brandId={brandId}
-            staffId={effectiveStaffId}
-            enableMeetingBooking={enableMeetingBooking}
-          />
-        </div>
+        <SwipeNavigator
+          currentDate={date}
+          viewMode="week"
+          selectedStaffId={effectiveStaffId}
+        >
+          <div className="p-3 sm:p-4">
+            <WeeklyReservationCalendar
+              data={weekData}
+              menus={menus}
+              visitSources={visitSources}
+              paymentMethods={paymentMethods}
+              shopId={shopId}
+              brandId={brandId}
+              staffId={effectiveStaffId}
+              enableMeetingBooking={enableMeetingBooking}
+            />
+          </div>
+        </SwipeNavigator>
       </div>
     );
   }
@@ -227,18 +234,28 @@ export default async function ReservationPage({
           />
         }
       />
-      <div className="p-4">
-        <ReservationCalendar
-          data={data}
-          date={date}
-          menus={menus}
-          visitSources={visitSources}
-          paymentMethods={paymentMethods}
-          shopId={shopId}
-          brandId={brandId}
-          enableMeetingBooking={enableMeetingBooking}
-        />
-      </div>
+      <SwipeNavigator
+        currentDate={date}
+        viewMode="day"
+        selectedStaffId={staffId}
+      >
+        <div className="p-3 sm:p-4">
+          <ReservationCalendar
+            data={data}
+            date={date}
+            menus={menus}
+            visitSources={visitSources}
+            paymentMethods={paymentMethods}
+            shopId={shopId}
+            brandId={brandId}
+            enableMeetingBooking={enableMeetingBooking}
+          />
+          {/* モバイル向けヒント (左右スワイプの存在告知) */}
+          <p className="mt-3 text-center text-[10px] text-gray-400 sm:hidden">
+            ← 左右スワイプで前日 / 翌日に切替できます →
+          </p>
+        </div>
+      </SwipeNavigator>
     </div>
   );
 }
