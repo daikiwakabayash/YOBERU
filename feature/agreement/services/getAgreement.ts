@@ -140,13 +140,23 @@ export async function getShopAgreements(params: {
 
 /**
  * 指定 brand のアクティブテンプレートを kind 別に取得。
+ *
+ * 解決順:
+ *   1. brand_id 完全一致のアクティブ行
+ *   2. 同 kind の任意ブランド (migration の brand_id=1 で seed されたものを
+ *      別ブランド運用時にも拾えるように)
+ *   3. ensureCreate=true の場合、kind='membership' のデフォルトを
+ *      自動シードして再取得
  */
 export async function getActiveTemplate(params: {
   brandId: number;
   kind: AgreementKind;
+  ensureCreate?: boolean;
 }): Promise<AgreementTemplate | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase
+
+  // 1) brand 完全一致
+  const exact = await supabase
     .from("agreement_templates")
     .select("*")
     .eq("brand_id", params.brandId)
@@ -156,6 +166,82 @@ export async function getActiveTemplate(params: {
     .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (error || !data) return null;
-  return parseTemplate(data);
+  if (!exact.error && exact.data) return parseTemplate(exact.data);
+
+  // 2) brand 不問でアクティブ行を探す (migration seed が brand_id=1 で
+  //    作られている場合の救済)
+  const anyBrand = await supabase
+    .from("agreement_templates")
+    .select("*")
+    .eq("kind", params.kind)
+    .eq("is_active", true)
+    .is("deleted_at", null)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!anyBrand.error && anyBrand.data) return parseTemplate(anyBrand.data);
+
+  // 3) 自動シード (membership のみ)
+  if (params.ensureCreate && params.kind === "membership") {
+    const seed = await supabase
+      .from("agreement_templates")
+      .insert({
+        brand_id: params.brandId,
+        kind: "membership",
+        title: "会員お申し込み書",
+        body_text: DEFAULT_MEMBERSHIP_BODY,
+        required_checks: DEFAULT_MEMBERSHIP_CHECKS,
+        is_active: true,
+      })
+      .select("*")
+      .single();
+    if (!seed.error && seed.data) return parseTemplate(seed.data);
+  }
+  return null;
 }
+
+const DEFAULT_MEMBERSHIP_BODY = `『NAORU整体 大分あけのアクロス院』会員お申し込み書
+
+ご入会いただく皆様に下記の内容をご確認いただいております。
+内容をよくお読みいただき、確認欄へチェック及び署名の記入をお願いします。
+
+【会費・契約】
+●当会員制度は月額 {{plan_amount_yen}} 円（税込）の会費をお支払いただく事により、当院で提供する「会員専用プログラム」が会員価格でご利用いただけるようになるサービスです。
+●契約期間 {{contract_start_date}} 〜
+●当制度はクレジット契約による引き落としとなります。尚、特段のお申し出がない限り、契約は更新されるものとします。
+  自動的に利用継続となり月額 {{plan_amount_yen}} 円（税込）が引き落とされます。
+●翌月以降、入会日が更新日となります。
+※消費しきれなかった回数は次月まで繰り越し可能です。
+※プラン変更や退会希望の場合、申請月の翌月に反映されます。
+  例：1 月に退会希望の場合は 12 月末までに当院にて所定会員種別変更手続きをお願いいたします。
+●当日キャンセルの場合は、1 回分消費となります。ご予約の変更、キャンセルについては前日までにお願いいたします。
+●遅刻された場合は、施術時間が短縮されますので、ご予約時間の 5 分前など、スムーズにご案内させていただけるよう、お時間に余裕をもってお越しください。
+
+【入会資格について】
+・私は現在、妊娠していません（契約期間中に妊娠した場合は遅延なく申し出ます）
+・私は他人に伝染する恐れのある疾病等にかかっていません（契約期間中に上記の疾病等にかかった場合は遅延なく申し出ます）
+・私は現在の健康状態、会員資格及び入会申込書に記載した内容（住所・銀行口座・クレジットカード番号）に変更が生じた場合は遅延なく申し出ます
+
+【店舗の利用について】
+●下記の項目に該当すると判断された場合には店舗への入場をお断りすることを了承します。
+・酒気を帯びている
+・健康状態を害しており施術に不適切な状態のとき
+・正当な理由なく当店のスタッフの指示に従わないとき
+
+【退会の手続きについて】
+・会員様の事情により退会される場合は、解約のお手続きが必要になります。解約のお手続きがお済でない場合は自動的に契約が更新されます。1 度も来院されなかった月に関しても、退会手続きがお済でない場合は返金致しかねますのであらかじめご了承ください。
+
+※退会ご希望の際は、退会希望月の前月までにご本人様がご来院の上、退会手続きを行ってください。手続きがお済でない場合は会費支払いの義務が発生するものとします。
+
+【お申込み者氏名】 {{customer_name}}
+【お申込み日】 {{signed_at}}
+
+院長 東川 幸平`;
+
+const DEFAULT_MEMBERSHIP_CHECKS = [
+  { key: "agree_fee", label: "月額会費・クレジット契約・自動更新の内容を理解し同意します" },
+  { key: "agree_eligibility", label: "入会資格 (妊娠・伝染病・変更申告) の各項目に該当・同意します" },
+  { key: "agree_facility", label: "店舗利用ルール (酒気帯び・健康状態・スタッフ指示遵守) に同意します" },
+  { key: "agree_withdrawal", label: "退会手続きの内容 (自動更新・前月までの申請) を理解しました" },
+  { key: "agree_all", label: "上記すべてを確認のうえ、NAORU 整体 大分あけのアクロス院会員入会に同意します" },
+];

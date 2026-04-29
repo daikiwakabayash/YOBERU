@@ -177,7 +177,7 @@ export default async function CustomerDetailPage({
   // 同意書タブ用データ (顧客の既存同意書 + 会員申込テンプレート + ベース URL)
   const [customerAgreements, membershipTemplate] = await Promise.all([
     getCustomerAgreements(id),
-    getActiveTemplate({ brandId, kind: "membership" }),
+    getActiveTemplate({ brandId, kind: "membership", ensureCreate: true }),
   ]);
   const reqHeaders = await headers();
   const proto = reqHeaders.get("x-forwarded-proto") ?? "https";
