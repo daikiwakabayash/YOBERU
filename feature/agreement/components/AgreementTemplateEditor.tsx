@@ -18,8 +18,17 @@ interface Props {
 const PLACEHOLDERS: { key: string; description: string }[] = [
   { key: "plan_amount_yen", description: "月額会費 (リンク発行時に入力)" },
   { key: "contract_start_date", description: "契約開始日 (リンク発行時に入力)" },
+  {
+    key: "next_billing_date",
+    description:
+      "次回引き落とし日 (契約開始日の 1 ヶ月後を自動算出。月末は次月末にクランプ)",
+  },
   { key: "customer_name", description: "署名時に確定 (お申込み者氏名)" },
   { key: "signed_at", description: "署名時に確定 (Asia/Tokyo の日時)" },
+  // 領収書用
+  { key: "amount_yen", description: "領収書: 受領金額 (リンク発行時に入力)" },
+  { key: "purpose", description: "領収書: 但し書き (リンク発行時に入力)" },
+  { key: "issue_date", description: "領収書: 発行日 (リンク発行時に入力)" },
 ];
 
 /**
@@ -85,8 +94,12 @@ export function AgreementTemplateEditor({ template }: Props) {
   const previewBody = applyAgreementVars(body, {
     plan_amount_yen: "24,750",
     contract_start_date: "2026-06-01",
+    next_billing_date: "2026-07-01",
     customer_name: "（ご署名時に氏名が入ります）",
     signed_at: "（ご署名時に日時が入ります）",
+    amount_yen: "8,800",
+    purpose: "施術代として",
+    issue_date: "2026-04-30",
   });
 
   return (

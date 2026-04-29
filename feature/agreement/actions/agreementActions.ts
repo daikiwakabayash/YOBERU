@@ -6,6 +6,7 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { sendEmail } from "@/helper/lib/email/sendEmail";
 import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
 import { applyAgreementVars, type AgreementKind } from "../types";
+import { computeNextBillingDate } from "../utils/nextBillingDate";
 
 /**
  * 顧客向けに新しい同意書 (会員申込書 等) のリンクを発行する。
@@ -63,6 +64,21 @@ export async function createAgreement(params: {
     createdByUserId = (u?.id as number | undefined) ?? null;
   }
 
+  // contract_start_date があり next_billing_date が未指定なら自動算出
+  // (クライアント側で算出済みでも上書きしない)
+  const enrichedVars: Record<string, string | number> = { ...params.vars };
+  const startDate =
+    typeof enrichedVars.contract_start_date === "string"
+      ? enrichedVars.contract_start_date
+      : "";
+  if (
+    startDate &&
+    (!enrichedVars.next_billing_date || enrichedVars.next_billing_date === "")
+  ) {
+    const next = computeNextBillingDate(startDate);
+    if (next) enrichedVars.next_billing_date = next;
+  }
+
   const insertPayload: Record<string, unknown> = {
     uuid: newUuid,
     brand_id: customer.brand_id ?? tpl.brand_id,
@@ -70,7 +86,7 @@ export async function createAgreement(params: {
     customer_id: params.customerId,
     template_id: params.templateId,
     kind: tpl.kind,
-    vars: params.vars,
+    vars: enrichedVars,
     status: "pending",
     created_by_user_id: createdByUserId,
   };
@@ -78,7 +94,7 @@ export async function createAgreement(params: {
   if (params.finalizeOnCreate) {
     const now = new Date();
     const bodySnapshot = applyAgreementVars(tpl.body_text as string, {
-      ...params.vars,
+      ...enrichedVars,
       customer_name: customerName,
       signed_at: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
     });
@@ -152,6 +168,13 @@ export async function signAgreement(params: {
   const now = new Date();
   const signedAt = now.toISOString();
   const vars = (agreement.vars as Record<string, string | number>) ?? {};
+  // 旧データ救済: contract_start_date があり next_billing_date が無ければ補完
+  const startDate =
+    typeof vars.contract_start_date === "string" ? vars.contract_start_date : "";
+  if (startDate && !vars.next_billing_date) {
+    const next = computeNextBillingDate(startDate);
+    if (next) vars.next_billing_date = next;
+  }
   const bodySnapshot = applyAgreementVars(tpl.body_text as string, {
     ...vars,
     customer_name: signedName,

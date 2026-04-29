@@ -31,6 +31,7 @@ import {
   type AgreementRow,
   type AgreementTemplate,
 } from "../types";
+import { computeNextBillingDate } from "../utils/nextBillingDate";
 
 interface Props {
   customerId: number;
@@ -123,12 +124,14 @@ export function AgreementSection({
       return;
     }
     start(async () => {
+      const nextBillingDate = computeNextBillingDate(startDate);
       const res = await createAgreement({
         customerId,
         templateId: membershipTemplate.id,
         vars: {
           plan_amount_yen: amt.toLocaleString(),
           contract_start_date: startDate,
+          next_billing_date: nextBillingDate,
         },
       });
       if (res.error) {
