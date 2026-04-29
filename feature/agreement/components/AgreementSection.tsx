@@ -22,6 +22,7 @@ import {
   notifyAgreement,
   cancelAgreement,
   deleteAgreement,
+  setupMembershipTemplate,
 } from "../actions/agreementActions";
 import {
   AGREEMENT_KIND_LABEL,
@@ -32,8 +33,10 @@ import {
 
 interface Props {
   customerId: number;
+  brandId: number;
   agreements: AgreementRow[];
   membershipTemplate: AgreementTemplate | null;
+  templateDiagnostic?: string;
   baseUrl: string;
 }
 
@@ -47,8 +50,10 @@ interface Props {
  */
 export function AgreementSection({
   customerId,
+  brandId,
   agreements,
   membershipTemplate,
+  templateDiagnostic,
   baseUrl,
 }: Props) {
   const router = useRouter();
@@ -191,9 +196,42 @@ export function AgreementSection({
             </div>
           </div>
           {!membershipTemplate && (
-            <p className="text-[10px] text-rose-600">
-              ⚠ ブランド設定に会員申込書テンプレートが見つかりません。マイグレーション 00042 が適用されているか確認してください。
-            </p>
+            <div className="space-y-2 rounded-md border border-rose-200 bg-rose-50/50 p-3">
+              <p className="text-xs text-rose-800">
+                ⚠ 会員申込書テンプレートが用意されていません。
+              </p>
+              {templateDiagnostic && (
+                <p className="break-all text-[10px] text-rose-700">
+                  原因: {templateDiagnostic}
+                </p>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  start(async () => {
+                    const res = await setupMembershipTemplate({ brandId });
+                    if (res.error) {
+                      toast.error(res.error, { duration: 12000 });
+                      return;
+                    }
+                    toast.success("テンプレートを作成しました");
+                    router.refresh();
+                  });
+                }}
+              >
+                テンプレートを自動作成する
+              </Button>
+              <p className="text-[10px] text-gray-500">
+                ボタンが失敗する場合は Supabase ダッシュボード → SQL Editor で
+                <code className="mx-1 rounded bg-gray-100 px-1 text-[10px]">
+                  supabase/migrations/00042_agreements.sql
+                </code>
+                を最後まで実行してください。
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>
