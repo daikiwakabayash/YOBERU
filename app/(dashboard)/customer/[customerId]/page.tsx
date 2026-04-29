@@ -19,7 +19,7 @@ import { CustomerAttachmentsSection } from "@/feature/customer-attachment/compon
 import { AgreementSection } from "@/feature/agreement/components/AgreementSection";
 import {
   getCustomerAgreements,
-  getActiveTemplate,
+  getActiveTemplateWithDiagnostic,
 } from "@/feature/agreement/services/getAgreement";
 import { KarteEditor } from "@/feature/reservation/components/KarteEditor";
 import {
@@ -175,10 +175,16 @@ export default async function CustomerDetailPage({
   const shopId = await getActiveShopId();
 
   // 同意書タブ用データ (顧客の既存同意書 + 会員申込テンプレート + ベース URL)
-  const [customerAgreements, membershipTemplate] = await Promise.all([
+  const [customerAgreements, templateRes] = await Promise.all([
     getCustomerAgreements(id),
-    getActiveTemplate({ brandId, kind: "membership", ensureCreate: true }),
+    getActiveTemplateWithDiagnostic({
+      brandId,
+      kind: "membership",
+      ensureCreate: true,
+    }),
   ]);
+  const membershipTemplate = templateRes.template;
+  const templateDiagnostic = templateRes.diagnostic;
   const reqHeaders = await headers();
   const proto = reqHeaders.get("x-forwarded-proto") ?? "https";
   const host = reqHeaders.get("host") ?? "";
@@ -499,8 +505,10 @@ export default async function CustomerDetailPage({
           agreementsTab={
             <AgreementSection
               customerId={id}
+              brandId={brandId}
               agreements={customerAgreements}
               membershipTemplate={membershipTemplate}
+              templateDiagnostic={templateDiagnostic}
               baseUrl={baseUrl}
             />
           }

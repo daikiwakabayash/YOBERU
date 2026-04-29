@@ -153,6 +153,19 @@ export async function getActiveTemplate(params: {
   kind: AgreementKind;
   ensureCreate?: boolean;
 }): Promise<AgreementTemplate | null> {
+  const result = await getActiveTemplateWithDiagnostic(params);
+  return result.template;
+}
+
+/**
+ * 取得結果に加えて、なぜ null になったかの診断メッセージを返すバリエーション。
+ * UI 側で「テンプレートが見つかりません」原因を顕在化させるために使う。
+ */
+export async function getActiveTemplateWithDiagnostic(params: {
+  brandId: number;
+  kind: AgreementKind;
+  ensureCreate?: boolean;
+}): Promise<{ template: AgreementTemplate | null; diagnostic?: string }> {
   const supabase = await createClient();
 
   // 1) brand 完全一致
@@ -166,10 +179,13 @@ export async function getActiveTemplate(params: {
     .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (!exact.error && exact.data) return parseTemplate(exact.data);
+  if (!exact.error && exact.data) {
+    return { template: parseTemplate(exact.data) };
+  }
+  // 致命的なエラー (table 不在等) は記録
+  const exactErr = exact.error?.message ?? null;
 
-  // 2) brand 不問でアクティブ行を探す (migration seed が brand_id=1 で
-  //    作られている場合の救済)
+  // 2) brand 不問でアクティブ行を探す
   const anyBrand = await supabase
     .from("agreement_templates")
     .select("*")
@@ -179,7 +195,10 @@ export async function getActiveTemplate(params: {
     .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (!anyBrand.error && anyBrand.data) return parseTemplate(anyBrand.data);
+  if (!anyBrand.error && anyBrand.data) {
+    return { template: parseTemplate(anyBrand.data) };
+  }
+  const anyErr = anyBrand.error?.message ?? null;
 
   // 3) 自動シード (membership のみ)
   if (params.ensureCreate && params.kind === "membership") {
@@ -195,9 +214,23 @@ export async function getActiveTemplate(params: {
       })
       .select("*")
       .single();
-    if (!seed.error && seed.data) return parseTemplate(seed.data);
+    if (!seed.error && seed.data) {
+      return { template: parseTemplate(seed.data) };
+    }
+    const seedErr = seed.error?.message ?? "unknown";
+    console.error("[agreement] seed failed", { exactErr, anyErr, seedErr });
+    return {
+      template: null,
+      diagnostic: `テンプレート自動作成に失敗しました: ${seedErr}`,
+    };
   }
-  return null;
+
+  console.error("[agreement] template not found", { exactErr, anyErr });
+  return {
+    template: null,
+    diagnostic:
+      exactErr ?? anyErr ?? "テンプレートが見つからず、自動作成も無効です",
+  };
 }
 
 const DEFAULT_MEMBERSHIP_BODY = `『NAORU整体 大分あけのアクロス院』会員お申し込み書
