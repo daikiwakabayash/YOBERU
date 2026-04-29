@@ -16,11 +16,17 @@ import { getCustomer } from "@/feature/customer/services/getCustomers";
 import { createClient } from "@/helper/lib/supabase/server";
 import { CustomerDetailTabs } from "@/feature/customer/components/CustomerDetailTabs";
 import { CustomerAttachmentsSection } from "@/feature/customer-attachment/components/CustomerAttachmentsSection";
+import { AgreementSection } from "@/feature/agreement/components/AgreementSection";
+import {
+  getCustomerAgreements,
+  getActiveTemplate,
+} from "@/feature/agreement/services/getAgreement";
 import { KarteEditor } from "@/feature/reservation/components/KarteEditor";
 import {
   getActiveBrandId,
   getActiveShopId,
 } from "@/helper/lib/shop-context";
+import { headers } from "next/headers";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -167,6 +173,19 @@ export default async function CustomerDetailPage({
 
   const brandId = await getActiveBrandId();
   const shopId = await getActiveShopId();
+
+  // 同意書タブ用データ (顧客の既存同意書 + 会員申込テンプレート + ベース URL)
+  const [customerAgreements, membershipTemplate] = await Promise.all([
+    getCustomerAgreements(id),
+    getActiveTemplate({ brandId, kind: "membership" }),
+  ]);
+  const reqHeaders = await headers();
+  const proto = reqHeaders.get("x-forwarded-proto") ?? "https";
+  const host = reqHeaders.get("host") ?? "";
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    (host ? `${proto}://${host}` : "");
 
   return (
     <div>
@@ -476,6 +495,14 @@ export default async function CustomerDetailPage({
               )}
             </CardContent>
           </Card>
+          }
+          agreementsTab={
+            <AgreementSection
+              customerId={id}
+              agreements={customerAgreements}
+              membershipTemplate={membershipTemplate}
+              baseUrl={baseUrl}
+            />
           }
         />
       </div>
