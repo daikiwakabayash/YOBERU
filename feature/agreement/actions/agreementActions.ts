@@ -468,3 +468,54 @@ export async function deleteAgreement(
 }
 
 export type AgreementKindAlias = AgreementKind;
+
+/**
+ * テンプレート本体 (タイトル / 本文 / 確認項目) を更新する。
+ *
+ * 既存の署名済み契約 (agreements.body_snapshot) には影響しない —
+ * テンプレートの編集は「次に発行するリンクから」反映される設計。
+ */
+export async function updateAgreementTemplate(params: {
+  id: number;
+  title: string;
+  bodyText: string;
+  requiredChecks: { key: string; label: string }[];
+}): Promise<{ success?: true; error?: string }> {
+  const supabase = await createClient();
+  const { id, title, bodyText, requiredChecks } = params;
+
+  if (!title.trim()) return { error: "タイトルを入力してください" };
+  if (!bodyText.trim()) return { error: "本文を入力してください" };
+
+  // チェック項目のバリデーション
+  const seenKeys = new Set<string>();
+  for (const c of requiredChecks) {
+    if (!c.key.trim() || !c.label.trim()) {
+      return { error: "チェック項目の key / label は両方入力してください" };
+    }
+    if (!/^[a-z0-9_]+$/i.test(c.key)) {
+      return {
+        error: `チェック項目の key "${c.key}" は半角英数字とアンダースコアのみ使えます`,
+      };
+    }
+    if (seenKeys.has(c.key)) {
+      return { error: `チェック項目の key "${c.key}" が重複しています` };
+    }
+    seenKeys.add(c.key);
+  }
+
+  const { error } = await supabase
+    .from("agreement_templates")
+    .update({
+      title: title.trim(),
+      body_text: bodyText,
+      required_checks: requiredChecks,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/agreement");
+  revalidatePath("/agreement/template");
+  return { success: true };
+}
