@@ -97,6 +97,14 @@ CREATE TABLE IF NOT EXISTS agreements (
   deleted_at TIMESTAMPTZ
 );
 
+-- Supabase デフォルトで public スキーマの新規テーブルに RLS が有効になる
+-- 環境向け対策: このシステムでは認証 / 権限はアプリケーション層で
+-- 行うため、agreement_templates / agreements は RLS を明示的に OFF に
+-- する。これを入れないと anon / authenticated の INSERT / UPDATE が
+-- "new row violates row-level security policy" で全部弾かれる。
+ALTER TABLE agreement_templates DISABLE ROW LEVEL SECURITY;
+ALTER TABLE agreements DISABLE ROW LEVEL SECURITY;
+
 CREATE INDEX IF NOT EXISTS idx_agreements_customer
   ON agreements (customer_id, kind)
   WHERE deleted_at IS NULL;

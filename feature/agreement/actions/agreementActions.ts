@@ -419,11 +419,21 @@ export async function setupMembershipTemplate(params: {
   if (created.error) {
     const msg = created.error.message ?? "";
     const low = msg.toLowerCase();
+    // RLS は最優先で判定 (メッセージに table 名が含まれるため、後段の
+    // 「テーブル不在」判定に取られないよう順序が重要)
+    if (
+      low.includes("row-level security") ||
+      low.includes("row level security")
+    ) {
+      return {
+        error:
+          "Supabase の RLS で INSERT が拒否されました。Supabase ダッシュボード → Authentication → Policies → agreement_templates / agreements の RLS を OFF にする (または migration 00042 を再実行する) と解消します。",
+      };
+    }
     if (
       low.includes("does not exist") ||
       low.includes("schema cache") ||
-      low.includes("relation") ||
-      low.includes("agreement_templates")
+      low.includes("relation")
     ) {
       return {
         error:
