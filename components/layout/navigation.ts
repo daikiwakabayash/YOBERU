@@ -24,6 +24,7 @@ import {
   Fingerprint,
   CalendarCheck,
   Gift,
+  FileSignature,
   type LucideIcon,
 } from "lucide-react";
 
@@ -56,6 +57,7 @@ export const NAVIGATION: NavGroup[] = [
     items: [
       { name: "顧客一覧", href: "/customer", icon: Users },
       { name: "LINE チャット", href: "/line-chat", icon: MessageCircle },
+      { name: "同意書 (電子契約)", href: "/agreement", icon: FileSignature },
     ],
   },
   {
