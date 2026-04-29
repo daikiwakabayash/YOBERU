@@ -200,29 +200,32 @@ export async function getActiveTemplateWithDiagnostic(params: {
   }
   const anyErr = anyBrand.error?.message ?? null;
 
-  // 3) 自動シード (membership のみ)
-  if (params.ensureCreate && params.kind === "membership") {
-    const seed = await supabase
-      .from("agreement_templates")
-      .insert({
-        brand_id: params.brandId,
-        kind: "membership",
-        title: "会員お申し込み書",
-        body_text: DEFAULT_MEMBERSHIP_BODY,
-        required_checks: DEFAULT_MEMBERSHIP_CHECKS,
-        is_active: true,
-      })
-      .select("*")
-      .single();
-    if (!seed.error && seed.data) {
-      return { template: parseTemplate(seed.data) };
+  // 3) 自動シード (membership / receipt 両方対応)
+  if (params.ensureCreate) {
+    const def = DEFAULTS_BY_KIND[params.kind];
+    if (def) {
+      const seed = await supabase
+        .from("agreement_templates")
+        .insert({
+          brand_id: params.brandId,
+          kind: params.kind,
+          title: def.title,
+          body_text: def.body,
+          required_checks: def.checks,
+          is_active: true,
+        })
+        .select("*")
+        .single();
+      if (!seed.error && seed.data) {
+        return { template: parseTemplate(seed.data) };
+      }
+      const seedErr = seed.error?.message ?? "unknown";
+      console.error("[agreement] seed failed", { exactErr, anyErr, seedErr });
+      return {
+        template: null,
+        diagnostic: `テンプレート自動作成に失敗しました: ${seedErr}`,
+      };
     }
-    const seedErr = seed.error?.message ?? "unknown";
-    console.error("[agreement] seed failed", { exactErr, anyErr, seedErr });
-    return {
-      template: null,
-      diagnostic: `テンプレート自動作成に失敗しました: ${seedErr}`,
-    };
   }
 
   console.error("[agreement] template not found", { exactErr, anyErr });
@@ -278,3 +281,40 @@ const DEFAULT_MEMBERSHIP_CHECKS = [
   { key: "agree_withdrawal", label: "退会手続きの内容 (自動更新・前月までの申請) を理解しました" },
   { key: "agree_all", label: "上記すべてを確認のうえ、NAORU 整体 大分あけのアクロス院会員入会に同意します" },
 ];
+
+const DEFAULT_RECEIPT_BODY = `領収書
+
+発行日: {{issue_date}}
+
+{{customer_name}} 様
+
+下記の通り、正に領収いたしました。
+
+────────────────────────
+  金額: ¥{{amount_yen}}
+  但し: {{purpose}}
+────────────────────────
+
+NAORU 整体 大分あけのアクロス院
+院長 東川 幸平 印`;
+
+// 領収書は顧客側で同意・署名する文書ではないため、確認チェックは空。
+const DEFAULT_RECEIPT_CHECKS: { key: string; label: string }[] = [];
+
+const DEFAULTS_BY_KIND: Record<
+  string,
+  { title: string; body: string; checks: { key: string; label: string }[] } | null
+> = {
+  membership: {
+    title: "会員お申し込み書",
+    body: DEFAULT_MEMBERSHIP_BODY,
+    checks: DEFAULT_MEMBERSHIP_CHECKS,
+  },
+  receipt: {
+    title: "領収書",
+    body: DEFAULT_RECEIPT_BODY,
+    checks: DEFAULT_RECEIPT_CHECKS,
+  },
+  consent: null,
+  other: null,
+};

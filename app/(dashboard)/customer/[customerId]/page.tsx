@@ -174,17 +174,24 @@ export default async function CustomerDetailPage({
   const brandId = await getActiveBrandId();
   const shopId = await getActiveShopId();
 
-  // 同意書タブ用データ (顧客の既存同意書 + 会員申込テンプレート + ベース URL)
-  const [customerAgreements, templateRes] = await Promise.all([
+  // 同意書タブ用データ (顧客の既存同意書 + 会員申込/領収書テンプレート + ベース URL)
+  const [customerAgreements, membershipRes, receiptRes] = await Promise.all([
     getCustomerAgreements(id),
     getActiveTemplateWithDiagnostic({
       brandId,
       kind: "membership",
       ensureCreate: true,
     }),
+    getActiveTemplateWithDiagnostic({
+      brandId,
+      kind: "receipt",
+      ensureCreate: true,
+    }),
   ]);
-  const membershipTemplate = templateRes.template;
-  const templateDiagnostic = templateRes.diagnostic;
+  const membershipTemplate = membershipRes.template;
+  const receiptTemplate = receiptRes.template;
+  const templateDiagnostic =
+    membershipRes.diagnostic ?? receiptRes.diagnostic ?? undefined;
   const reqHeaders = await headers();
   const proto = reqHeaders.get("x-forwarded-proto") ?? "https";
   const host = reqHeaders.get("host") ?? "";
@@ -508,6 +515,7 @@ export default async function CustomerDetailPage({
               brandId={brandId}
               agreements={customerAgreements}
               membershipTemplate={membershipTemplate}
+              receiptTemplate={receiptTemplate}
               templateDiagnostic={templateDiagnostic}
               baseUrl={baseUrl}
             />

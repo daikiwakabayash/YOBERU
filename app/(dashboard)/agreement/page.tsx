@@ -21,7 +21,7 @@ interface Props {
 const TABS: { key: AgreementKind | "all"; label: string }[] = [
   { key: "all", label: "すべて" },
   { key: "membership", label: "会員申込書" },
-  { key: "receipt", label: "領収書 (Phase 2)" },
+  { key: "receipt", label: "領収書" },
 ];
 
 export default async function AgreementListPage({ searchParams }: Props) {

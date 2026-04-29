@@ -13,19 +13,25 @@ import { applyAgreementVars, type AgreementKind } from "../types";
  *
  * ID/PW を発行しない代わりに、UUID 自体が秘密鍵的な役割を担う
  * (推測困難な v4 UUID)。
+ *
+ * finalizeOnCreate=true (領収書) のときは発行時点で status=signed に
+ * 確定させる。日本の領収書慣行では発行者 (= 店舗) が単独で発行する
+ * ものなので、顧客側の署名は不要。
  */
 export async function createAgreement(params: {
   customerId: number;
   templateId: number;
   /** 月額 / 契約開始日 等、本文プレースホルダーに埋める変数 */
   vars: Record<string, string | number>;
+  finalizeOnCreate?: boolean;
 }): Promise<{ success?: true; uuid?: string; error?: string }> {
   const supabase = await createClient();
 
-  // template の brand_id / shop_id / kind を取得 (整合性 + kind 確定)
+  // template の brand_id / shop_id / kind / body_text を取得
+  // (finalize 時に body_snapshot を確定するため body_text も必要)
   const { data: tpl } = await supabase
     .from("agreement_templates")
-    .select("id, brand_id, shop_id, kind")
+    .select("id, brand_id, shop_id, kind, body_text")
     .eq("id", params.templateId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -33,10 +39,13 @@ export async function createAgreement(params: {
 
   const { data: customer } = await supabase
     .from("customers")
-    .select("id, brand_id, shop_id")
+    .select("id, brand_id, shop_id, first_name, last_name")
     .eq("id", params.customerId)
     .maybeSingle();
   if (!customer) return { error: "顧客が見つかりません" };
+
+  const customerName =
+    [customer.last_name, customer.first_name].filter(Boolean).join(" ") || "";
 
   const newUuid = crypto.randomUUID();
 
@@ -54,7 +63,7 @@ export async function createAgreement(params: {
     createdByUserId = (u?.id as number | undefined) ?? null;
   }
 
-  const { error } = await supabase.from("agreements").insert({
+  const insertPayload: Record<string, unknown> = {
     uuid: newUuid,
     brand_id: customer.brand_id ?? tpl.brand_id,
     shop_id: customer.shop_id,
@@ -64,7 +73,23 @@ export async function createAgreement(params: {
     vars: params.vars,
     status: "pending",
     created_by_user_id: createdByUserId,
-  });
+  };
+
+  if (params.finalizeOnCreate) {
+    const now = new Date();
+    const bodySnapshot = applyAgreementVars(tpl.body_text as string, {
+      ...params.vars,
+      customer_name: customerName,
+      signed_at: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+    });
+    insertPayload.status = "signed";
+    insertPayload.signed_at = now.toISOString();
+    insertPayload.signed_name = customerName || "発行済み";
+    insertPayload.body_snapshot = bodySnapshot;
+    insertPayload.agreed_checks = {};
+  }
+
+  const { error } = await supabase.from("agreements").insert(insertPayload);
   if (error) return { error: error.message };
 
   revalidatePath(`/customer/${params.customerId}`);
@@ -443,6 +468,76 @@ export async function setupMembershipTemplate(params: {
     return { error: `テンプレート作成に失敗: ${msg}` };
   }
 
+  return { success: true, templateId: created.data.id as number };
+}
+
+/**
+ * 領収書テンプレートを手動でセットアップする。
+ * setupMembershipTemplate と同じパターンで、kind='receipt' を作成する。
+ */
+export async function setupReceiptTemplate(params: {
+  brandId: number;
+}): Promise<{ success?: true; error?: string; templateId?: number }> {
+  const supabase = await createClient();
+
+  const existing = await supabase
+    .from("agreement_templates")
+    .select("id")
+    .eq("kind", "receipt")
+    .eq("is_active", true)
+    .is("deleted_at", null)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!existing.error && existing.data) {
+    return { success: true, templateId: existing.data.id as number };
+  }
+
+  const body = `領収書
+
+発行日: {{issue_date}}
+
+{{customer_name}} 様
+
+下記の通り、正に領収いたしました。
+
+────────────────────────
+  金額: ¥{{amount_yen}}
+  但し: {{purpose}}
+────────────────────────
+
+NAORU 整体 大分あけのアクロス院
+院長 東川 幸平 印`;
+
+  const created = await supabase
+    .from("agreement_templates")
+    .insert({
+      brand_id: params.brandId,
+      kind: "receipt",
+      title: "領収書",
+      body_text: body,
+      required_checks: [],
+      is_active: true,
+    })
+    .select("id")
+    .single();
+
+  if (created.error) {
+    const msg = created.error.message ?? "";
+    const low = msg.toLowerCase();
+    if (
+      low.includes("row-level security") ||
+      low.includes("row level security")
+    ) {
+      return {
+        error:
+          "Supabase の RLS で INSERT が拒否されました。SQL Editor で「ALTER TABLE agreement_templates DISABLE ROW LEVEL SECURITY;」を実行してください。",
+      };
+    }
+    return { error: `テンプレート作成に失敗: ${msg}` };
+  }
+
+  revalidatePath("/agreement/template");
   return { success: true, templateId: created.data.id as number };
 }
 

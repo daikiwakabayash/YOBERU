@@ -14,7 +14,7 @@ interface Props {
 
 const KIND_TABS: { key: AgreementKind; label: string; available: boolean }[] = [
   { key: "membership", label: "会員申込書", available: true },
-  { key: "receipt", label: "領収書 (Phase 2)", available: false },
+  { key: "receipt", label: "領収書", available: true },
 ];
 
 export default async function AgreementTemplatePage({ searchParams }: Props) {
@@ -26,7 +26,7 @@ export default async function AgreementTemplatePage({ searchParams }: Props) {
   const { template, diagnostic } = await getActiveTemplateWithDiagnostic({
     brandId,
     kind: activeKind,
-    ensureCreate: activeKind === "membership",
+    ensureCreate: activeKind === "membership" || activeKind === "receipt",
   });
 
   return (
