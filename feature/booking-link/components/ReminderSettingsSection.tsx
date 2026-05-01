@@ -40,10 +40,11 @@ const DEFAULT_LINE_TEMPLATE = `{customer_name} 様
 {shop_name}`;
 
 function createDefaultSetting(
-  type: ReminderSetting["type"]
+  type: ReminderSetting["type"],
+  offsetDays = 3
 ): ReminderSetting {
   const base = {
-    offset_days: 3,
+    offset_days: offsetDays,
     send_time: "08:00",
     enabled: true,
   };
@@ -69,6 +70,17 @@ function createDefaultSetting(
   };
 }
 
+/**
+ * クイック追加プリセット (offset_days 値 + ラベル)。
+ * いずれも「予約開始時刻の N 日前」のリマインドを意味する。
+ */
+const QUICK_PRESETS: { offsetDays: number; label: string }[] = [
+  { offsetDays: 7, label: "1週間前" },
+  { offsetDays: 3, label: "3日前" },
+  { offsetDays: 1, label: "前日" },
+  { offsetDays: 0, label: "当日" },
+];
+
 const TYPE_ICONS: Record<ReminderSetting["type"], React.ReactNode> = {
   email: <Mail className="h-4 w-4" />,
   sms: <MessageSquare className="h-4 w-4" />,
@@ -79,8 +91,17 @@ export function ReminderSettingsSection({
   value,
   onChange,
 }: ReminderSettingsSectionProps) {
-  function addSetting(type: ReminderSetting["type"]) {
-    onChange([...value, createDefaultSetting(type)]);
+  function addSetting(type: ReminderSetting["type"], offsetDays = 3) {
+    onChange([...value, createDefaultSetting(type, offsetDays)]);
+  }
+
+  function addAllChannelsAt(offsetDays: number) {
+    // LINE + Email を同時追加。SMS は別途必要なら手動で追加。
+    onChange([
+      ...value,
+      createDefaultSetting("line", offsetDays),
+      createDefaultSetting("email", offsetDays),
+    ]);
   }
 
   function updateSetting(index: number, patch: Partial<ReminderSetting>) {
@@ -103,6 +124,33 @@ export function ReminderSettingsSection({
 
   return (
     <div className="space-y-6">
+      {/* クイック追加: よく使うタイミングを 1 タップで追加 */}
+      <div className="space-y-2 rounded-md border border-blue-100 bg-blue-50/30 p-3">
+        <div className="text-xs font-bold text-blue-800">
+          クイック追加 (LINE + メール 同時追加)
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {QUICK_PRESETS.map((p) => (
+            <Button
+              key={p.offsetDays}
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => addAllChannelsAt(p.offsetDays)}
+            >
+              <Plus className="mr-1 h-3 w-3" />
+              {p.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-[10px] text-gray-500">
+          タップすると「予約日の N 日前 朝 8:00」の LINE + メール リマインドが
+          追加されます。LINE が紐付いていない顧客はメールにフォールバックされます。
+          時刻 / 文面は下のリマインド一覧から個別に調整できます。
+        </p>
+      </div>
+
       <ReminderGroup
         label="リマインドメール"
         type="email"

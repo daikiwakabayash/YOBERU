@@ -147,6 +147,11 @@ export function PublicBookingWizard({
       time: state.time,
       lang,
     });
+    // 公式 LINE 紐付けボタン用に line_link_token を引き継ぐ
+    const tokenResult = result as { lineLinkToken?: string | null };
+    if (tokenResult.lineLinkToken) {
+      params.set("link_token", tokenResult.lineLinkToken);
+    }
     window.location.assign(`/booking-complete?${params.toString()}`);
   }
 
