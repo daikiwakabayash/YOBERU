@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, Trash2, Search, ChevronRight, Phone } from "lucide-react";
+import { Eye, Trash2, Search, ChevronRight, ChevronLeft, Phone } from "lucide-react";
 import { deleteCustomer } from "../actions/customerActions";
 import { toast } from "sonner";
 import type { Customer } from "../types";
@@ -246,6 +246,56 @@ export function CustomerList({ customers, totalCount }: CustomerListProps) {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* ページネーション (両レイアウト共通) */}
+      <Pagination totalCount={totalCount} />
+    </div>
+  );
+}
+
+function Pagination({ totalCount }: { totalCount: number }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const perPage = 20;
+  const currentPage = Math.max(1, Number(searchParams.get("page") ?? 1) || 1);
+  const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+  if (totalPages <= 1) return null;
+
+  function go(p: number) {
+    const next = Math.min(totalPages, Math.max(1, p));
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === 1) params.delete("page");
+    else params.set("page", String(next));
+    router.push(`/customer?${params.toString()}`);
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 pt-2 text-xs">
+      <span className="text-muted-foreground">
+        {currentPage} / {totalPages} ページ (全 {totalCount} 件)
+      </span>
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={currentPage <= 1}
+          onClick={() => go(currentPage - 1)}
+        >
+          <ChevronLeft className="mr-1 h-3 w-3" />
+          前へ
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={currentPage >= totalPages}
+          onClick={() => go(currentPage + 1)}
+        >
+          次へ
+          <ChevronRight className="ml-1 h-3 w-3" />
+        </Button>
       </div>
     </div>
   );
