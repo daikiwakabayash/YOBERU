@@ -10,6 +10,9 @@ interface BookingCompleteViewProps {
   showLineButton: boolean;
   lineButtonText: string | null;
   lineButtonUrl: string | null;
+  /** LIFF 経由で「この予約の顧客に LINE userId を紐付ける」URL。
+   *  null なら表示しない (= LIFF ID または署名鍵が未設定)。 */
+  liffLinkUrl: string | null;
   lang?: Lang;
 }
 
@@ -18,6 +21,7 @@ export function BookingCompleteView({
   showLineButton,
   lineButtonText,
   lineButtonUrl,
+  liffLinkUrl,
   lang = "ja",
 }: BookingCompleteViewProps) {
   const { t } = useT(lang);
@@ -65,6 +69,24 @@ export function BookingCompleteView({
               {lineButtonText || t("contactLine")}
             </span>
           </a>
+        )}
+
+        {/* LIFF: LINE で予約リマインドを受け取る (連携) */}
+        {liffLinkUrl && (
+          <div className="mt-4 w-full max-w-xs">
+            <a
+              href={liffLinkUrl}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#06C755] px-5 py-3 text-center text-sm font-bold leading-snug text-white hover:bg-[#05a647]"
+            >
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px]">
+                L
+              </span>
+              <span>{t("linkLineForReminder")}</span>
+            </a>
+            <p className="mt-2 text-center text-[11px] leading-relaxed text-gray-500">
+              {t("linkLineDescription")}
+            </p>
+          </div>
         )}
       </div>
     </div>

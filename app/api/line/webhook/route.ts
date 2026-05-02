@@ -126,37 +126,23 @@ export async function POST(req: NextRequest) {
     if (!lineUserId) continue;
 
     if (event.type === "follow") {
-      // User followed (友だち追加). Link their line_user_id to a
-      // customer row. Strategy: pick the most-recently-booked customer
-      // in this shop that does not yet have a line_user_id attached.
-      // Once LIFF is wired up (state param), switch to exact match.
-      if (shopId) {
-        const { data: recentAppt } = await supabase
-          .from("appointments")
-          .select("customer_id")
-          .eq("shop_id", shopId)
-          .eq("type", 0)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .limit(10);
-
-        for (const appt of recentAppt ?? []) {
-          const custId = appt.customer_id as number;
-          const { data: updated } = await supabase
-            .from("customers")
-            .update({ line_user_id: lineUserId })
-            .eq("id", custId)
-            .is("line_user_id", null)
-            .select("id")
-            .maybeSingle();
-          if (updated) {
-            console.log(
-              `[LINE webhook] Linked userId ${lineUserId} → customer ${custId}`
-            );
-            break;
-          }
-        }
-      }
+      // 友だち追加された。
+      //
+      // 重要: 過去の実装は「最近予約した顧客のうち line_user_id NULL の
+      // 1 人に当てずっぽうで貼る」推測ロジックを使っていたが、別人に
+      // 紐付いて他人の予約リマインドが届く事故を起こしていた
+      // (migration 00042 で全クリア済)。
+      //
+      // 紐付けは以下のいずれかでのみ確定する:
+      //   - 予約完了画面の LIFF ボタン (state=customer token を持つ) →
+      //     /line/liff の link モードが署名検証して紐付け
+      //   - /line-chat 画面の手動「紐付ける」UI からスタッフが選択
+      //
+      // ここでは welcome メッセージを返すだけにとどめる。
+      // 紐付け済の既存顧客は (customer_id を埋めたまま) スレッドが
+      // 続くが、新規 follow 者は customer_id NULL の「未登録ユーザー」
+      // として line-chat 画面に並ぶ (= スタッフが紐付けるか、本人が
+      // LIFF 経由で紐付けるまで待機)。
 
       // Welcome reply + persist as outbound in line_messages
       if (shopId) {

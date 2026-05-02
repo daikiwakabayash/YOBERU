@@ -147,6 +147,12 @@ export function PublicBookingWizard({
       time: state.time,
       lang,
     });
+    // LIFF 経由で「この予約の顧客に LINE userId を紐付ける」署名済 token。
+    // submitPublicBooking が秘密鍵 (LIFF_LINK_SECRET) を持っていれば
+    // 返ってくる。完了画面で「LINE 連携」ボタンの URL に組み込む。
+    if ("linkToken" in result && result.linkToken) {
+      params.set("link_token", result.linkToken);
+    }
     window.location.assign(`/booking-complete?${params.toString()}`);
   }
 

@@ -587,5 +587,16 @@ export async function submitPublicBooking(formData: FormData) {
   }
 
   revalidatePath("/reservation");
-  return { success: true };
+
+  // 予約完了画面の「LINE 連携」ボタンに使う署名済 token。
+  // LIFF 経由で customers.line_user_id を確定するために使う。
+  // 秘密鍵未設定なら null (= ボタンは表示されない)。
+  const { signLinkToken } = await import("@/helper/lib/line/liffLinkToken");
+  const linkToken = signLinkToken(customerId);
+
+  return {
+    success: true as const,
+    customerId,
+    linkToken,
+  };
 }

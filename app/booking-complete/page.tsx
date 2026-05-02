@@ -12,6 +12,8 @@ interface BookingCompletePageProps {
     date?: string;
     time?: string;
     lang?: string;
+    /** LIFF 連携用 (署名済 customer token)。submitPublicBooking が発行 */
+    link_token?: string;
   }>;
 }
 
@@ -35,8 +37,19 @@ interface BookingCompletePageProps {
 export default async function BookingCompletePage({
   searchParams,
 }: BookingCompletePageProps) {
-  const { slug, date, time, lang } = await searchParams;
+  const { slug, date, time, lang, link_token } = await searchParams;
   const initialLang: Lang = lang === "en" ? "en" : "ja";
+
+  // LIFF 連携 URL を組み立てる。
+  // - 環境変数 NEXT_PUBLIC_LINE_LIFF_ID と link_token の両方がある時だけ
+  //   ボタンを出す。どちらか欠けるなら null (= 表示しない)。
+  // - LIFF アプリが /line/liff にマウントされており、そこで
+  //   ?action=link&token=... を解釈して紐付けする。
+  const liffId = process.env.NEXT_PUBLIC_LINE_LIFF_ID;
+  const liffLinkUrl =
+    liffId && link_token
+      ? `https://liff.line.me/${liffId}?action=link&token=${encodeURIComponent(link_token)}`
+      : null;
 
   const link = slug ? await getBookingLinkBySlug(slug) : null;
 
@@ -72,6 +85,7 @@ export default async function BookingCompletePage({
           showLineButton={link?.show_line_button ?? false}
           lineButtonText={link?.line_button_text ?? null}
           lineButtonUrl={link?.line_button_url ?? null}
+          liffLinkUrl={liffLinkUrl}
           lang={initialLang}
         />
       </div>
