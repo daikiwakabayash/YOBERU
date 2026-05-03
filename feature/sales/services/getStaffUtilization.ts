@@ -12,6 +12,10 @@ import { getShopAvailability } from "@/feature/booking-link/services/getShopAvai
  *   稼働率 = busyMin / openMin
  *
  *   openMin = sum of effective shift durations on the date(s)
+ *             - sum of 休憩 (slot_block_type_code='break') durations
+ *             休憩は予約を受けられない時間なので「予約開放時間」には
+ *             含めない。MTG / その他はスタッフが打席に立ったままなので
+ *             openMin から差し引かない。
  *   busyMin = sum of (end_at - start_at) for any non-cancelled
  *             appointment. We include status:
  *               0 (待機, scheduled but not yet checked in)
@@ -88,7 +92,7 @@ export async function getDailyStaffUtilization(
 
   const { data: apptRes, error: apptErr } = await supabase
     .from("appointments")
-    .select("staff_id, start_at, end_at, status, type")
+    .select("staff_id, start_at, end_at, status, type, slot_block_type_code")
     .eq("shop_id", shopId)
     .gte("start_at", `${date}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
@@ -106,21 +110,27 @@ export async function getDailyStaffUtilization(
     end_at: string;
     status: number;
     type: number | null;
+    slot_block_type_code: string | null;
   };
   for (const a of (apptRes ?? []) as AppointmentLite[]) {
     // Exclude cancelled / no-show; everything else (waiting, in-progress,
     // completed) counts as "枠に予約が入ってる" 稼働時間.
     if (a.status === 3 || a.status === 4 || a.status === 99) continue;
-    // Any non-zero type is a slot block (meeting / break / other /
-    // user-defined). They block the slot but do NOT count toward
-    // utilization per spec. Keeping this as a single `type !== 0`
-    // rule automatically handles future custom types added via the
-    // slot_block_types master.
-    if (a.type !== 0) continue;
     const sMin = parseHHMM(a.start_at?.slice(11, 16));
     const eMin = parseHHMM(a.end_at?.slice(11, 16));
     if (sMin == null || eMin == null) continue;
     const dur = Math.max(0, eMin - sMin);
+    // 休憩は予約を受けられない時間 → 開放時間 (openMin) から差し引く。
+    // MTG / その他は稼働率の分母に残す (=スタッフは打席に立っている)。
+    if (a.type !== 0 && a.slot_block_type_code === "break") {
+      const row = result.get(a.staff_id);
+      if (row) row.openMin = Math.max(0, row.openMin - dur);
+      continue;
+    }
+    // 休憩以外の slot block (MTG / その他 / カスタム) は busyMin に加算
+    // しない (本人が予約に立てない時間ではあるが、運用上は稼働率 100%
+    // にしないでおく)。
+    if (a.type !== 0) continue;
     let row = result.get(a.staff_id);
     if (!row) {
       // Off-shift staff with appointments — still track them (rate
@@ -229,7 +239,7 @@ export async function getRangeStaffUtilization(
 
   let apptQuery = supabase
     .from("appointments")
-    .select("staff_id, start_at, end_at, status, type")
+    .select("staff_id, start_at, end_at, status, type, slot_block_type_code")
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
@@ -249,17 +259,24 @@ export async function getRangeStaffUtilization(
     end_at: string;
     status: number;
     type: number | null;
+    slot_block_type_code: string | null;
   };
   for (const a of (apptRes ?? []) as AppointmentLite[]) {
     // Exclude cancelled / no-show; everything else (waiting, in-progress,
     // completed) counts as "枠に予約が入ってる" 稼働時間.
     if (a.status === 3 || a.status === 4 || a.status === 99) continue;
-    // Any non-zero type is a slot block. Excluded from utilization.
-    if (a.type !== 0) continue;
     const sMin = parseHHMM(a.start_at?.slice(11, 16));
     const eMin = parseHHMM(a.end_at?.slice(11, 16));
     if (sMin == null || eMin == null) continue;
     const dur = Math.max(0, eMin - sMin);
+    // 休憩は予約を受けられない時間 → 開放時間 (openMin) から差し引く
+    if (a.type !== 0 && a.slot_block_type_code === "break") {
+      const row = result.get(a.staff_id);
+      if (row) row.openMin = Math.max(0, row.openMin - dur);
+      continue;
+    }
+    // Any non-zero type is a slot block. Excluded from utilization numerator.
+    if (a.type !== 0) continue;
     let row = result.get(a.staff_id);
     if (!row) {
       row = {

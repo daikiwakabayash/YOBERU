@@ -76,6 +76,10 @@ export interface CalendarAppointment {
   duration: number;
   memo: string | null;
   isNewCustomer: boolean;
+  /** 2 回目来店 (= 来店履歴 index === 1, no active plan)。会員バッジが付かない時のみ true */
+  isSecondVisit: boolean;
+  /** 顧客が active な customer_plan を持っていれば true (= 会員) */
+  hasActivePlan: boolean;
   visitCount: number;
   source: string | null;
   sourceColor: string | null;

@@ -612,18 +612,30 @@ export function ReservationCalendar({
                       const apptWidth = durationMinutes * PX_PER_MIN - 2;
 
                       const isSlotBlock = !!appt.slotBlock;
-                      // 新規判定: 「今日登録された顧客」だけを新規とみなす
-                      // (= customers.created_at >= 当日00:00 JST)。手入力
-                      // (新規タブ) も /book/ 強制リンクも、どちらも新規
-                      // 顧客行を当日 INSERT するので、この 1 条件で
-                      // カバーできる。前日以前に登録済みの既存顧客は、
-                      // visit_count が 0/1 でも「会員」扱いにする。
-                      // 継続決済 (サブスク月次課金の幽霊予約) も、
-                      // 実来院ではないので新規扱いから除外する。
+                      // 来店区分バッジ:
+                      //   1. 新規 = 顧客の人生初予約 (来店履歴 index 0)
+                      //   2. 会員 = active な customer_plans を保持
+                      //   3. 2回目 = 会員ではなく、来店履歴 index 1
+                      //   4. 何もなし = 3 回目以降 で 会員でない
+                      // appt.isNewCustomer / isSecondVisit / hasActivePlan は
+                      // getCalendarData 側で「customer の非キャンセル予約を
+                      // start_at ASC で並べ直した位置」から算出されるので、
+                      // stamped visit_count の不整合 (途中キャンセル等で
+                      // ズレるケース) があってもバッジは正しい状態に倒れる。
                       const isNew =
                         !isSlotBlock &&
                         !appt.isContinuedBilling &&
                         appt.isNewCustomer;
+                      const isSecondVisit =
+                        !isSlotBlock &&
+                        !appt.isContinuedBilling &&
+                        !isNew &&
+                        appt.isSecondVisit;
+                      const isMember =
+                        !isSlotBlock &&
+                        !appt.isContinuedBilling &&
+                        !isNew &&
+                        appt.hasActivePlan;
                       const isPast = appt.status === 2;
                       const isInProgress = appt.status === 1;
                       const isCancelled = appt.status === 3 || appt.status === 99;
@@ -663,7 +675,16 @@ export function ReservationCalendar({
                         statusBadgeColor = "bg-orange-100 text-orange-700";
                       }
 
-                      const visitLabel = isNew || isSlotBlock ? null : "会員";
+                      // 4 状態: 新規 / 会員 / 2回目 / なし
+                      const visitLabel = isSlotBlock
+                        ? null
+                        : isNew
+                          ? null // 新規は別ブロックでソース色 + "新規" を描画
+                          : isMember
+                            ? "会員"
+                            : isSecondVisit
+                              ? "2回目"
+                              : null;
 
                       const isBeingDragged = isDraggingReal && dragAppt?.id === appt.id;
 
@@ -876,7 +897,13 @@ export function ReservationCalendar({
                                 </span>
                               ) : (
                                 visitLabel && (
-                                  <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[10px] font-bold text-white">
+                                  <span
+                                    className={`shrink-0 rounded px-1 py-0 text-[10px] font-bold text-white ${
+                                      isSecondVisit
+                                        ? "bg-violet-500"
+                                        : "bg-blue-500"
+                                    }`}
+                                  >
                                     {visitLabel}
                                   </span>
                                 )
