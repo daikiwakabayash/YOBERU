@@ -617,12 +617,15 @@ export function WeeklyReservationCalendar({
                       );
                     }
 
-                    // 新規判定: 「今日登録された顧客」だけを新規とみなす
-                    // (= customers.created_at >= 当日00:00 JST)。前日以前に
-                    // 登録済みの既存顧客は visit_count の値に関わらず会員扱い。
-                    // 継続決済 (サブスク月次課金の幽霊予約) も新規扱いにしない。
+                    // 来店区分バッジ: 新規 / 会員 / 2回目 / なし。
+                    // visit 番号は customer 履歴の start_at ASC index から
+                    // 算出された値を使う (getWeeklyCalendarData 側で計算済)。
                     const isNew =
                       !appt.isContinuedBilling && appt.isNewCustomer;
+                    const isSecondVisit =
+                      !appt.isContinuedBilling && !isNew && appt.isSecondVisit;
+                    const isMember =
+                      !appt.isContinuedBilling && !isNew && appt.hasActivePlan;
                     const isPast = appt.status === 2;
                     const isInProgress = appt.status === 1;
                     const isCancelled = appt.status === 3 || appt.status === 99;
@@ -737,11 +740,15 @@ export function WeeklyReservationCalendar({
                               >
                                 {appt.source ? `${appt.source}新規` : "新規"}
                               </span>
-                            ) : (
+                            ) : isMember ? (
                               <span className="shrink-0 rounded bg-blue-500 px-1 py-0 text-[10px] font-bold text-white">
                                 会員
                               </span>
-                            )}
+                            ) : isSecondVisit ? (
+                              <span className="shrink-0 rounded bg-violet-500 px-1 py-0 text-[10px] font-bold text-white">
+                                2回目
+                              </span>
+                            ) : null}
                             {statusBadge && (
                               <span
                                 className={`shrink-0 rounded px-1 py-0 text-[10px] font-bold ${statusBadgeColor}`}

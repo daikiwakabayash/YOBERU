@@ -268,8 +268,56 @@ export async function getWeeklyCalendarData(
     // Column may not exist yet
   }
 
-  // 6. Build appointment list. The 新規 badge follows the same rule as
-  //    getCalendarData: customer registered today only (otherwise existing).
+  // 6a. 来店区分バッジのために、顧客の本来の来店順を再計算する。
+  //     stamped visit_count は customer.visit_count + 1 で固定されるため、
+  //     1 回目を完了する前に 2 回目を入れた場合などにズレるが、ここで
+  //     start_at ASC のインデックスから引き直すことで正しい値に倒す。
+  //     詳細は getCalendarData.ts のコメント参照。
+  const customerIds = Array.from(
+    new Set(
+      (appointments ?? [])
+        .map((a) => a.customer_id as number | null)
+        .filter((v): v is number => v != null)
+    )
+  );
+  const visitOrderMap = new Map<number, string[]>();
+  const activePlanCustomerIds = new Set<number>();
+  if (customerIds.length > 0) {
+    const [historyRes, plansRes] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("customer_id, start_at, status, type, is_continued_billing")
+        .in("customer_id", customerIds)
+        .is("deleted_at", null)
+        .order("start_at"),
+      supabase
+        .from("customer_plans")
+        .select("customer_id")
+        .in("customer_id", customerIds)
+        .eq("status", 0)
+        .is("deleted_at", null),
+    ]);
+    type HistoryRow = {
+      customer_id: number;
+      start_at: string;
+      status: number;
+      type: number | null;
+      is_continued_billing: boolean | null;
+    };
+    for (const row of (historyRes.data ?? []) as HistoryRow[]) {
+      if (row.status === 3 || row.status === 4 || row.status === 99) continue;
+      if (row.type !== 0) continue;
+      if (row.is_continued_billing) continue;
+      const arr = visitOrderMap.get(row.customer_id) ?? [];
+      arr.push(row.start_at);
+      visitOrderMap.set(row.customer_id, arr);
+    }
+    for (const row of (plansRes.data ?? []) as Array<{ customer_id: number }>) {
+      activePlanCustomerIds.add(row.customer_id);
+    }
+  }
+
+  // 6. Build appointment list.
   const calendarAppointments: CalendarAppointment[] = (
     appointments ?? []
   ).map((a) => {
@@ -290,14 +338,24 @@ export async function getWeeklyCalendarData(
       ? sourceMap.get(a.visit_source_id as number)
       : null;
     const menu = menuMap.get(a.menu_manage_id) ?? null;
-    const apptVisitCount =
+    const stampedVisitCount =
       (a.visit_count as number | null) ?? customer?.visit_count ?? 0;
+    let actualVisitNumber = stampedVisitCount;
+    if (a.customer_id) {
+      const order = visitOrderMap.get(a.customer_id as number);
+      if (order) {
+        const idx = order.indexOf(a.start_at);
+        if (idx >= 0) actualVisitNumber = idx + 1;
+      }
+    }
+    const apptVisitCount = actualVisitNumber;
+    const hasActivePlan = a.customer_id
+      ? activePlanCustomerIds.has(a.customer_id as number)
+      : false;
 
-    // 新規 = この予約が顧客の初回予約 (visit_count == 1)。
-    // 旧実装は customer.created_at >= apptDayStartMs を見ていたが、
-    // 今日 (4/25) 登録した顧客の 5/1 予約が「会員」表示になる不具合が
-    // あった (created_at < 5/1 のため false に倒れる)。
-    const isNewCustomer = apptVisitCount === 1;
+    // 新規 = 顧客の初回来店、2回目 = まだ会員プラン無しの 2 回目
+    const isNewCustomer = actualVisitNumber === 1;
+    const isSecondVisit = actualVisitNumber === 2 && !hasActivePlan;
 
     const slotBlock = resolveSlotBlock(
       a.type,
@@ -322,6 +380,8 @@ export async function getWeeklyCalendarData(
       duration: menu?.duration ?? 0,
       memo: a.memo ?? null,
       isNewCustomer,
+      isSecondVisit,
+      hasActivePlan,
       visitCount: apptVisitCount,
       source: sourceInfo?.name ?? null,
       sourceColor: sourceInfo?.color ?? null,

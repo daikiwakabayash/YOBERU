@@ -4,6 +4,7 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { bookingLinkSchema } from "../schema/bookingLink.schema";
 import { getNextCustomerCode } from "@/feature/customer/services/getNextCustomerCode";
 import { revalidatePath } from "next/cache";
+import { roundIsoMinuteUp } from "@/helper/utils/time";
 
 function parseForm(raw: Record<string, FormDataEntryValue>) {
   return bookingLinkSchema.safeParse({
@@ -324,7 +325,9 @@ export async function submitPublicBooking(formData: FormData) {
   const menuManageId = String(raw.menu_manage_id);
   const staffId = raw.staff_id ? Number(raw.staff_id) : null;
   const startAt = String(raw.start_at); // "YYYY-MM-DDTHH:MM:00"
-  const endAt = String(raw.end_at);
+  // end_at は 5 分丸め UP で正規化 (メニュー duration の打ち間違いで
+  // HH:59 のような端数で送られてくるのを防ぐ)
+  const endAt = roundIsoMinuteUp(String(raw.end_at), 5);
   const lastName = String(raw.last_name || "");
   const firstName = String(raw.first_name || "");
   const lastNameKana = String(raw.last_name_kana || "") || null;

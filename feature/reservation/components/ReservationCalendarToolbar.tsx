@@ -114,6 +114,12 @@ export function ReservationCalendarToolbar({
 
   function confirmAggregate() {
     setAggregateOpen(false);
+    // 集計実行 → 売上ダッシュボード (= 日報を含む) を当日範囲で開く。
+    // /sales ページは force-dynamic + getDailyReport を都度実行するので、
+    // 遷移と同時に当日の日報が再計算・反映される。router.refresh() は
+    // App Router 側のサーバーコンポーネントキャッシュを念のため
+    // 無効化して、別タブで完了した予約の即時反映も保証する。
+    router.refresh();
     router.push(`/sales?start=${currentDate}&end=${currentDate}`);
   }
 

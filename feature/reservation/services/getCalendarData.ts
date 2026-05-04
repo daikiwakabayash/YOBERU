@@ -363,6 +363,65 @@ export async function getCalendarData(
     }
   }
 
+  // 5. 顧客ごとの「実際の来店順位」と「会員 (active customer_plans を持つか)」
+  //    を集計する。
+  //
+  //    なぜ recompute するか:
+  //    appointments.visit_count は createAppointment 時に customer.visit_count
+  //    + 1 で stamp されるが、customer.visit_count は completeAppointment が
+  //    呼ばれた時にしか加算されないため、
+  //      - 1 回目が status=完了 になる前に 2 回目を予約 / 振替えた
+  //      - 1 回目をキャンセル → 2 回目を予約
+  //    といった運用フローでは「2 回目なのに stamped visit_count = 1」と
+  //    なって新規バッジが誤表示される。 ← 5/8 18:00 赫 知子の事例。
+  //    ここで全ての非キャンセル予約を start_at ASC で並べ直し、
+  //    本予約のインデックス + 1 を「真の来店回数」として再計算する。
+  const customerIds = Array.from(
+    new Set(
+      (appointments ?? [])
+        .map((a) => a.customer_id as number | null)
+        .filter((v): v is number => v != null)
+    )
+  );
+  const visitOrderMap = new Map<number, string[]>(); // customer_id -> sorted ISO start_at list
+  const activePlanCustomerIds = new Set<number>();
+  if (customerIds.length > 0) {
+    const [historyRes, plansRes] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("customer_id, start_at, status, type, is_continued_billing")
+        .in("customer_id", customerIds)
+        .is("deleted_at", null)
+        .order("start_at"),
+      supabase
+        .from("customer_plans")
+        .select("customer_id")
+        .in("customer_id", customerIds)
+        .eq("status", 0)
+        .is("deleted_at", null),
+    ]);
+    type HistoryRow = {
+      customer_id: number;
+      start_at: string;
+      status: number;
+      type: number | null;
+      is_continued_billing: boolean | null;
+    };
+    for (const row of (historyRes.data ?? []) as HistoryRow[]) {
+      // 来店としてカウントしないもの: キャンセル / no-show / slot block /
+      // 継続決済 (サブスク月次課金の幽霊予約)
+      if (row.status === 3 || row.status === 4 || row.status === 99) continue;
+      if (row.type !== 0) continue;
+      if (row.is_continued_billing) continue;
+      const arr = visitOrderMap.get(row.customer_id) ?? [];
+      arr.push(row.start_at);
+      visitOrderMap.set(row.customer_id, arr);
+    }
+    for (const row of (plansRes.data ?? []) as Array<{ customer_id: number }>) {
+      activePlanCustomerIds.add(row.customer_id);
+    }
+  }
+
   // 5. Build appointment list
   const calendarAppointments: CalendarAppointment[] = (
     appointments ?? []
@@ -386,11 +445,29 @@ export async function getCalendarData(
       ? sourceMap.get(a.visit_source_id as number)
       : null;
     const menu = menuMap.get(a.menu_manage_id) ?? null;
-    const apptVisitCount =
+    // 真の来店回数: customer の非キャンセル・非 slot block 予約を
+    // start_at ASC で並べ替えて、このレコードのインデックス + 1 を取る。
+    // 該当しない場合 (= slot block, customer_id 無し) は stamped 値に
+    // フォールバック。
+    const stampedVisitCount =
       (a.visit_count as number | null) ?? customer?.visit_count ?? 0;
+    let actualVisitNumber = stampedVisitCount;
+    if (a.customer_id) {
+      const order = visitOrderMap.get(a.customer_id as number);
+      if (order) {
+        const idx = order.indexOf(a.start_at);
+        if (idx >= 0) actualVisitNumber = idx + 1;
+      }
+    }
+    const apptVisitCount = actualVisitNumber;
+    const hasActivePlan = a.customer_id
+      ? activePlanCustomerIds.has(a.customer_id as number)
+      : false;
 
-    // 新規 = この予約が顧客の初回予約 (visit_count == 1)
-    const isNewCustomer = apptVisitCount === 1;
+    // 新規 = この予約が顧客の初回来店 (= history index 0)
+    const isNewCustomer = actualVisitNumber === 1;
+    // 2 回目 = まだ会員プランが無く、来店履歴が 2 番目
+    const isSecondVisit = actualVisitNumber === 2 && !hasActivePlan;
 
     // Resolve slot block metadata once so the UI can render the row
     // as "ミーティング / 休憩 / その他" instead of the system-placeholder
@@ -418,6 +495,8 @@ export async function getCalendarData(
       duration: menu?.duration ?? 0,
       memo: a.memo ?? null,
       isNewCustomer,
+      isSecondVisit,
+      hasActivePlan,
       visitCount: apptVisitCount,
       source: sourceInfo?.name ?? null,
       sourceColor: sourceInfo?.color ?? null,

@@ -3,6 +3,7 @@
 import { createClient } from "@/helper/lib/supabase/server";
 import { appointmentSchema } from "../schema/reservation.schema";
 import { revalidatePath } from "next/cache";
+import { roundIsoMinuteUp } from "@/helper/utils/time";
 
 /**
  * Ensure a 1-per-shop "system placeholder" customer row exists so that
@@ -247,6 +248,11 @@ export async function createAppointment(formData: FormData) {
     return { error: parsed.error.flatten().fieldErrors };
   }
 
+  // end_at を 5 分丸め UP で正規化する。メニューの duration が
+  // 59 分など端数で登録されているデータ起因で、予約が 18:59 などの
+  // 中途半端な時刻で終わるのを防ぐ (= 稼働率 % が 10 分単位で揃う)。
+  parsed.data.end_at = roundIsoMinuteUp(parsed.data.end_at, 5);
+
   // Overlap check: the same staff cannot be double-booked
   const check = await checkStaffAvailability({
     shopId: parsed.data.shop_id,
@@ -368,7 +374,8 @@ export async function updateAppointment(id: number, formData: FormData) {
   if (raw.staff_id) updateData.staff_id = Number(raw.staff_id);
   if (raw.menu_manage_id) updateData.menu_manage_id = raw.menu_manage_id;
   if (raw.start_at) updateData.start_at = raw.start_at;
-  if (raw.end_at) updateData.end_at = raw.end_at;
+  // end_at は 5 分丸め UP で正規化 (HH:59 のような中途半端を防ぐ)
+  if (raw.end_at) updateData.end_at = roundIsoMinuteUp(String(raw.end_at), 5);
   if (raw.memo !== undefined) updateData.memo = raw.memo;
   if (raw.customer_record !== undefined)
     updateData.customer_record = raw.customer_record;
