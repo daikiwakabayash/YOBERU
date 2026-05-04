@@ -1,16 +1,20 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { AgreementForm } from "@/feature/agreement/components/AgreementForm";
+import { PrintTrigger } from "@/feature/agreement/components/PrintTrigger";
 import { getAgreementByUuid } from "@/feature/agreement/services/getAgreement";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ uuid: string }>;
+  searchParams: Promise<{ print?: string }>;
 }
 
-export default async function AgreePage({ params }: Props) {
+export default async function AgreePage({ params, searchParams }: Props) {
   const { uuid } = await params;
+  const { print } = await searchParams;
   const agreement = await getAgreementByUuid(uuid);
+  const printMode = print === "1";
 
   if (!agreement || !agreement.template) {
     return (
@@ -29,8 +33,13 @@ export default async function AgreePage({ params }: Props) {
   }
 
   return (
-    <main className="min-h-[100dvh] bg-gray-50">
+    <main
+      className={`min-h-[100dvh] bg-gray-50 ${
+        printMode ? "agreement-print-mode" : ""
+      }`}
+    >
       <AgreementForm agreement={agreement} />
+      {printMode && <PrintTrigger />}
     </main>
   );
 }

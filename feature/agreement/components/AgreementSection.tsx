@@ -16,6 +16,7 @@ import {
   Trash2,
   Copy,
   CheckCircle2,
+  Printer,
 } from "lucide-react";
 import {
   createAgreement,
@@ -330,6 +331,18 @@ export function AgreementSection({
                           ? "署名済み控えを送信"
                           : "LINE / メール送信"}
                       </Button>
+                    )}
+                    {a.status === "signed" && (
+                      <Link
+                        href={`/agree/${a.uuid}?print=1`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Button size="sm" variant="outline">
+                          <Printer className="mr-1 h-3 w-3" />
+                          印刷 / PDF保存
+                        </Button>
+                      </Link>
                     )}
                     {a.status === "pending" && (
                       <Button
