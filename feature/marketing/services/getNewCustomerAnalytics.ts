@@ -157,6 +157,12 @@ export async function getNewCustomerAnalytics(params: {
   const endTsExclusive = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00+09:00`;
 
   // 1. 当月の初回来店 appointments。
+  //    status = 2 (完了) のみ対象。待機 (status=0) / 施術中 (status=1) /
+  //    キャンセル系 (3/4/99) は新規顧客の確定来店ではないので、ここで
+  //    弾くことで「予約は入ったが来店前 / キャンセル」の顧客が
+  //    新規管理タブに 離反扱いで出てくるのを防ぐ。
+  //    運用フロー: 予約表で 完了 (= 集計実行 前にお会計確定) された
+  //    タイミングで初めて当タブに反映される。
   const firstVisitRes = await supabase
     .from("appointments")
     .select(
@@ -164,6 +170,7 @@ export async function getNewCustomerAnalytics(params: {
     )
     .eq("shop_id", shopId)
     .eq("visit_count", 1)
+    .eq("status", 2)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null)
