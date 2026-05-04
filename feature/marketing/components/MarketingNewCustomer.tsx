@@ -7,7 +7,7 @@ import type {
   NewCustomerVisit,
 } from "../services/getNewCustomerAnalytics";
 import { yen, pct, num } from "./format";
-import { ReviewToggleCell } from "./ReviewToggleCell";
+import { ReviewDisplayCell } from "./ReviewToggleCell";
 
 interface MarketingNewCustomerProps {
   data: NewCustomerAnalytics;
@@ -249,18 +249,10 @@ function CustomerRow({ row }: { row: NewCustomerRow }) {
         )}
       </td>
       <td className="px-3 py-1.5 text-center">
-        <ReviewToggleCell
-          customerId={row.customerId}
-          kind="google"
-          initial={row.hasGoogleReview}
-        />
+        <ReviewDisplayCell kind="google" received={row.hasGoogleReview} />
       </td>
       <td className="px-3 py-1.5 text-center">
-        <ReviewToggleCell
-          customerId={row.customerId}
-          kind="hotpepper"
-          initial={row.hasHotpepperReview}
-        />
+        <ReviewDisplayCell kind="hotpepper" received={row.hasHotpepperReview} />
       </td>
       {cells.map((v, i) => (
         <VisitCells key={i} visit={v} />

@@ -1,66 +1,38 @@
-"use client";
-
-import { useState, useTransition } from "react";
 import { Star } from "lucide-react";
-import { setCustomerReviewStatus } from "@/feature/customer/actions/customerActions";
 
 /**
- * 新規管理タブの「G口コミ / H口コミ」セル。
- *
- * クリックで customers.google_review_received_at /
- * hotpepper_review_received_at を toggle する。
- * トグル中は disabled + opacity で連打を防ぐ。
+ * 新規管理タブの「G口コミ / H口コミ」セル (表示専用)。
  *
  * 取得済 = 黄色塗りの星、未取得 = 灰色枠の星。
+ *
+ * 値の変更は誤タップ防止のため当タブからは行わない。
+ * 取得 / 取消 は予約パネル (AppointmentDetailSheet) の
+ * 「口コミ受領チェック」セクションから操作する。
  */
-export function ReviewToggleCell({
-  customerId,
+export function ReviewDisplayCell({
   kind,
-  initial,
+  received,
 }: {
-  customerId: number;
   kind: "google" | "hotpepper";
-  initial: boolean;
+  received: boolean;
 }) {
-  const [received, setReceived] = useState(initial);
-  const [pending, startTransition] = useTransition();
-
-  function toggle() {
-    const next = !received;
-    setReceived(next);
-    startTransition(async () => {
-      const res = await setCustomerReviewStatus(customerId, {
-        [kind]: next,
-      });
-      if ("error" in res) {
-        // 失敗時は元に戻す
-        setReceived(!next);
-      }
-    });
-  }
-
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      disabled={pending}
-      aria-pressed={received}
+    <span
+      role="img"
       aria-label={
         kind === "google"
           ? received
-            ? "Google 口コミ取得済 (クリックで取消)"
-            : "Google 口コミ未取得 (クリックで取得済にする)"
+            ? "Google 口コミ取得済"
+            : "Google 口コミ未取得"
           : received
-            ? "HotPepper 口コミ取得済 (クリックで取消)"
-            : "HotPepper 口コミ未取得 (クリックで取得済にする)"
+            ? "HotPepper 口コミ取得済"
+            : "HotPepper 口コミ未取得"
       }
-      className={`inline-flex h-6 w-6 items-center justify-center rounded-full transition ${
-        received
-          ? "bg-amber-400 text-white hover:bg-amber-500"
-          : "bg-gray-100 text-gray-300 hover:bg-gray-200"
-      } ${pending ? "opacity-50" : ""}`}
+      className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${
+        received ? "bg-amber-400 text-white" : "bg-gray-100 text-gray-300"
+      }`}
     >
       <Star className="h-3.5 w-3.5" fill={received ? "currentColor" : "none"} />
-    </button>
+    </span>
   );
 }
