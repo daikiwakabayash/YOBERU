@@ -75,6 +75,23 @@ export function AgreementSection({
       toast.error("契約開始日を入力してください");
       return;
     }
+    // 次回引き落とし日 = 契約開始日 + 1 ヶ月。1/31 → 2/28 のような
+    // 月末調整はブラウザ Date に任せる (setMonth はオーバーフローしたら
+    // 自動で次月にずれるので、 setDate で 0 にすると当該月の末日に
+    // クリップできる)。
+    const nextBilling = (() => {
+      const [y, m, d] = startDate.split("-").map(Number);
+      const target = new Date(Date.UTC(y, m, d)); // m はそのまま渡すと +1 月扱い
+      // 開始日が月末を超える場合 (例: 1/31 + 1 month → 3/3 になる) を
+      // 防ぐため、月末でクリップ。
+      if (target.getUTCDate() !== d) {
+        target.setUTCDate(0); // 翌月の 0 日 = 当該月末
+      }
+      const ny = target.getUTCFullYear();
+      const nm = String(target.getUTCMonth() + 1).padStart(2, "0");
+      const nd = String(target.getUTCDate()).padStart(2, "0");
+      return `${ny}-${nm}-${nd}`;
+    })();
     start(async () => {
       const res = await createAgreement({
         customerId,
@@ -82,6 +99,7 @@ export function AgreementSection({
         vars: {
           plan_amount_yen: amt.toLocaleString(),
           contract_start_date: startDate,
+          next_billing_date: nextBilling,
         },
       });
       if (res.error) {
@@ -308,7 +326,9 @@ export function AgreementSection({
                         onClick={() => notify(a.uuid)}
                       >
                         <Send className="mr-1 h-3 w-3" />
-                        LINE / メール送信
+                        {a.status === "signed"
+                          ? "署名済み控えを送信"
+                          : "LINE / メール送信"}
                       </Button>
                     )}
                     {a.status === "pending" && (

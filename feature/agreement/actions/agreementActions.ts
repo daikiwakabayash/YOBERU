@@ -5,7 +5,11 @@ import { headers } from "next/headers";
 import { createClient } from "@/helper/lib/supabase/server";
 import { sendEmail } from "@/helper/lib/email/sendEmail";
 import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
-import { applyAgreementVars, type AgreementKind } from "../types";
+import {
+  applyAgreementVars,
+  withDerivedAgreementVars,
+  type AgreementKind,
+} from "../types";
 
 /**
  * 顧客向けに新しい同意書 (会員申込書 等) のリンクを発行する。
@@ -127,11 +131,17 @@ export async function signAgreement(params: {
   const now = new Date();
   const signedAt = now.toISOString();
   const vars = (agreement.vars as Record<string, string | number>) ?? {};
-  const bodySnapshot = applyAgreementVars(tpl.body_text as string, {
+  // contract_start_date しか入っていない古いリンクでも
+  // next_billing_date を自動計算で埋めて snapshot する。
+  const enrichedVars = withDerivedAgreementVars({
     ...vars,
     customer_name: signedName,
     signed_at: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
   });
+  const bodySnapshot = applyAgreementVars(
+    tpl.body_text as string,
+    enrichedVars
+  );
 
   // 監査用の IP / UA
   let signerIp: string | null = null;
