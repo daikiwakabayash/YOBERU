@@ -1749,6 +1749,10 @@ export function AppointmentDetailSheet({
                 </div>
               )}
             </section>
+          ) : bookingMode === "existing" ? (
+            // 既存予約モードでは来店経路を出さない (返り顧客なので
+            // 媒体タグ付けの意味が無く、画面が混むだけ)
+            null
           ) : (
             <section className="space-y-2">
               <Label className="text-xs font-bold text-gray-500">
