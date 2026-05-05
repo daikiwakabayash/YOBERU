@@ -132,7 +132,8 @@ export function AppointmentDetailSheet({
   const isExistingSlotBlock = !!existingSlotBlockCode;
 
   // ---- Booking mode --------------------------------------------------
-  // "regular"  = 通常予約 (default; existing flow)
+  // "regular"  = 新規予約 (新規顧客作成 + 検索 両方できる)
+  // "existing" = 既存予約 (検索のみ。新規顧客作成ボタンを出さない)
   // "meeting"  = スタッフ MTG 等、枠だけ抑える
   // "other"    = その他、タイトルと時間を自由入力して枠を抑える
   // "break"    = 休憩
@@ -140,7 +141,7 @@ export function AppointmentDetailSheet({
   // Defaults to whatever the existing appointment is (so clicking a
   // meeting on the calendar re-opens the meeting editor), otherwise
   // "regular" for brand-new bookings.
-  type BookingMode = "regular" | "meeting" | "other" | "break";
+  type BookingMode = "regular" | "existing" | "meeting" | "other" | "break";
   const [bookingMode, setBookingMode] = useState<BookingMode>(() => {
     if (existingSlotBlockCode === "meeting") return "meeting";
     if (existingSlotBlockCode === "other") return "other";
@@ -162,7 +163,10 @@ export function AppointmentDetailSheet({
   // からは otherLabel を排除した。サーバ側の other_label カラムは
   // 旧データ互換のため残してあるが、新規/更新の経路では空文字で
   // 上書きされるためカード表示は memo にフォールバックする。
-  const isSlotBlockMode = bookingMode !== "regular";
+  // regular / existing は通常予約 (type=0)。meeting / break / other だけ
+  // スロットブロックフォームに切り替える。
+  const isSlotBlockMode =
+    bookingMode !== "regular" && bookingMode !== "existing";
 
   // Fallback to built-in list if master data not provided
   const effectivePaymentMethods =
@@ -1425,6 +1429,24 @@ export function AppointmentDetailSheet({
                   新規予約を作成
                 </button>
               )}
+              {!isExistingSlotBlock && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBookingMode("existing");
+                    // 既存予約モードに切り替えた瞬間に「新規顧客」フォームを
+                    // 開きっぱなしにしておくと混乱するので畳む
+                    setIsCreatingCustomer(false);
+                  }}
+                  className={`min-w-[90px] flex-1 rounded-lg border-2 px-3 py-2 text-xs font-bold transition-colors ${
+                    bookingMode === "existing"
+                      ? "border-blue-400 bg-blue-50 text-blue-700"
+                      : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+                  }`}
+                >
+                  既存予約
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setBookingMode("meeting")}
@@ -1597,15 +1619,17 @@ export function AppointmentDetailSheet({
                   </div>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => setIsCreatingCustomer(true)}
-              >
-                <UserPlus className="mr-1.5 h-3.5 w-3.5" />
-                新規顧客を作成
-              </Button>
+              {bookingMode !== "existing" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setIsCreatingCustomer(true)}
+                >
+                  <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+                  新規顧客を作成
+                </Button>
+              )}
             </section>
           )}
 

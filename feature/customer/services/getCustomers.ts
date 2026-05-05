@@ -294,54 +294,62 @@ export async function searchCustomers(
   // ---------------------------------------------------------------
   // Numeric queries → カルテナンバー (customers.code) lookup.
   //
-  // Staff type just the number to pull up a returning patient, so
-  // "12" should hit customer #12 first. Because the column is stored
-  // as a string we need to match three shapes:
-  //   1. exact new-format:        code = "12"
-  //   2. legacy zero-padded:      code = "00000012"
-  //   3. partial (contains)       code ILIKE "%12%"  ← ゼロ埋め桁数に
-  //      依存せずヒットさせるため
-  // We also let phone_number_1 contain the digits (for when staff type
-  // a partial phone instead of a code). Final ranking enforces
-  // "カルテNo マッチ > 電話だけマッチ" so phone-only hits never push
-  // code hits down the list.
+  // 戦略:
+  //   STEP 1: まず厳密一致 (code = trimmed OR code = zero-padded) を
+  //           1 クエリで取得。これで "5" → カルテ #5 が必ず先頭に出る。
+  //   STEP 2: limit に余裕があれば、含む検索 (code ILIKE %d% / phone
+  //           ILIKE %d%) を別クエリで取って、STEP1 で取れた id を除外し
+  //           つつ追記する。
+  //
+  //   旧実装は 1 クエリ + ランク再ソートだったが、Postgres の OR 検索の
+  //   返却件数 (limit*3) が phone-contains の大量ヒットで埋まると、
+  //   rank=0 の唯一の厳密一致行がそもそも返却されない可能性があった。
+  //   それが「5 と入れても 5 番が出てこない」報告の原因。
   // ---------------------------------------------------------------
   if (/^\d+$/.test(trimmed)) {
     const padded = trimmed.padStart(8, "0");
-    const { data: codeHits, error: codeErr } = await supabase
+
+    // STEP 1: 厳密一致
+    const exactRes = await supabase
       .from("customers")
       .select("id, code, last_name, first_name, phone_number_1")
       .eq("shop_id", shopId)
       .is("deleted_at", null)
-      .or(
-        `code.eq.${trimmed},code.eq.${padded},code.ilike.%${trimmed}%,phone_number_1.ilike.%${trimmed}%`
-      )
-      .limit(limit * 3); // 後で tier でフィルタ/ソートするので少し多めに
-    if (codeErr) throw codeErr;
-    const rows = (codeHits ?? []) as CustomerSummary[];
+      .or(`code.eq.${trimmed},code.eq.${padded}`)
+      .limit(limit);
+    if (exactRes.error) throw exactRes.error;
+    const exactRows = (exactRes.data ?? []) as CustomerSummary[];
+    const seen = new Set(exactRows.map((r) => r.id));
 
-    // マッチ種別の判定:
-    //   0 = exact code (12 or 00000012)
-    //   1 = code が trimmed を含む (先頭一致・途中一致どちらも)
-    //   2 = phone だけのマッチ (コード側には digits が無い)
-    const rankOf = (c: CustomerSummary): number => {
-      const code = c.code ?? "";
-      if (code === trimmed || code === padded) return 0;
-      if (code.includes(trimmed)) return 1;
-      const phone = c.phone_number_1 ?? "";
-      if (phone.includes(trimmed)) return 2;
-      return 3; // fallback — 通常到達しない
-    };
+    // 厳密一致だけで limit を埋めたら return
+    if (exactRows.length >= limit) return exactRows.slice(0, limit);
 
-    rows.sort((a, b) => {
-      const ra = rankOf(a);
-      const rb = rankOf(b);
-      if (ra !== rb) return ra - rb;
-      const an = parseInt(a.code ?? "0", 10) || 0;
-      const bn = parseInt(b.code ?? "0", 10) || 0;
-      return an - bn;
-    });
-    return rows.slice(0, limit);
+    // STEP 2: 含む検索で補完。phone は数字 1-2 文字だと大量ヒットして
+    // ノイズになるため、3 文字以上の時だけ phone を含める。
+    const remaining = limit - exactRows.length;
+    const orParts = [
+      `code.ilike.%${trimmed}%`,
+      ...(trimmed.length >= 3 ? [`phone_number_1.ilike.%${trimmed}%`] : []),
+    ];
+    const looseRes = await supabase
+      .from("customers")
+      .select("id, code, last_name, first_name, phone_number_1")
+      .eq("shop_id", shopId)
+      .is("deleted_at", null)
+      .or(orParts.join(","))
+      .limit(remaining * 3);
+    if (looseRes.error) throw looseRes.error;
+    const looseRows = ((looseRes.data ?? []) as CustomerSummary[])
+      .filter((r) => !seen.has(r.id))
+      .sort((a, b) => {
+        // code を数値解釈して昇順 (= 小さいカルテ番号が上)
+        const an = parseInt(a.code ?? "0", 10) || Number.MAX_SAFE_INTEGER;
+        const bn = parseInt(b.code ?? "0", 10) || Number.MAX_SAFE_INTEGER;
+        return an - bn;
+      })
+      .slice(0, remaining);
+
+    return [...exactRows, ...looseRows];
   }
 
   // ---------------------------------------------------------------
