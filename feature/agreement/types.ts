@@ -76,26 +76,6 @@ export function applyAgreementVars(
 }
 
 /**
- * 契約開始日 (YYYY-MM-DD) から次回引き落とし日 (= +1 ヶ月) を導出する。
- * 1/31 + 1 ヶ月のような月末超過ケースは当該月末にクリップする
- * (= 2/28 / 2/29)。形式が不正なら空文字を返す。
- */
-export function computeNextBillingDate(contractStartDate: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(contractStartDate)) return "";
-  const [y, m, d] = contractStartDate.split("-").map(Number);
-  // m を「次月」として渡す (Date は 0-index 月。+1 月したいので m を渡せばよい)
-  const target = new Date(Date.UTC(y, m, d));
-  if (target.getUTCDate() !== d) {
-    // 月末超過 → 翌月 0 日 = 当該月末
-    target.setUTCDate(0);
-  }
-  const ny = target.getUTCFullYear();
-  const nm = String(target.getUTCMonth() + 1).padStart(2, "0");
-  const nd = String(target.getUTCDate()).padStart(2, "0");
-  return `${ny}-${nm}-${nd}`;
-}
-
-/**
  * vars を「派生変数も埋まった状態」に拡張する。
  *
  * 派生ルール:
@@ -104,7 +84,12 @@ export function computeNextBillingDate(contractStartDate: string): string {
  *
  * 既存 vars にユーザー指定値があればそれを優先する。
  * フォーム送信側の漏れ・古い同意書テンプレートの両方に効く。
+ *
+ * computeNextBillingDate は utils/nextBillingDate.ts に分離 (main 側で
+ * 同名 util が既に存在するためそちらに合流)。
  */
+import { computeNextBillingDate } from "./utils/nextBillingDate";
+
 export function withDerivedAgreementVars(
   vars: Record<string, string | number | undefined | null>
 ): Record<string, string | number | undefined | null> {

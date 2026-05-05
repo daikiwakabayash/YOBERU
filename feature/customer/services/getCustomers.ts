@@ -6,6 +6,11 @@ import type { Customer, CustomerSummary } from "../types";
 interface GetCustomersOptions {
   search?: string;
   type?: number;
+  /**
+   * ページネーション (省略可)。指定すると range() で絞る。
+   * 顧客一覧画面はページングを廃止して縦スクロール 1 ページに統一したため
+   * 通常は省略する。サジェスト等で 上限を切りたいケースのみ使用。
+   */
   page?: number;
   perPage?: number;
 }
@@ -14,7 +19,7 @@ export async function getCustomers(
   shopId: number,
   options: GetCustomersOptions = {}
 ): Promise<{ data: Customer[]; totalCount: number }> {
-  const { search, type, page = 1, perPage = 20 } = options;
+  const { search, type, page, perPage } = options;
   const supabase = await createClient();
 
   let query = supabase
@@ -34,9 +39,12 @@ export async function getCustomers(
     query = query.eq("type", type);
   }
 
-  const from = (page - 1) * perPage;
-  const to = from + perPage - 1;
-  query = query.range(from, to);
+  // ページ指定があるときだけ range() を適用 (サジェスト等の用途)
+  if (page != null && perPage != null) {
+    const from = (page - 1) * perPage;
+    const to = from + perPage - 1;
+    query = query.range(from, to);
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;

@@ -10,6 +10,8 @@ interface BookingCompleteViewProps {
   showLineButton: boolean;
   lineButtonText: string | null;
   lineButtonUrl: string | null;
+  /** 顧客固有 LINE 紐付け URL (/line/link/<token>) — あれば最優先で表示 */
+  customerLineLinkUrl?: string | null;
   lang?: Lang;
 }
 
@@ -18,6 +20,7 @@ export function BookingCompleteView({
   showLineButton,
   lineButtonText,
   lineButtonUrl,
+  customerLineLinkUrl,
   lang = "ja",
 }: BookingCompleteViewProps) {
   const { t } = useT(lang);
@@ -50,8 +53,25 @@ export function BookingCompleteView({
           )}
         </p>
 
-        {/* LINE button */}
-        {showLineButton && lineButtonUrl && (
+        {/* 顧客固有の LINE 紐付け CTA (最優先) */}
+        {customerLineLinkUrl && (
+          <a
+            href={customerLineLinkUrl}
+            className="mb-3 flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 text-center text-sm font-bold leading-snug text-white hover:bg-emerald-600"
+          >
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px]">
+              L
+            </span>
+            <span className="whitespace-pre-line">
+              公式 LINE はこちら
+              {"\n"}
+              (予約確認 / リマインド受信)
+            </span>
+          </a>
+        )}
+
+        {/* 既存の link.line_button (フォールバック / 友だち追加 URL 等) */}
+        {showLineButton && lineButtonUrl && !customerLineLinkUrl && (
           <a
             href={lineButtonUrl}
             target="_blank"

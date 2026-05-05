@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ExternalLink, CheckCircle2 } from "lucide-react";
 import { getShopAgreements } from "@/feature/agreement/services/getAgreement";
+import { AgreementTopTabs } from "@/feature/agreement/components/AgreementTopTabs";
 import {
   AGREEMENT_KIND_LABEL,
   AGREEMENT_STATUS_LABEL,
@@ -20,7 +21,7 @@ interface Props {
 const TABS: { key: AgreementKind | "all"; label: string }[] = [
   { key: "all", label: "すべて" },
   { key: "membership", label: "会員申込書" },
-  { key: "receipt", label: "領収書 (Phase 2)" },
+  { key: "receipt", label: "領収書" },
 ];
 
 export default async function AgreementListPage({ searchParams }: Props) {
@@ -40,6 +41,8 @@ export default async function AgreementListPage({ searchParams }: Props) {
         description="会員申込書 / 領収書 等の電子契約一覧"
       />
       <div className="space-y-4 p-3 sm:p-6">
+        <AgreementTopTabs />
+
         {/* タブ */}
         <div className="flex flex-wrap gap-2 border-b pb-2">
           {TABS.map((t) => {

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Printer } from "lucide-react";
 import { signAgreement } from "../actions/agreementActions";
 import {
   applyAgreementVars,
@@ -23,6 +23,41 @@ interface Props {
 }
 
 /**
+ * 領収書 (kind='receipt') 専用のビュー。
+ * 顧客側の署名は不要、印刷ボタンのみ。
+ */
+function ReceiptView({ agreement }: Props) {
+  const body = agreement.bodySnapshot ?? "";
+  return (
+    <div className="mx-auto max-w-2xl space-y-4 p-3 sm:p-6">
+      <Card className="border-amber-200 bg-amber-50/40 print:hidden">
+        <CardContent className="space-y-1 p-4">
+          <div className="text-xs text-amber-800 font-bold">領収書</div>
+          <p className="text-xs text-gray-600">
+            下記の通り受領いたしました。控えとして保管してください。
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-6 print:p-2">
+          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-800">
+            {body}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-center print:hidden">
+        <Button type="button" onClick={() => window.print()} size="lg">
+          <Printer className="mr-2 h-4 w-4" />
+          印刷 / PDF 保存
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * /agree/<uuid> 公開ページの署名フォーム。
  *
  * - 全文表示 (テンプレート + vars 埋め込み)
@@ -33,6 +68,11 @@ interface Props {
  * 既に signed の場合は read-only の控え表示。
  */
 export function AgreementForm({ agreement }: Props) {
+  // 領収書は専用ビュー (署名不要)
+  if (agreement.kind === "receipt") {
+    return <ReceiptView agreement={agreement} />;
+  }
+
   const router = useRouter();
   const [pending, start] = useTransition();
   const isSigned = agreement.status === "signed";

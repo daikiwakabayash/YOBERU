@@ -12,6 +12,7 @@ interface BookingCompletePageProps {
     date?: string;
     time?: string;
     lang?: string;
+    link_token?: string;
   }>;
 }
 
@@ -35,10 +36,14 @@ interface BookingCompletePageProps {
 export default async function BookingCompletePage({
   searchParams,
 }: BookingCompletePageProps) {
-  const { slug, date, time, lang } = await searchParams;
+  const { slug, date, time, lang, link_token } = await searchParams;
   const initialLang: Lang = lang === "en" ? "en" : "ja";
 
   const link = slug ? await getBookingLinkBySlug(slug) : null;
+
+  // line_link_token があれば、それを優先して /line/link/<token> を案内する
+  // (顧客固有の紐付けリンク → LIFF で line_user_id を取得して紐付け完了)
+  const customerLineLinkUrl = link_token ? `/line/link/${link_token}` : null;
 
   // Load tag templates so GTM fires on this URL too.
   const tagTemplateIds = link
@@ -72,6 +77,7 @@ export default async function BookingCompletePage({
           showLineButton={link?.show_line_button ?? false}
           lineButtonText={link?.line_button_text ?? null}
           lineButtonUrl={link?.line_button_url ?? null}
+          customerLineLinkUrl={customerLineLinkUrl}
           lang={initialLang}
         />
       </div>

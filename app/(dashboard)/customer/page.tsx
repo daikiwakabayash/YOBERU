@@ -10,7 +10,7 @@ import { getActiveShopId } from "@/helper/lib/shop-context";
 export const dynamic = "force-dynamic";
 
 interface CustomerListPageProps {
-  searchParams: Promise<{ search?: string; type?: string; page?: string }>;
+  searchParams: Promise<{ search?: string; type?: string }>;
 }
 
 export default async function CustomerListPage({ searchParams }: CustomerListPageProps) {
@@ -20,10 +20,10 @@ export default async function CustomerListPage({ searchParams }: CustomerListPag
   let totalCount = 0;
 
   try {
+    // ページングは廃止。全件を一気に取得して縦スクロールで見せる。
     const result = await getCustomers(shopId, {
       search: params.search,
       type: params.type !== undefined ? Number(params.type) : undefined,
-      page: params.page ? Number(params.page) : 1,
     });
     customers = result.data;
     totalCount = result.totalCount;

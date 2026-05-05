@@ -63,6 +63,15 @@ export default async function StoreDetailPage({ params }: StoreDetailPageProps) 
     line_channel_id: store.line_channel_id ?? "",
     line_channel_secret: store.line_channel_secret ?? "",
     line_channel_access_token: store.line_channel_access_token ?? "",
+    line_basic_id: store.line_basic_id ?? "",
+    line_add_friend_url: store.line_add_friend_url ?? "",
+    customer_can_cancel: store.customer_can_cancel ?? true,
+    customer_can_modify: store.customer_can_modify ?? false,
+    customer_cancel_deadline_hours: store.customer_cancel_deadline_hours ?? 24,
+    meta_ad_account_id: store.meta_ad_account_id ?? "",
+    meta_access_token: store.meta_access_token ?? "",
+    tiktok_advertiser_id: store.tiktok_advertiser_id ?? "",
+    tiktok_access_token: store.tiktok_access_token ?? "",
   };
 
   return (
