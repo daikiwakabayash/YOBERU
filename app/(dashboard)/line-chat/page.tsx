@@ -2,6 +2,7 @@ import { getActiveShopId } from "@/helper/lib/shop-context";
 import { getLineChats } from "@/feature/line-chat/services/getLineChats";
 import Link from "next/link";
 import { MessageCircle } from "lucide-react";
+import { LinkCustomerDialog } from "@/feature/line-chat/components/LinkCustomerDialog";
 
 export const dynamic = "force-dynamic";
 
@@ -49,50 +50,73 @@ export default async function LineChatIndexPage() {
               const key = c.customerId
                 ? `c-${c.customerId}`
                 : `u-${c.lineUserId}`;
-              const href = c.customerId
-                ? `/line-chat/${c.customerId}`
-                : `#`;
               const unread = c.unreadCount > 0;
-              return (
-                <li key={key}>
-                  <Link
-                    href={href}
-                    className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50"
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 text-sm font-semibold text-green-700">
-                      {c.customerName.slice(0, 1)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-semibold text-gray-900">
-                          {c.customerName}
-                          {!c.customerId && (
-                            <span className="ml-2 text-xs text-gray-400">
-                              (未紐付け)
-                            </span>
-                          )}
-                        </p>
-                        <p className="shrink-0 text-xs text-gray-400">
-                          {formatRelative(c.lastMessageAt)}
-                        </p>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2">
-                        <p
-                          className={`truncate text-sm ${unread ? "font-medium text-gray-900" : "text-gray-500"}`}
-                        >
-                          {c.lastDirection === "outbound" && (
-                            <span className="mr-1 text-gray-400">→</span>
-                          )}
-                          {c.lastMessage ?? "(本文なし)"}
-                        </p>
-                        {unread && (
-                          <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
-                            {c.unreadCount}
+              const inner = (
+                <div className="flex items-center gap-4 px-4 py-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 text-sm font-semibold text-green-700">
+                    {c.customerName.slice(0, 1)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-semibold text-gray-900">
+                        {c.customerName}
+                        {!c.customerId && (
+                          <span className="ml-2 text-xs text-amber-600">
+                            (未紐付け)
                           </span>
                         )}
-                      </div>
+                      </p>
+                      <p className="shrink-0 text-xs text-gray-400">
+                        {formatRelative(c.lastMessageAt)}
+                      </p>
                     </div>
-                  </Link>
+                    <div className="mt-1 flex items-center gap-2">
+                      <p
+                        className={`truncate text-sm ${unread ? "font-medium text-gray-900" : "text-gray-500"}`}
+                      >
+                        {c.lastDirection === "outbound" && (
+                          <span className="mr-1 text-gray-400">→</span>
+                        )}
+                        {c.lastMessage ?? "(本文なし)"}
+                      </p>
+                      {unread && (
+                        <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
+                          {c.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+
+              if (c.customerId) {
+                return (
+                  <li key={key}>
+                    <Link
+                      href={`/line-chat/${c.customerId}`}
+                      className="block hover:bg-gray-50"
+                    >
+                      {inner}
+                    </Link>
+                  </li>
+                );
+              }
+
+              // 未紐付け: クリック遷移できない代わりに「顧客に紐付ける」UI を出す
+              return (
+                <li key={key}>
+                  <div className="hover:bg-gray-50">
+                    {inner}
+                    <div className="flex items-center justify-between gap-2 border-t bg-amber-50/40 px-4 py-2">
+                      <p className="text-xs text-amber-700">
+                        この LINE ユーザーはまだ顧客に紐付いていません。リマインドは送られません。
+                      </p>
+                      <LinkCustomerDialog
+                        shopId={shopId}
+                        lineUserId={c.lineUserId}
+                      />
+                    </div>
+                  </div>
                 </li>
               );
             })}

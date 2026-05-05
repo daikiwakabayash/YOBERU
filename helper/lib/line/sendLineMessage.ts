@@ -75,7 +75,19 @@ export async function sendLineMessage(
       ? `${input.text.slice(0, 4990)}...(以下省略)`
       : input.text;
 
-  const result = await (async (): Promise<SendLineResult> => {
+  // 429 (rate limit) / 5xx は 1 回だけ exponential backoff retry する。
+  // LINE Messaging API は push に日次・月次クオータがあり、大量配信時に
+  // 429 を返す。一度の retry でも瞬間的なスパイクは吸収できる。
+  // 401 / 403 / 4xx はクライアント設定の問題なので retry しない。
+  const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+  async function attempt(): Promise<{
+    ok: boolean;
+    status: number;
+    detail: string;
+    requestId?: string;
+    networkError?: string;
+  }> {
     try {
       const res = await fetch(LINE_PUSH_ENDPOINT, {
         method: "POST",
@@ -88,31 +100,47 @@ export async function sendLineMessage(
           messages: [{ type: "text", text }],
         }),
       });
-
       const requestId = res.headers.get("x-line-request-id") ?? undefined;
-
-      if (!res.ok) {
-        let detail = "";
-        try {
-          const j = (await res.json()) as { message?: string };
-          detail = j?.message ?? "";
-        } catch {
-          /* ignore */
-        }
-        return {
-          success: false,
-          error: `LINE 送信失敗 (status=${res.status}) ${detail}`.trim(),
-          requestId,
-        };
+      if (res.ok) return { ok: true, status: res.status, detail: "", requestId };
+      let detail = "";
+      try {
+        const j = (await res.json()) as { message?: string };
+        detail = j?.message ?? "";
+      } catch {
+        /* ignore */
       }
-
-      return { success: true, requestId };
+      return { ok: false, status: res.status, detail, requestId };
     } catch (err) {
       return {
-        success: false,
-        error: err instanceof Error ? err.message : "LINE 送信時の例外",
+        ok: false,
+        status: 0,
+        detail: "",
+        networkError:
+          err instanceof Error ? err.message : "LINE 送信時の例外",
       };
     }
+  }
+
+  const result = await (async (): Promise<SendLineResult> => {
+    let attemptResult = await attempt();
+    if (
+      !attemptResult.ok &&
+      (RETRYABLE_STATUS.has(attemptResult.status) || attemptResult.networkError)
+    ) {
+      await new Promise((r) => setTimeout(r, 1000));
+      attemptResult = await attempt();
+    }
+    if (attemptResult.ok) {
+      return { success: true, requestId: attemptResult.requestId };
+    }
+    if (attemptResult.networkError) {
+      return { success: false, error: attemptResult.networkError };
+    }
+    return {
+      success: false,
+      error: `LINE 送信失敗 (status=${attemptResult.status}) ${attemptResult.detail}`.trim(),
+      requestId: attemptResult.requestId,
+    };
   })();
 
   // 送信ログを保存 (失敗時も残す)。保存エラーは握りつぶす

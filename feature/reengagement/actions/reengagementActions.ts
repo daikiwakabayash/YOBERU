@@ -253,7 +253,38 @@ export async function sendReengagementCampaign(
       continue;
     }
 
-    // 3. クーポン発行
+    // 3. claim-based lock
+    //    送信前に reengagement_logs を status='sent' で INSERT する。
+    //    migration 00043 の partial UNIQUE (customer_id, segment, sent_date)
+    //    WHERE status='sent' に守られているため、手動配信と cron の race
+    //    で 2 通飛ぶのを構造的に防ぐ。INSERT 失敗 = 既に同日送信済 → skip。
+    //    送信失敗時は status を 'failed' に update して再送可能にする
+    //    (failed は UNIQUE 対象外)。
+    const claimRow = {
+      brand_id: input.brandId,
+      shop_id: input.shopId,
+      customer_id: c.id,
+      segment: input.segment,
+      channel: hasLine ? "line" : "email",
+      status: "sent",
+      message: null as string | null,
+      coupon_plan_id: null as number | null,
+      error_message: null as string | null,
+    };
+    const { data: claimed, error: claimErr } = await supabase
+      .from("reengagement_logs")
+      .insert(claimRow)
+      .select("id")
+      .maybeSingle();
+    if (claimErr || !claimed) {
+      // UNIQUE 違反 (同日既に sent あり) = 別キャンペーン / cron が既に
+      // 送信済 → cooldown 扱い。
+      result.skippedCooldown++;
+      continue;
+    }
+    const logId = claimed.id as number;
+
+    // 4. クーポン発行 (送信権を握れた呼び出しだけが発行する)
     let couponPlanId: number | null = null;
     let couponLine = "";
     if (couponMenu) {
@@ -282,13 +313,13 @@ export async function sendReengagementCampaign(
       }
     }
 
-    // 4. テンプレ置換
+    // 5. テンプレ置換
     const rendered = message
       .replaceAll("{customer_name}", customerName || "お客")
       .replaceAll("{shop_name}", shopName)
       .replaceAll("{coupon_name}", couponLine);
 
-    // 5. 送信
+    // 6. 送信
     let channel: "line" | "email" = hasLine ? "line" : "email";
     let sendOk = false;
     let errMsg: string | null = null;
@@ -315,17 +346,19 @@ export async function sendReengagementCampaign(
       errMsg = r.error ?? null;
     }
 
-    await insertLog(supabase, {
-      brandId: input.brandId,
-      shopId: input.shopId,
-      customerId: c.id,
-      segment: input.segment,
-      channel,
-      status: sendOk ? "sent" : "failed",
-      message: rendered,
-      couponPlanId,
-      errorMessage: errMsg,
-    });
+    // 7. claim を確定状態に update。
+    //    sendOk なら status='sent' のまま (既に INSERT 済) で詳細を埋める。
+    //    sendOk = false なら status='failed' に変更して再送可能化。
+    await supabase
+      .from("reengagement_logs")
+      .update({
+        channel,
+        status: sendOk ? "sent" : "failed",
+        message: rendered,
+        coupon_plan_id: couponPlanId,
+        error_message: errMsg,
+      })
+      .eq("id", logId);
 
     if (sendOk) result.sent++;
     else result.failed++;

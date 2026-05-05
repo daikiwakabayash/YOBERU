@@ -147,6 +147,9 @@ export function PublicBookingWizard({
       time: state.time,
       lang,
     });
+    // LIFF 連携トークンは submitPublicBooking が HttpOnly Cookie に
+    // セット済 (URL には乗せない)。/booking-complete サーバ側でその
+    // cookie を読んで LIFF ボタンの URL を組み立てる。
     window.location.assign(`/booking-complete?${params.toString()}`);
   }
 

@@ -69,6 +69,9 @@ export const translations = {
     step4Body:
       "予約内容の確認メールをお送りしました。当日お会いできるのを楽しみにしております。",
     contactLine: "LINEで相談する",
+    linkLineForReminder: "LINEで予約リマインドを受け取る",
+    linkLineDescription:
+      "公式LINEを友だち追加すると、予約日前にリマインドが届きます。",
 
     // Errors / general
     selectionIncomplete: "選択内容が不完全です",
@@ -130,6 +133,9 @@ export const translations = {
     step4Body:
       "We have sent a confirmation email. We look forward to seeing you on the day.",
     contactLine: "Chat on LINE",
+    linkLineForReminder: "Receive booking reminders on LINE",
+    linkLineDescription:
+      "Add our official LINE account as a friend to get reminders before your appointment.",
 
     // Errors / general
     selectionIncomplete: "Some required selections are missing",
