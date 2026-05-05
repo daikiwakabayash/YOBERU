@@ -23,7 +23,7 @@ const CatchmentMap = dynamic(
 
 interface Props {
   data: CatchmentData;
-  visitSources: Array<{ id: number; name: string }>;
+  visitSources: Array<{ id: number; name: string; color?: string | null }>;
   shopId: number;
 }
 

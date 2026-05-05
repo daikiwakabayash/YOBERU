@@ -9,12 +9,16 @@ import {
   MapPinned,
   Sparkles,
   Globe,
+  Megaphone,
+  LineChart,
 } from "lucide-react";
 
 export type MarketingTabKey =
   | "overview"
   | "shop"
   | "new-customer"
+  | "meta-ads"
+  | "meta-analysis"
   | "catchment"
   | "ai"
   | "market";
@@ -27,6 +31,8 @@ const TABS: Array<{
 }> = [
   { key: "overview", label: "概要", icon: LayoutDashboard },
   { key: "new-customer", label: "新規管理", icon: UserPlus },
+  { key: "meta-ads", label: "メタ広告", icon: Megaphone },
+  { key: "meta-analysis", label: "メタ分析", icon: LineChart },
   { key: "catchment", label: "商圏", icon: MapPinned },
   { key: "ai", label: "AI分析", icon: Sparkles, disabled: true },
   { key: "market", label: "市場", icon: Globe, disabled: true },

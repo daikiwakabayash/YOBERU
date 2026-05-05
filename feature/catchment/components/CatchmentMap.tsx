@@ -23,13 +23,17 @@ import type {
 
 interface Props {
   data: CatchmentData;
-  visitSources: Array<{ id: number; name: string }>;
+  visitSources: Array<{ id: number; name: string; color?: string | null }>;
   shopId: number;
 }
 
 type ColorMode = "status" | "source" | "age";
 
-const SOURCE_COLORS = [
+/** visit_sources.color が未設定 (NULL) のときに使うフォールバックパレット。
+ *  実運用ではマスター画面で色を直接編集できるので、ここに来るのは
+ *  テストデータ等で color を埋め忘れたケースだけ。
+ */
+const SOURCE_COLOR_FALLBACKS = [
   "#ef4444", // red
   "#3b82f6", // blue
   "#10b981", // emerald
@@ -210,7 +214,17 @@ export function CatchmentMap({ data, visitSources, shopId }: Props) {
 
   const sourceColorMap = useMemo(() => {
     const m = new Map<number | null, string>();
-    visitSources.forEach((s, i) => m.set(s.id, SOURCE_COLORS[i % SOURCE_COLORS.length]));
+    // visit_sources マスターで設定した color (= 予約カードのバッジと同じ
+    // パレット) を最優先で使う。チラシ = 紫 のような店舗側設定が
+    // この地図にも反映されるようにする。color が無い (NULL) 場合だけ
+    // index 由来のフォールバック色に倒す。
+    visitSources.forEach((s, i) => {
+      const color =
+        s.color && s.color.trim() !== ""
+          ? s.color
+          : SOURCE_COLOR_FALLBACKS[i % SOURCE_COLOR_FALLBACKS.length];
+      m.set(s.id, color);
+    });
     m.set(null, "#9ca3af");
     return m;
   }, [visitSources]);
@@ -340,7 +354,7 @@ export function CatchmentMap({ data, visitSources, shopId }: Props) {
         <div>
           <div className="mb-2 text-xs font-bold text-gray-700">媒体</div>
           <div className="flex flex-col gap-1 text-xs">
-            {visitSources.map((s, i) => (
+            {visitSources.map((s) => (
               <label key={s.id} className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -354,7 +368,10 @@ export function CatchmentMap({ data, visitSources, shopId }: Props) {
                 />
                 <span
                   className="inline-block h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: SOURCE_COLORS[i % SOURCE_COLORS.length] }}
+                  style={{
+                    backgroundColor:
+                      sourceColorMap.get(s.id) ?? "#9ca3af",
+                  }}
                 />
                 {s.name}
               </label>
@@ -572,6 +589,11 @@ export function CatchmentMap({ data, visitSources, shopId }: Props) {
                   key={r}
                   center={[data.shop!.lat, data.shop!.lng]}
                   radius={r * 1000}
+                  // interactive=false にしないと、半径円が顧客ピン
+                  // (CircleMarker) のクリックを横取りして「ピンをタップ
+                  // しても popup が開かない」状態になる。半径円は
+                  // 視覚装飾だけのレイヤーなのでイベントを通す。
+                  interactive={false}
                   pathOptions={{
                     color: "#3b82f6",
                     weight: 1,

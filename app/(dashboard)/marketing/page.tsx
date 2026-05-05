@@ -6,6 +6,9 @@ import type { MarketingTabKey } from "@/feature/marketing/components/MarketingTa
 import { MarketingShopBreakdown } from "@/feature/marketing/components/MarketingShopBreakdown";
 import { MarketingNewCustomer } from "@/feature/marketing/components/MarketingNewCustomer";
 import { CatchmentMapWrapper } from "@/feature/catchment/components/CatchmentMapWrapper";
+import { MetaAdsTab } from "@/feature/meta-ads/components/MetaAdsTab";
+import { MetaAnalysisTab } from "@/feature/meta-ads/components/MetaAnalysisTab";
+import { getMetaAdsSummary } from "@/feature/meta-ads/services/getMetaAdsSummary";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
 import { getNewCustomerAnalytics } from "@/feature/marketing/services/getNewCustomerAnalytics";
@@ -60,6 +63,8 @@ const VALID_TABS = new Set<MarketingTabKey>([
   "overview",
   "shop",
   "new-customer",
+  "meta-ads",
+  "meta-analysis",
   "catchment",
   "ai",
   "market",
@@ -132,21 +137,98 @@ export default async function MarketingPage({
       });
       return <MarketingNewCustomer data={data} />;
     }
+    if (tab === "meta-ads" || tab === "meta-analysis") {
+      // 期間を Asia/Tokyo の YYYY-MM-DD に揃える。startMonth は YYYY-MM
+      // なのでその月の 1 日 〜 endMonth の月末。
+      const [sy, sm] = startMonth.split("-").map(Number);
+      const [ey, em] = endMonth.split("-").map(Number);
+      const startDate = `${startMonth}-01`;
+      const endDate = (() => {
+        const lastDay = new Date(ey, em, 0).getDate();
+        return `${endMonth}-${String(lastDay).padStart(2, "0")}`;
+      })();
+      void sy;
+      void sm; // 一応 lint 対策。startMonth はそのまま使うので未使用警告だけ抑える。
+      const summary = await getMetaAdsSummary({ shopId, startDate, endDate });
+      if (tab === "meta-ads") {
+        return (
+          <MetaAdsTab
+            data={summary}
+            startDate={startDate}
+            endDate={endDate}
+          />
+        );
+      }
+      // メタ分析: appointments を visit_source = メタ で集計
+      const metaAccount = await supabase
+        .from("meta_ad_accounts")
+        .select("visit_source_id")
+        .eq("shop_id", shopId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      const metaSourceId = metaAccount.data?.visit_source_id as
+        | number
+        | null
+        | undefined;
+      const apptRes = await supabase
+        .from("appointments")
+        .select("status, sales, visit_source_id, last_visit_date")
+        .eq("shop_id", shopId)
+        .gte("start_at", `${startDate}T00:00:00+09:00`)
+        .lt("start_at", `${endDate}T23:59:59+09:00`)
+        .is("deleted_at", null);
+      type ApptRow = {
+        status: number;
+        sales: number | null;
+        visit_source_id: number | null;
+      };
+      const allRows = (apptRes.data ?? []) as ApptRow[];
+      const isVisited = (s: number) => s === 1 || s === 2;
+      const sumSales = (rs: ApptRow[]) =>
+        rs
+          .filter((r) => r.status === 2)
+          .reduce((s, r) => s + (r.sales ?? 0), 0);
+      const meta = metaSourceId
+        ? allRows.filter((r) => r.visit_source_id === metaSourceId)
+        : [];
+      const metaApptStats = {
+        bookings: meta.length,
+        visits: meta.filter((r) => isVisited(r.status)).length,
+        sales: sumSales(meta),
+      };
+      const allStats = {
+        bookings: allRows.length,
+        visits: allRows.filter((r) => isVisited(r.status)).length,
+        sales: sumSales(allRows),
+      };
+      return (
+        <MetaAnalysisTab
+          startDate={startDate}
+          endDate={endDate}
+          metaTotals={summary.totals}
+          metaAppointments={metaApptStats}
+          allMedia={allStats}
+        />
+      );
+    }
     if (tab === "catchment") {
       // 商圏タブ: 顧客住所 geocode → 地図ピン表示。
       // 期間フィルタはクライアント側で行うので、サーバは全顧客を返す。
       const [catchmentData, sourcesForMap] = await Promise.all([
         getCatchmentCustomers({ shopId }),
         (async () => {
+          // 商圏マップは visit_sources.color (= 予約バッジと同じ色) を
+          // ピンに反映させたいので、ここで color も取得する。
           const sRes = await supabase
             .from("visit_sources")
-            .select("id, name")
+            .select("id, name, color")
             .eq("shop_id", shopId)
             .is("deleted_at", null)
             .order("sort_number", { ascending: true, nullsFirst: false });
           return (sRes.data ?? []).map((s) => ({
             id: s.id as number,
             name: s.name as string,
+            color: (s.color as string | null) ?? null,
           }));
         })(),
       ]);
