@@ -588,15 +588,31 @@ export async function submitPublicBooking(formData: FormData) {
 
   revalidatePath("/reservation");
 
-  // 予約完了画面の「LINE 連携」ボタンに使う署名済 token。
-  // LIFF 経由で customers.line_user_id を確定するために使う。
-  // 秘密鍵未設定なら null (= ボタンは表示されない)。
+  // 予約完了画面の「LINE 連携」ボタンに使う署名済 token を発行し、
+  // **HttpOnly Cookie** にセットする。URL に乗せると referer / GTM /
+  // ブラウザ履歴経由で漏えいするリスクがあるため、cookie で
+  // /booking-complete (Path 限定) にだけ送る。
+  //
+  // 秘密鍵 (LIFF_LINK_SECRET) 未設定なら null が返り、cookie を設定
+  // しない (= 完了画面で LINE 連携ボタンが表示されない)。
   const { signLinkToken } = await import("@/helper/lib/line/liffLinkToken");
   const linkToken = signLinkToken(customerId);
+  if (linkToken) {
+    const { cookies } = await import("next/headers");
+    const store = await cookies();
+    store.set({
+      name: "yoberu_link_token",
+      value: linkToken,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/booking-complete",
+      maxAge: 60 * 60, // 1 時間 (完了画面を見る間だけ有効)
+    });
+  }
 
   return {
     success: true as const,
     customerId,
-    linkToken,
   };
 }

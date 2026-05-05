@@ -71,11 +71,17 @@ export function BookingCompleteView({
           </a>
         )}
 
-        {/* LIFF: LINE で予約リマインドを受け取る (連携) */}
+        {/* LIFF: LINE で予約リマインドを受け取る (連携)。
+            href には署名済 link_token が含まれるため、referer 経由で
+            外部 (GTM / 広告 SDK / 第三者リンク先) に漏えいしないよう
+            rel="noreferrer" を付ける。完了画面マウント時には
+            CleanupLinkToken で URL からも消されるが、href のクリック
+            遷移時は当然 token が必要なので残す。 */}
         {liffLinkUrl && (
           <div className="mt-4 w-full max-w-xs">
             <a
               href={liffLinkUrl}
+              rel="noreferrer noopener"
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#06C755] px-5 py-3 text-center text-sm font-bold leading-snug text-white hover:bg-[#05a647]"
             >
               <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px]">

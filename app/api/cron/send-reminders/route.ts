@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/helper/lib/supabase/server";
 import { sendEmail } from "@/helper/lib/email/sendEmail";
 import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
+import { toLocalDateString } from "@/helper/utils/time";
 import type { ReminderSetting } from "@/feature/booking-link/types";
 
 /**
@@ -73,9 +74,11 @@ function renderTemplate(template: string, ctx: ReminderContext): string {
 }
 
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T00:00:00");
+  // dateStr は JST の YYYY-MM-DD。JST 正午基準で日数加算してから JST 文字列に
+  // 戻すことで DST 影響なくシフトする (JST に DST は無いが念のため)。
+  const d = new Date(`${dateStr}T12:00:00+09:00`);
   d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return toLocalDateString(d);
 }
 
 export async function GET(request: NextRequest) {
@@ -115,10 +118,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const today = (() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  })();
+  // 「今日」は Asia/Tokyo 基準で計算する。new Date() の素直な利用は
+  // サーバの UTC で日付が決まるため、JST 0:00〜9:00 の cron 実行で
+  // 前日扱いになり、当日リマインドが消える事故を起こす。CLAUDE.md の
+  // 規約に従い toLocalDateString を使う。
+  const today = toLocalDateString(new Date());
 
   const results: Array<{
     appointment_id: number;
@@ -152,12 +156,33 @@ export async function GET(request: NextRequest) {
       const { data: appts } = await apptQuery;
       const appointments = (appts ?? []) as AppointmentForReminder[];
 
-      // 同じ顧客が同じ日に複数予約を持っていても 1 回しか通知しない。
-      // 既存 UNIQUE(appointment_id, type, offset_days) では「同じ予約」
-      // のみ防げないため、先に per-customer 単位でデデュップする。
-      // 先にソートして古い予約 (朝) を残し、後続 (昼) はスキップ。
+      // まず「既に送信済 (reminder_logs にエントリあり)」を 1 クエリで
+      // 引いてバルクで除外する。N+1 回避 + 後続の per-customer dedup が
+      // 「未送信予約のみを対象」にできるようにするのが目的。
+      //
+      // 旧実装は dedup → existingLog 順だったため、「同じ顧客の朝予約と
+      // 夕方予約」のうち朝を送って log した後、毎回 dedup で夕予約が
+      // 除外され続け、夕予約のリマインドが永遠に送られないバグがあった。
+      const apptIdsForCheck = appointments.map((a) => a.id);
+      let alreadySentIds = new Set<number>();
+      if (apptIdsForCheck.length > 0) {
+        const { data: existingLogs } = await supabase
+          .from("reminder_logs")
+          .select("appointment_id")
+          .in("appointment_id", apptIdsForCheck)
+          .eq("type", setting.type)
+          .eq("offset_days", setting.offset_days);
+        alreadySentIds = new Set(
+          (existingLogs ?? []).map((l) => l.appointment_id as number)
+        );
+      }
+      const unsent = appointments.filter((a) => !alreadySentIds.has(a.id));
+
+      // 未送信予約のうち、同じ顧客が複数件持つ場合は最早の 1 件だけ通知
+      // (連投回避)。次回 cron では今回送った 1 件が alreadySentIds に
+      // 入るので、同じ顧客の次の予約が dedup で残って通知される。
       const seenCustomerIds = new Set<number>();
-      const dedupedAppointments = appointments
+      const dedupedAppointments = unsent
         .slice()
         .sort((a, b) => a.start_at.localeCompare(b.start_at))
         .filter((a) => {
@@ -167,18 +192,6 @@ export async function GET(request: NextRequest) {
         });
 
       for (const appt of dedupedAppointments) {
-        // 3. Check if already sent (同じ appointment / type / offset_days)
-        const { data: existingLog } = await supabase
-          .from("reminder_logs")
-          .select("id")
-          .eq("appointment_id", appt.id)
-          .eq("type", setting.type)
-          .eq("offset_days", setting.offset_days)
-          .maybeSingle();
-        if (existingLog) {
-          continue; // already sent
-        }
-
 
         // 4. Build context
         const [customer, staff, menu, shop] = await Promise.all([

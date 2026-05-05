@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { getBookingLinkBySlug } from "@/feature/booking-link/services/getBookingLinks";
 import { getTagTemplatesByIds } from "@/feature/tag-template/services/getTagTemplates";
 import { TagInjector } from "@/feature/tag-template/components/TagInjector";
@@ -12,8 +13,6 @@ interface BookingCompletePageProps {
     date?: string;
     time?: string;
     lang?: string;
-    /** LIFF 連携用 (署名済 customer token)。submitPublicBooking が発行 */
-    link_token?: string;
   }>;
 }
 
@@ -37,18 +36,23 @@ interface BookingCompletePageProps {
 export default async function BookingCompletePage({
   searchParams,
 }: BookingCompletePageProps) {
-  const { slug, date, time, lang, link_token } = await searchParams;
+  const { slug, date, time, lang } = await searchParams;
   const initialLang: Lang = lang === "en" ? "en" : "ja";
 
   // LIFF 連携 URL を組み立てる。
-  // - 環境変数 NEXT_PUBLIC_LINE_LIFF_ID と link_token の両方がある時だけ
-  //   ボタンを出す。どちらか欠けるなら null (= 表示しない)。
+  // - 環境変数 NEXT_PUBLIC_LINE_LIFF_ID と link_token cookie の両方が
+  //   ある時だけボタンを出す。どちらか欠けるなら null (= 表示しない)。
+  // - link_token は submitPublicBooking が HttpOnly cookie にセット
+  //   している。URL で受け渡すと referer / GTM 経由で漏えいしうる
+  //   ため cookie 経由に統一。
   // - LIFF アプリが /line/liff にマウントされており、そこで
   //   ?action=link&token=... を解釈して紐付けする。
   const liffId = process.env.NEXT_PUBLIC_LINE_LIFF_ID;
+  const cookieStore = await cookies();
+  const linkToken = cookieStore.get("yoberu_link_token")?.value ?? null;
   const liffLinkUrl =
-    liffId && link_token
-      ? `https://liff.line.me/${liffId}?action=link&token=${encodeURIComponent(link_token)}`
+    liffId && linkToken
+      ? `https://liff.line.me/${liffId}?action=link&token=${encodeURIComponent(linkToken)}`
       : null;
 
   const link = slug ? await getBookingLinkBySlug(slug) : null;

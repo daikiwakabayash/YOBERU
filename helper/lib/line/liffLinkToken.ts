@@ -9,14 +9,18 @@ import crypto from "crypto";
  *     cid: customers.id
  *     exp: 失効 unix 秒
  *
- * 秘密鍵は LIFF_LINK_SECRET env。未設定なら CRON_SECRET を流用。両方無
- * ければ署名検証を行わず常に失敗扱いにする (= 未設定環境では機能 OFF)。
+ * 秘密鍵は LIFF_LINK_SECRET env。未設定なら null を返して機能 OFF にする
+ * (= 予約完了画面の LINE 連携ボタンが表示されず、verify も常に失敗)。
+ *
+ * 旧実装は CRON_SECRET をフォールバックに使っていたが、cron 認可と
+ * 顧客紐付け署名で同じ秘密鍵を共有することになり、片方が漏えいすると
+ * もう片方も破られるため廃止。両者は用途・公開範囲が異なる。
  */
 
 const DEFAULT_TTL_SEC = 60 * 60 * 24 * 7; // 7 日
 
 function getSecret(): string | null {
-  return process.env.LIFF_LINK_SECRET || process.env.CRON_SECRET || null;
+  return process.env.LIFF_LINK_SECRET || null;
 }
 
 function b64url(buf: Buffer): string {
