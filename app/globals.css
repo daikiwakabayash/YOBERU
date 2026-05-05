@@ -128,3 +128,22 @@
     @apply font-sans;
   }
 }
+
+/* /agree/<uuid>?print=1 で開かれた電子契約ページの印刷用スタイル。
+   操作ボタン (送信 / 取消 / 戻る等) を全て隠して、契約本文と
+   署名・チェック内容だけを綺麗に PDF 化できるようにする。
+   data-print-hide="true" を持つ要素を一律非表示にすることで、
+   コンポーネント側はマーカーを置くだけで印刷時に消える。 */
+@media print {
+  body {
+    background: white !important;
+  }
+  .agreement-print-mode [data-print-hide="true"],
+  .agreement-print-mode button,
+  .agreement-print-mode [role="button"] {
+    display: none !important;
+  }
+  .agreement-print-mode {
+    background: white !important;
+  }
+}

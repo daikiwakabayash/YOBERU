@@ -37,6 +37,43 @@ function formatCustomerCode(code: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : "0";
 }
 
+/**
+ * 稼働率バッジの tooltip。本数式と各予約の分類内訳を
+ * 一望できるように複数行で組み立てる。22% など 違和感の
+ * ある数値が出た時に「どの予約が分子に乗っているか」を
+ * その場で確認できるようにする。
+ */
+function buildUtilizationTooltip(staff: CalendarData["staffs"][number]): string {
+  const lines: string[] = [];
+  lines.push(`本日の稼働率`);
+  lines.push(`開放 ${staff.openMin}分 / 稼働 ${staff.busyMin}分`);
+  if (staff.utilizationContributions.length === 0) {
+    return lines.join("\n");
+  }
+  const fmtTime = (iso: string) => iso.slice(11, 16);
+  const fmtKind = (
+    c: CalendarData["staffs"][number]["utilizationContributions"][number]
+  ) => {
+    if (c.kind === "busy") return "+busy";
+    if (c.kind === "break") return "-open(休憩)";
+    // skip 内訳: キャンセル系 / MTG / その他
+    if (c.status === 3) return "skip(キャンセル)";
+    if (c.status === 4) return "skip(当日キャンセル)";
+    if (c.status === 99) return "skip(no-show)";
+    if (c.type !== 0) {
+      return `skip(${c.slotBlockTypeCode ?? "slot-block"})`;
+    }
+    return "skip";
+  };
+  lines.push("---");
+  for (const c of staff.utilizationContributions) {
+    lines.push(
+      `${fmtTime(c.startAt)}-${fmtTime(c.endAt)} ${c.min}分 [${fmtKind(c)}]`
+    );
+  }
+  return lines.join("\n");
+}
+
 export function ReservationCalendar({
   data,
   date,
@@ -448,7 +485,7 @@ export function ReservationCalendar({
                     </span>
                     <span
                       className={`rounded px-1 py-0.5 text-[9px] font-bold ${rateClass}`}
-                      title={`本日の稼働率 — 開放 ${staff.openMin}分 / 稼働 ${staff.busyMin}分`}
+                      title={buildUtilizationTooltip(staff)}
                     >
                       {ratePct != null ? `${ratePct}%` : "—"}
                     </span>

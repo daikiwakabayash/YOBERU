@@ -11,7 +11,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, ShieldCheck, Printer } from "lucide-react";
 import { signAgreement } from "../actions/agreementActions";
-import { applyAgreementVars, type AgreementRow } from "../types";
+import {
+  applyAgreementVars,
+  withDerivedAgreementVars,
+  type AgreementRow,
+} from "../types";
 import { SignaturePad } from "./SignaturePad";
 
 interface Props {
@@ -92,14 +96,32 @@ export function AgreementForm({ agreement }: Props) {
   );
 
   // 表示用本文 (sign 済みなら body_snapshot をそのまま、未署名なら vars 適用済みプレビュー)
+  // body_snapshot に未置換のプレースホルダ (旧バージョン由来の {{next_billing_date}} 等) が
+  // 残っていれば、ここで派生 vars を当てて再置換する。
+  // legal な署名内容そのものは変えず、レンダリング時のみフォールバック。
   const displayBody = useMemo(() => {
-    if (isSigned && agreement.bodySnapshot) return agreement.bodySnapshot;
+    if (isSigned && agreement.bodySnapshot) {
+      if (!/\{\{\w+\}\}/.test(agreement.bodySnapshot)) {
+        return agreement.bodySnapshot;
+      }
+      const enriched = withDerivedAgreementVars({
+        ...agreement.vars,
+        customer_name: agreement.customerName ?? agreement.signedName ?? "",
+        signed_at: agreement.signedAt
+          ? new Date(agreement.signedAt).toLocaleString("ja-JP", {
+              timeZone: "Asia/Tokyo",
+            })
+          : "",
+      });
+      return applyAgreementVars(agreement.bodySnapshot, enriched);
+    }
     if (!agreement.template) return "";
-    return applyAgreementVars(agreement.template.bodyText, {
+    const enriched = withDerivedAgreementVars({
       ...agreement.vars,
       customer_name: agreement.customerName ?? "",
       signed_at: "（署名時に確定）",
     });
+    return applyAgreementVars(agreement.template.bodyText, enriched);
   }, [agreement, isSigned]);
 
   function submit() {

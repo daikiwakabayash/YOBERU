@@ -108,6 +108,18 @@ export interface CalendarAppointment {
   consumedAmount: number;
 }
 
+/** デバッグ可視化用に「どの予約が稼働率の何 (busy / break / skip) に
+ *  分類されたか」を 1 行ずつ持つ。tooltip に表示する。 */
+export interface UtilizationContribution {
+  kind: "busy" | "break" | "skip";
+  startAt: string;
+  endAt: string;
+  min: number;
+  status: number;
+  type: number | null;
+  slotBlockTypeCode: string | null;
+}
+
 export interface CalendarData {
   staffs: Array<{
     id: number;
@@ -122,6 +134,8 @@ export interface CalendarData {
     openMin: number;
     /** Minutes booked today by status 1 / 2 appointments (numerator). */
     busyMin: number;
+    /** 各予約の分類内訳。tooltip で表示してデバッグできるように。 */
+    utilizationContributions: UtilizationContribution[];
   }>;
   appointments: CalendarAppointment[];
   timeSlots: string[];

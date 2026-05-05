@@ -33,12 +33,27 @@ import { getShopAvailability } from "@/feature/booking-link/services/getShopAvai
  * 計算には入れない").
  */
 
+export interface StaffUtilizationContribution {
+  /** 'busy' = busyMin に加算 (= 通常予約)
+   *  'break' = openMin から差し引き (= 休憩)
+   *  'skip' = 集計対象外 (= MTG / その他 / キャンセル系) */
+  kind: "busy" | "break" | "skip";
+  startAt: string;
+  endAt: string;
+  min: number;
+  status: number;
+  type: number | null;
+  slotBlockTypeCode: string | null;
+}
+
 export interface StaffUtilizationRow {
   staffId: number;
   staffName: string;
   openMin: number;
   busyMin: number;
   rate: number; // 0..1, 0 when openMin === 0
+  /** その staff の当日内訳。デバッグ / 透明化用に tooltip で見せる。 */
+  contributions: StaffUtilizationContribution[];
 }
 
 function parseHHMM(s: string | null | undefined): number | null {
@@ -80,6 +95,7 @@ export async function getDailyStaffUtilization(
       openMin,
       busyMin: 0,
       rate: 0,
+      contributions: [],
     });
   }
 
@@ -112,39 +128,58 @@ export async function getDailyStaffUtilization(
     type: number | null;
     slot_block_type_code: string | null;
   };
+  function getOrCreateRow(staffId: number): StaffUtilizationRow {
+    let row = result.get(staffId);
+    if (!row) {
+      row = {
+        staffId,
+        staffName: "",
+        openMin: 0,
+        busyMin: 0,
+        rate: 0,
+        contributions: [],
+      };
+      result.set(staffId, row);
+    }
+    return row;
+  }
+
   for (const a of (apptRes ?? []) as AppointmentLite[]) {
-    // Exclude cancelled / no-show; everything else (waiting, in-progress,
-    // completed) counts as "枠に予約が入ってる" 稼働時間.
-    if (a.status === 3 || a.status === 4 || a.status === 99) continue;
     const sMin = parseHHMM(a.start_at?.slice(11, 16));
     const eMin = parseHHMM(a.end_at?.slice(11, 16));
     if (sMin == null || eMin == null) continue;
     const dur = Math.max(0, eMin - sMin);
+    const row = getOrCreateRow(a.staff_id);
+    const baseContribution = {
+      startAt: a.start_at,
+      endAt: a.end_at,
+      min: dur,
+      status: a.status,
+      type: a.type,
+      slotBlockTypeCode: a.slot_block_type_code ?? null,
+    };
+    // Exclude cancelled / no-show; everything else (waiting, in-progress,
+    // completed) counts as "枠に予約が入ってる" 稼働時間.
+    if (a.status === 3 || a.status === 4 || a.status === 99) {
+      row.contributions.push({ ...baseContribution, kind: "skip" });
+      continue;
+    }
     // 休憩は予約を受けられない時間 → 開放時間 (openMin) から差し引く。
     // MTG / その他は稼働率の分母に残す (=スタッフは打席に立っている)。
     if (a.type !== 0 && a.slot_block_type_code === "break") {
-      const row = result.get(a.staff_id);
-      if (row) row.openMin = Math.max(0, row.openMin - dur);
+      row.openMin = Math.max(0, row.openMin - dur);
+      row.contributions.push({ ...baseContribution, kind: "break" });
       continue;
     }
     // 休憩以外の slot block (MTG / その他 / カスタム) は busyMin に加算
     // しない (本人が予約に立てない時間ではあるが、運用上は稼働率 100%
     // にしないでおく)。
-    if (a.type !== 0) continue;
-    let row = result.get(a.staff_id);
-    if (!row) {
-      // Off-shift staff with appointments — still track them (rate
-      // will be 0/0 = 0; we surface "稼働率 -" in the UI for these)
-      row = {
-        staffId: a.staff_id,
-        staffName: "",
-        openMin: 0,
-        busyMin: 0,
-        rate: 0,
-      };
-      result.set(a.staff_id, row);
+    if (a.type !== 0) {
+      row.contributions.push({ ...baseContribution, kind: "skip" });
+      continue;
     }
     row.busyMin += dur;
+    row.contributions.push({ ...baseContribution, kind: "busy" });
   }
 
   // 3. Finalize rate
@@ -224,6 +259,7 @@ export async function getRangeStaffUtilization(
             openMin: 0,
             busyMin: 0,
             rate: 0,
+            contributions: [],
           };
           result.set(s.staffId, row);
         }
@@ -285,6 +321,7 @@ export async function getRangeStaffUtilization(
         openMin: 0,
         busyMin: 0,
         rate: 0,
+        contributions: [],
       };
       result.set(a.staff_id, row);
     }

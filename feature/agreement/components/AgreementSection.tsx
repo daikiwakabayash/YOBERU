@@ -16,6 +16,7 @@ import {
   Trash2,
   Copy,
   CheckCircle2,
+  Printer,
 } from "lucide-react";
 import {
   createAgreement,
@@ -124,6 +125,9 @@ export function AgreementSection({
       return;
     }
     start(async () => {
+      // 次回引き落とし日は utils/nextBillingDate.ts で算出 (1/31→2/28 等の
+      // 月末クリップ込み)。サーバ側 createAgreement でも fallback で
+      // 補完されるが、ここで明示送信しておくほうが意図が明確。
       const nextBillingDate = computeNextBillingDate(startDate);
       const res = await createAgreement({
         customerId,
@@ -438,8 +442,22 @@ export function AgreementSection({
                         onClick={() => notify(a.uuid)}
                       >
                         <Send className="mr-1 h-3 w-3" />
-                        LINE / メール送信
+                        {a.status === "signed"
+                          ? "署名済み控えを送信"
+                          : "LINE / メール送信"}
                       </Button>
+                    )}
+                    {a.status === "signed" && (
+                      <Link
+                        href={`/agree/${a.uuid}?print=1`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Button size="sm" variant="outline">
+                          <Printer className="mr-1 h-3 w-3" />
+                          印刷 / PDF保存
+                        </Button>
+                      </Link>
                     )}
                     {a.status === "pending" && (
                       <Button

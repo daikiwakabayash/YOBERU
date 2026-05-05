@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, Trash2, Search, ChevronRight, Phone } from "lucide-react";
+import { Eye, Trash2, Search, ChevronRight, ChevronLeft, Phone } from "lucide-react";
 import { deleteCustomer } from "../actions/customerActions";
 import { toast } from "sonner";
 import type { Customer } from "../types";
@@ -35,6 +35,22 @@ export function CustomerList({ customers, totalCount }: CustomerListProps) {
   const searchParams = useSearchParams();
   const [searchValue, setSearchValue] = useState(searchParams.get("search") ?? "");
   const [debounceTimer, setDebounceTimer] = useState<NodeJS.Timeout | null>(null);
+
+  // ページング: getCustomers と同じく 1 ページ 20 件固定。
+  // 「全 ○○ 件」と「< / > ボタン」を表で出すために、現在ページと
+  // 総ページ数をここで計算する。
+  const PER_PAGE = 20;
+  const currentPage = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
+  const totalPages = Math.max(1, Math.ceil(totalCount / PER_PAGE));
+
+  function pushPage(nextPage: number) {
+    const clamped = Math.min(Math.max(1, nextPage), totalPages);
+    const params = new URLSearchParams(searchParams.toString());
+    if (clamped <= 1) params.delete("page");
+    else params.set("page", String(clamped));
+    router.push(`/customer?${params.toString()}`);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+  }
 
   const pushSearch = useCallback(
     (value: string) => {
@@ -116,7 +132,12 @@ export function CustomerList({ customers, totalCount }: CustomerListProps) {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        全 {totalCount} 件
+        全 {totalCount} 件{" "}
+        {totalPages > 1 && (
+          <span>
+            （{currentPage} / {totalPages} ページ）
+          </span>
+        )}
       </p>
 
       {/* モバイル: カード一覧 (sm 未満で表示) */}
@@ -247,6 +268,33 @@ export function CustomerList({ customers, totalCount }: CustomerListProps) {
           </TableBody>
         </Table>
       </div>
+
+      {/* ページング (デスクトップ / モバイル共通)。1 ページに収まる場合は非表示 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={currentPage <= 1}
+            onClick={() => pushPage(currentPage - 1)}
+          >
+            <ChevronLeft className="mr-1 h-4 w-4" />
+            前へ
+          </Button>
+          <span className="px-2 text-xs text-gray-500">
+            {currentPage} / {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={currentPage >= totalPages}
+            onClick={() => pushPage(currentPage + 1)}
+          >
+            次へ
+            <ChevronRight className="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

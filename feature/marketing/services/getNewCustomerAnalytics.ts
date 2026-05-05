@@ -45,6 +45,10 @@ export interface NewCustomerRow {
   planName: string | null; // BRD-PLAN-* メニュー名、無ければ null
   isMemberJoin: boolean;
   isChurned: boolean; // 未来予約がない
+  /** Google 口コミ受領済み (customers.google_review_received_at IS NOT NULL) */
+  hasGoogleReview: boolean;
+  /** HotPepper 口コミ受領済み (customers.hotpepper_review_received_at IS NOT NULL) */
+  hasHotpepperReview: boolean;
   /** この顧客が合計で購入 (入会 / 回数券 / サブスク) した回数。
    *  マーカー付き visit の数を集計したもの。 */
   purchaseCount: number;
@@ -157,6 +161,12 @@ export async function getNewCustomerAnalytics(params: {
   const endTsExclusive = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00+09:00`;
 
   // 1. 当月の初回来店 appointments。
+  //    status = 2 (完了) のみ対象。待機 (status=0) / 施術中 (status=1) /
+  //    キャンセル系 (3/4/99) は新規顧客の確定来店ではないので、ここで
+  //    弾くことで「予約は入ったが来店前 / キャンセル」の顧客が
+  //    新規管理タブに 離反扱いで出てくるのを防ぐ。
+  //    運用フロー: 予約表で 完了 (= 集計実行 前にお会計確定) された
+  //    タイミングで初めて当タブに反映される。
   const firstVisitRes = await supabase
     .from("appointments")
     .select(
@@ -164,6 +174,7 @@ export async function getNewCustomerAnalytics(params: {
     )
     .eq("shop_id", shopId)
     .eq("visit_count", 1)
+    .eq("status", 2)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null)
@@ -250,9 +261,15 @@ export async function getNewCustomerAnalytics(params: {
       .gte("start_at", startTs)
       .lt("start_at", endTsExclusive)
       .is("deleted_at", null),
+    // 口コミ受領状態は customers.google_review_received_at /
+    // hotpepper_review_received_at に保存されているので、新規管理表でも
+    // セルに表示できるよう一緒に取得する。マイグレーション 00009 未適用の
+    // 環境では列が無いため、エラーになったら別 SELECT でフォールバック。
     supabase
       .from("customers")
-      .select("id, code, last_name, first_name")
+      .select(
+        "id, code, last_name, first_name, google_review_received_at, hotpepper_review_received_at"
+      )
       .in("id", customerIds),
     staffIds.length
       ? supabase.from("staffs").select("id, name").in("id", staffIds)
@@ -278,6 +295,35 @@ export async function getNewCustomerAnalytics(params: {
       .is("deleted_at", null),
   ]);
 
+  // 口コミ列が無い環境向けフォールバック: SELECT が失敗したら 列を
+  // 落として再取得し、UI 側は has*Review = false で描画する。
+  // typegen が google_review_received_at を必須として推論することがある
+  // ので、fallback を許容する型に明示キャストする。
+  type CustomerSelectRow = {
+    id: number;
+    code: string | null;
+    last_name: string | null;
+    first_name: string | null;
+    google_review_received_at?: string | null;
+    hotpepper_review_received_at?: string | null;
+  };
+  let customersData =
+    (customersRes.data as CustomerSelectRow[] | null) ?? null;
+  if (customersRes.error) {
+    const msg = String(customersRes.error.message ?? "");
+    if (
+      msg.includes("google_review_received_at") ||
+      msg.includes("hotpepper_review_received_at") ||
+      msg.includes("does not exist")
+    ) {
+      const retry = await supabase
+        .from("customers")
+        .select("id, code, last_name, first_name")
+        .in("id", customerIds);
+      customersData = (retry.data as CustomerSelectRow[] | null) ?? null;
+    }
+  }
+
   const allAppts = (allApptsRes.data ?? []) as ApptRow[];
   const monthAppts = (monthApptsRes.data ?? []) as Array<{
     sales: number | null;
@@ -288,13 +334,29 @@ export async function getNewCustomerAnalytics(params: {
 
   const customerMap = new Map<
     number,
-    { code: string | null; last_name: string | null; first_name: string | null }
+    {
+      code: string | null;
+      last_name: string | null;
+      first_name: string | null;
+      hasGoogleReview: boolean;
+      hasHotpepperReview: boolean;
+    }
   >();
-  for (const c of customersRes.data ?? []) {
-    customerMap.set(c.id as number, {
-      code: (c.code as string | null) ?? null,
-      last_name: (c.last_name as string | null) ?? null,
-      first_name: (c.first_name as string | null) ?? null,
+  type CustomerRowExt = {
+    id: number;
+    code: string | null;
+    last_name: string | null;
+    first_name: string | null;
+    google_review_received_at?: string | null;
+    hotpepper_review_received_at?: string | null;
+  };
+  for (const c of (customersData ?? []) as CustomerRowExt[]) {
+    customerMap.set(c.id, {
+      code: c.code ?? null,
+      last_name: c.last_name ?? null,
+      first_name: c.first_name ?? null,
+      hasGoogleReview: !!c.google_review_received_at,
+      hasHotpepperReview: !!c.hotpepper_review_received_at,
     });
   }
   const staffMap = new Map<number, string>(
@@ -396,6 +458,8 @@ export async function getNewCustomerAnalytics(params: {
       planName,
       isMemberJoin: !!joinAppt,
       isChurned: !hasFuture,
+      hasGoogleReview: customer?.hasGoogleReview ?? false,
+      hasHotpepperReview: customer?.hasHotpepperReview ?? false,
       purchaseCount,
       visits: visitList,
     };

@@ -99,7 +99,10 @@ export async function getCalendarData(
     // Utilization — previously serial AFTER appointments. Now parallel.
     getDailyStaffUtilization(shopId, date).catch(
       () =>
-        new Map<number, { openMin: number; busyMin: number; rate: number }>()
+        new Map<
+          number,
+          import("@/feature/sales/services/getStaffUtilization").StaffUtilizationRow
+        >()
     ),
   ]);
 
@@ -325,6 +328,7 @@ export async function getCalendarData(
       utilizationRate: u && u.openMin > 0 ? u.rate : null,
       openMin: u?.openMin ?? 0,
       busyMin: u?.busyMin ?? 0,
+      utilizationContributions: u?.contributions ?? [],
     };
   });
 
@@ -359,6 +363,7 @@ export async function getCalendarData(
         utilizationRate: u && u.openMin > 0 ? u.rate : null,
         openMin: u?.openMin ?? 0,
         busyMin: u?.busyMin ?? 0,
+        utilizationContributions: u?.contributions ?? [],
       });
     }
   }

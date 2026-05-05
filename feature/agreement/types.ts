@@ -74,3 +74,35 @@ export function applyAgreementVars(
     return String(v);
   });
 }
+
+/**
+ * vars を「派生変数も埋まった状態」に拡張する。
+ *
+ * 派生ルール:
+ *   contract_start_date があって next_billing_date が無い場合、
+ *   contract_start_date + 1 ヶ月で自動計算して埋める。
+ *
+ * 既存 vars にユーザー指定値があればそれを優先する。
+ * フォーム送信側の漏れ・古い同意書テンプレートの両方に効く。
+ *
+ * computeNextBillingDate は utils/nextBillingDate.ts に分離 (main 側で
+ * 同名 util が既に存在するためそちらに合流)。
+ */
+import { computeNextBillingDate } from "./utils/nextBillingDate";
+
+export function withDerivedAgreementVars(
+  vars: Record<string, string | number | undefined | null>
+): Record<string, string | number | undefined | null> {
+  const out = { ...vars };
+  if (
+    (out.next_billing_date === undefined ||
+      out.next_billing_date === null ||
+      out.next_billing_date === "") &&
+    typeof out.contract_start_date === "string" &&
+    out.contract_start_date
+  ) {
+    const nb = computeNextBillingDate(out.contract_start_date);
+    if (nb) out.next_billing_date = nb;
+  }
+  return out;
+}

@@ -7,6 +7,7 @@ import type {
   NewCustomerVisit,
 } from "../services/getNewCustomerAnalytics";
 import { yen, pct, num } from "./format";
+import { ReviewDisplayCell } from "./ReviewToggleCell";
 
 interface MarketingNewCustomerProps {
   data: NewCustomerAnalytics;
@@ -104,6 +105,8 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
                 <th className="px-3 py-2 text-left font-medium">会員</th>
                 <th className="px-3 py-2 text-center font-medium">継・離</th>
                 <th className="px-3 py-2 text-center font-medium">購入</th>
+                <th className="px-3 py-2 text-center font-medium">G口コミ</th>
+                <th className="px-3 py-2 text-center font-medium">H口コミ</th>
                 {VISIT_COLUMNS.map((n) => (
                   <th
                     key={n}
@@ -119,7 +122,7 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7 + VISIT_COLUMNS.length * 2}
+                    colSpan={9 + VISIT_COLUMNS.length * 2}
                     className="py-6 text-center text-muted-foreground"
                   >
                     当月の新規客はいません
@@ -244,6 +247,12 @@ function CustomerRow({ row }: { row: NewCustomerRow }) {
         ) : (
           <span className="text-[10px] text-gray-300">0</span>
         )}
+      </td>
+      <td className="px-3 py-1.5 text-center">
+        <ReviewDisplayCell kind="google" received={row.hasGoogleReview} />
+      </td>
+      <td className="px-3 py-1.5 text-center">
+        <ReviewDisplayCell kind="hotpepper" received={row.hasHotpepperReview} />
       </td>
       {cells.map((v, i) => (
         <VisitCells key={i} visit={v} />
