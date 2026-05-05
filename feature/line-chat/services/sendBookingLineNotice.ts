@@ -7,8 +7,15 @@ import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
  * 動作条件:
  *   - customers.line_user_id が埋まっている (公式 LINE を友だち追加済)
  *   - shops.line_channel_access_token が設定済
- *   上記どちらか欠ければ黙って skip (= true を返す)。確認メールは
+ *   - customers / shops が deleted されていない
+ *   上記どちらか欠ければ黙って skip (= sent: false を返す)。確認メールは
  *   別ルートで飛ぶので二重にアラートしない。
+ *
+ * 重複防止 (claim-based lock):
+ *   appointments.line_notice_sent_at が NULL の予約だけ送信権を握れる。
+ *   2 つの並列呼び出しのうち 1 つしか NULL → non-NULL の UPDATE に成功
+ *   できないため、もう 1 つは既送信扱いで skip される。送信失敗時は
+ *   line_notice_sent_at を NULL に戻して再送可能にする。
  *
  * 問診票 URL の選定:
  *   - その shop の brand_id に紐づく active な questionnaires を 1 件取得
@@ -26,6 +33,7 @@ export async function sendBookingLineNotice(
       "id, brand_id, shop_id, customer_id, staff_id, menu_manage_id, start_at, end_at"
     )
     .eq("id", appointmentId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (!appt) return { sent: false, error: "予約が見つかりません" };
 
@@ -35,11 +43,13 @@ export async function sendBookingLineNotice(
         .from("customers")
         .select("id, last_name, first_name, line_user_id")
         .eq("id", appt.customer_id as number)
+        .is("deleted_at", null)
         .maybeSingle(),
       supabase
         .from("shops")
         .select("id, name, line_channel_access_token")
         .eq("id", appt.shop_id as number)
+        .is("deleted_at", null)
         .maybeSingle(),
       supabase
         .from("staffs")
@@ -50,6 +60,7 @@ export async function sendBookingLineNotice(
         .from("menus")
         .select("name")
         .eq("menu_manage_id", appt.menu_manage_id as string)
+        .is("deleted_at", null)
         .maybeSingle(),
       supabase
         .from("questionnaires")
@@ -64,6 +75,21 @@ export async function sendBookingLineNotice(
   const lineUserId = customerRes.data?.line_user_id as string | null;
   const token = shopRes.data?.line_channel_access_token as string | null;
   if (!lineUserId || !token) return { sent: false };
+
+  // claim-based lock: line_notice_sent_at が NULL の場合のみ更新成功する。
+  // 2 並列呼び出しのうち 1 つだけが locked.id を取得できる。
+  const claimedAt = new Date().toISOString();
+  const { data: locked } = await supabase
+    .from("appointments")
+    .update({ line_notice_sent_at: claimedAt })
+    .eq("id", appointmentId)
+    .is("line_notice_sent_at", null)
+    .select("id")
+    .maybeSingle();
+  if (!locked) {
+    // 既に他の呼び出しで送信権が取られている (= 既送信 or 並列送信中)
+    return { sent: false, error: "already_sent" };
+  }
 
   const customerName =
     `${customerRes.data?.last_name ?? ""} ${customerRes.data?.first_name ?? ""}`.trim() ||
@@ -113,6 +139,15 @@ export async function sendBookingLineNotice(
       source: questionnaireUrl ? "booking_confirm_with_q" : "booking_confirm",
     },
   });
+
+  // 送信失敗時はロックを解放して再送可能にする。
+  if (!result.success) {
+    await supabase
+      .from("appointments")
+      .update({ line_notice_sent_at: null })
+      .eq("id", appointmentId)
+      .eq("line_notice_sent_at", claimedAt); // 自分が立てたロックだけを解除
+  }
 
   return { sent: result.success, error: result.error };
 }

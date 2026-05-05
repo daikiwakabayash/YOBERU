@@ -16,6 +16,11 @@ export interface LinkResult {
  *
  * 1 つの lineUserId は同時に複数の顧客に紐付くべきでないため、まず他
  * 顧客に貼られていた同 lineUserId を NULL に戻してから付け替える。
+ *
+ * migration 00043 で customers.line_user_id は partial UNIQUE になった
+ * ため、剥がし→貼りの順序が DB レベルでも保証される。並行リクエストで
+ * 順序が崩れた場合は UNIQUE 違反でエラーが返るため、結果として「片方
+ * だけ成功 / もう片方は明示的失敗」で安全に終わる。
  */
 async function applyLink(params: {
   customerId: number;
@@ -23,12 +28,28 @@ async function applyLink(params: {
 }): Promise<LinkResult> {
   const supabase = await createClient();
 
-  // 1. 同じ lineUserId が他顧客に貼られていたら剥がす
-  await supabase
+  // 1. 同じ lineUserId が他顧客に貼られていたら剥がす + その顧客の
+  //    line_messages.customer_id も NULL に戻す (チャット履歴の取り
+  //    違え防止)。旧バグの誤紐付けで line_messages.customer_id が
+  //    別顧客を指していた場合の整合性復旧にも効く。
+  const { data: oldOwners } = await supabase
     .from("customers")
-    .update({ line_user_id: null })
+    .select("id")
     .eq("line_user_id", params.lineUserId)
     .neq("id", params.customerId);
+
+  const oldOwnerIds = (oldOwners ?? []).map((o) => o.id as number);
+  if (oldOwnerIds.length > 0) {
+    await supabase
+      .from("customers")
+      .update({ line_user_id: null })
+      .in("id", oldOwnerIds);
+    await supabase
+      .from("line_messages")
+      .update({ customer_id: null })
+      .in("customer_id", oldOwnerIds)
+      .eq("line_user_id", params.lineUserId);
+  }
 
   // 2. 対象顧客に貼る
   const { data: updated, error } = await supabase

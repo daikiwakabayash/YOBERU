@@ -257,6 +257,12 @@ export async function POST(req: NextRequest) {
       );
     } else if (event.type === "message") {
       // Persist incoming messages so staff can respond from the dashboard.
+      //
+      // 重複防止: LINE は webhook 失敗時 (200 以外 / 遅延) に再送する
+      // 仕様。同じ message が 2 回届いても保存しないよう、
+      // line_message_id を ON CONFLICT キーにして upsert する
+      // (migration 00043 で line_message_id に partial UNIQUE 追加済)。
+      // ignoreDuplicates により 2 通目は黙って無視される。
       if (!shopId) continue;
       const msg = event.message ?? { type: "unknown" };
       const customerId = await lookupCustomerId(lineUserId);
@@ -275,7 +281,7 @@ export async function POST(req: NextRequest) {
         text = `(${type} メッセージ)`;
       }
 
-      await supabase.from("line_messages").insert({
+      const row = {
         shop_id: shopId,
         customer_id: customerId,
         line_user_id: lineUserId,
@@ -284,7 +290,19 @@ export async function POST(req: NextRequest) {
         text,
         line_message_id: msg.id ?? null,
         source: "webhook",
-      });
+      };
+      if (msg.id) {
+        await supabase
+          .from("line_messages")
+          .upsert(row, {
+            onConflict: "line_message_id",
+            ignoreDuplicates: true,
+          });
+      } else {
+        // line_message_id が無い (location 等) は upsert キーが無いので
+        // 通常の insert。重複は事実上発生しないため許容。
+        await supabase.from("line_messages").insert(row);
+      }
     }
   }
 

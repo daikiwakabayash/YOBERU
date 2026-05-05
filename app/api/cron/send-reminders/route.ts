@@ -192,6 +192,29 @@ export async function GET(request: NextRequest) {
         });
 
       for (const appt of dedupedAppointments) {
+        // 3.5. claim-based lock: 送信前に reminder_logs を pending で
+        //      INSERT する。並列 cron / 多重起動の race で同じ予約に
+        //      2 通送られるのを防ぐ。UNIQUE (appointment_id, type,
+        //      offset_days) があるため 2 つ目の cron は INSERT 失敗
+        //      → skip され、sendLineMessage は走らない。
+        const { data: claimed, error: claimErr } = await supabase
+          .from("reminder_logs")
+          .insert({
+            appointment_id: appt.id,
+            booking_link_id: link.id,
+            type: setting.type,
+            offset_days: setting.offset_days,
+            status: "pending",
+            channel: setting.type,
+          })
+          .select("id")
+          .maybeSingle();
+
+        if (claimErr || !claimed) {
+          // UNIQUE 違反 = 別 cron が処理中 / 完了済 → skip
+          continue;
+        }
+        const logId = claimed.id as number;
 
         // 4. Build context
         const [customer, staff, menu, shop] = await Promise.all([
@@ -316,16 +339,16 @@ export async function GET(request: NextRequest) {
           sendResult = { success: true };
         }
 
-        // 6. Log
-        await supabase.from("reminder_logs").insert({
-          appointment_id: appt.id,
-          booking_link_id: link.id,
-          type: setting.type,
-          offset_days: setting.offset_days,
-          status: sendResult.success ? "sent" : "failed",
-          error_message: sendResult.error ?? null,
-          channel: effectiveType,
-        });
+        // 6. claim を確定状態に update (pending → sent / failed)。
+        //    INSERT で取得済みの logId に対して update するので衝突しない。
+        await supabase
+          .from("reminder_logs")
+          .update({
+            status: sendResult.success ? "sent" : "failed",
+            error_message: sendResult.error ?? null,
+            channel: effectiveType,
+          })
+          .eq("id", logId);
 
         results.push({
           appointment_id: appt.id,
