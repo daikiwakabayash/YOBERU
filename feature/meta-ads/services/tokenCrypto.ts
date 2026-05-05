@@ -1,9 +1,14 @@
-"use server";
+import "server-only";
 
 import crypto from "node:crypto";
 
 /**
  * Meta アクセストークンを at-rest 暗号化する。
+ *
+ * "use server" ではなく "server-only" を使うのは、これは Server Actions
+ * (= async + form submit から呼べる) ではなく、サーバ側専用の同期
+ * ユーティリティだから。"use server" を付けると Next.js が「export
+ * は全部 async」を要求してビルドが落ちる。
  *
  * 鍵は env: META_TOKEN_ENC_KEY (32 byte hex = 64 文字)。
  * 未設定時は "dev" 用の固定鍵にフォールバックする (本番では必ず設定)。

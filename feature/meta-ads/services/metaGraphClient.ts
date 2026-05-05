@@ -1,7 +1,12 @@
-"use server";
+import "server-only";
 
 /**
  * Meta Graph API クライアント (薄いラッパー)。
+ *
+ * "use server" ではなく "server-only" を使うのは、これは Server Action
+ * (= async + form submit から呼べる) ではなく、サーバ側専用のフェッチ
+ * ユーティリティだから。同じファイルから interface もエクスポート
+ * したいので "use server" は避ける。
  *
  * このファイルは「実装済の HTTP 呼び出し」と「呼び出しに必要な型」を
  * 持つだけで、業務ロジック (DB 書き込み等) は呼び出し側の

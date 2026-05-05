@@ -1,4 +1,4 @@
-"use server";
+import "server-only";
 
 import { createClient } from "@/helper/lib/supabase/server";
 import { fetchCampaigns, fetchDailyInsights } from "./metaGraphClient";
