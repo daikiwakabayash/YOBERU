@@ -148,7 +148,12 @@ export async function getCatchmentCustomers(params: {
   );
 
   // ---- 4. 参照マスタ: visit_sources / customer_plans ----
-  const [sourcesRes, plansRes] = await Promise.all([
+  //   さらに「customers.first_visit_source_id が NULL」の顧客向けに、
+  //   appointments から最古の visit_source_id を引いてフォールバック
+  //   する。チラシ等で来院しているのに マップ側で「不明」グレーピンに
+  //   倒れていた問題への対応。
+  const customerIds = geocodedCustomers.map((c) => c.id as number);
+  const [sourcesRes, plansRes, apptSourceRes] = await Promise.all([
     supabase
       .from("visit_sources")
       .select("id, name")
@@ -159,10 +164,35 @@ export async function getCatchmentCustomers(params: {
       .select("customer_id, plan_type")
       .eq("shop_id", shopId)
       .is("deleted_at", null),
+    customerIds.length > 0
+      ? supabase
+          .from("appointments")
+          .select("customer_id, visit_source_id, start_at")
+          .in("customer_id", customerIds)
+          .not("visit_source_id", "is", null)
+          // 集計対象外: キャンセル / 当日キャンセル / no-show は媒体ヒット
+          // としてカウントしない (運用上「来院した媒体」を重視)。
+          .not("status", "in", "(3,4,99)")
+          .is("deleted_at", null)
+          .order("start_at", { ascending: true })
+      : Promise.resolve({ data: [] as Array<{
+          customer_id: number;
+          visit_source_id: number;
+        }> }),
   ]);
   const sourceMap = new Map<number, string>(
     (sourcesRes.data ?? []).map((s) => [s.id as number, s.name as string])
   );
+  // appointments 経由の最古媒体 (= 顧客の初回来院媒体) を customer_id ごとに 1 つ
+  const apptFirstSourceMap = new Map<number, number>();
+  for (const r of (apptSourceRes.data ?? []) as Array<{
+    customer_id: number;
+    visit_source_id: number;
+  }>) {
+    if (!apptFirstSourceMap.has(r.customer_id)) {
+      apptFirstSourceMap.set(r.customer_id, r.visit_source_id);
+    }
+  }
   const memberSet = new Set<number>();
   const ticketSet = new Set<number>();
   for (const p of plansRes.data ?? []) {
@@ -180,7 +210,10 @@ export async function getCatchmentCustomers(params: {
         .filter(Boolean)
         .join(" ")
         .trim() || null;
-    const sourceId = c.first_visit_source_id as number | null;
+    const sourceId =
+      (c.first_visit_source_id as number | null) ??
+      apptFirstSourceMap.get(c.id as number) ??
+      null;
     return {
       id: c.id as number,
       lat: Number(c.latitude),
