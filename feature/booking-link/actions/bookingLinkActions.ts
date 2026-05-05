@@ -589,6 +589,27 @@ export async function submitPublicBooking(formData: FormData) {
     console.error("[submitPublicBooking] LINE 通知失敗", e);
   }
 
+  // 顧客の LINE 紐付け用トークンを取得 (新規作成時 / 既存顧客でも)
+  // 既に DB トリガで自動発行されているはずだが、無ければ生成して返す。
+  let lineLinkToken: string | null = null;
+  try {
+    const tokenRes = await supabase
+      .from("customers")
+      .select("line_link_token")
+      .eq("id", customerId)
+      .maybeSingle();
+    lineLinkToken = (tokenRes.data?.line_link_token as string | null) ?? null;
+    if (!lineLinkToken) {
+      lineLinkToken = crypto.randomUUID();
+      await supabase
+        .from("customers")
+        .update({ line_link_token: lineLinkToken })
+        .eq("id", customerId);
+    }
+  } catch {
+    // 取れなくてもブッキング自体は成功なので続行
+  }
+
   revalidatePath("/reservation");
-  return { success: true };
+  return { success: true, customerId, lineLinkToken };
 }

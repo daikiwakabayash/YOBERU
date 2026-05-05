@@ -101,6 +101,11 @@ export function StoreForm({
       line_channel_id: "",
       line_channel_secret: "",
       line_channel_access_token: "",
+      line_basic_id: "",
+      line_add_friend_url: "",
+      customer_can_cancel: true,
+      customer_can_modify: false,
+      customer_cancel_deadline_hours: 24,
       meta_ad_account_id: "",
       meta_access_token: "",
       tiktok_advertiser_id: "",
@@ -516,6 +521,91 @@ export function StoreForm({
                     placeholder="長期トークンをここに貼り付け"
                     value={String(field.value ?? "")}
                     onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="line_basic_id" label="LINE 公式 Basic ID (例: @abc1234)">
+                {(field) => (
+                  <Input
+                    id="line_basic_id"
+                    placeholder="@abc1234"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+              <FormField form={form} name="line_add_friend_url" label="友だち追加 URL (例: https://lin.ee/xxxxx)">
+                {(field) => (
+                  <Input
+                    id="line_add_friend_url"
+                    placeholder="https://lin.ee/xxxxx"
+                    value={String(field.value ?? "")}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              </FormField>
+            </div>
+          </div>
+
+          {/* 顧客セルフサービス (LINE / マイページ) */}
+          <div className="space-y-3 rounded-lg border border-emerald-100 bg-emerald-50/30 p-4 md:col-span-2">
+            <div className="text-sm font-bold text-emerald-800">
+              顧客セルフサービス (LINE / マイページ)
+            </div>
+            <p className="text-xs text-muted-foreground">
+              公式 LINE 紐付け済の顧客が、ご自身で予約の確認 / 変更 / キャンセルを
+              行えるかどうかを設定します。
+            </p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="flex items-center justify-between rounded-md border bg-white p-3">
+                <div>
+                  <div className="text-sm font-medium">キャンセル可</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    マイページから自分でキャンセルできます
+                  </div>
+                </div>
+                <Switch
+                  checked={form.watch("customer_can_cancel") ?? true}
+                  onCheckedChange={(checked) =>
+                    form.setValue("customer_can_cancel", checked, {
+                      shouldDirty: true,
+                    })
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md border bg-white p-3">
+                <div>
+                  <div className="text-sm font-medium">変更可 (Phase 2)</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    日時変更を顧客に許可 (現状はキャンセル後再予約案内)
+                  </div>
+                </div>
+                <Switch
+                  checked={form.watch("customer_can_modify") ?? false}
+                  onCheckedChange={(checked) =>
+                    form.setValue("customer_can_modify", checked, {
+                      shouldDirty: true,
+                    })
+                  }
+                />
+              </div>
+              <FormField
+                form={form}
+                name="customer_cancel_deadline_hours"
+                label="キャンセル締切 (予約開始時刻の何時間前まで)"
+              >
+                {(field) => (
+                  <Input
+                    id="customer_cancel_deadline_hours"
+                    type="number"
+                    min={0}
+                    max={720}
+                    step={1}
+                    value={String(field.value ?? 24)}
+                    onChange={(e) => field.onChange(Number(e.target.value))}
                     onBlur={field.onBlur}
                   />
                 )}

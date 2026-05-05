@@ -26,6 +26,12 @@ export const storeSchema = z.object({
   line_channel_id: z.string().max(64).optional().or(z.literal("")),
   line_channel_secret: z.string().max(128).optional().or(z.literal("")),
   line_channel_access_token: z.string().optional().or(z.literal("")),
+  line_basic_id: z.string().max(32).optional().or(z.literal("")),
+  line_add_friend_url: z.string().max(256).optional().or(z.literal("")),
+  // 顧客セルフサービス (LINE / マイページから予約変更・キャンセル)
+  customer_can_cancel: z.boolean().default(true),
+  customer_can_modify: z.boolean().default(false),
+  customer_cancel_deadline_hours: z.coerce.number().int().min(0).max(720).default(24),
   // 広告 API 連携 (Meta / TikTok)
   meta_ad_account_id: z.string().max(64).optional().or(z.literal("")),
   meta_access_token: z.string().optional().or(z.literal("")),

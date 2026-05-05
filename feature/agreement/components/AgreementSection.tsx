@@ -23,6 +23,7 @@ import {
   cancelAgreement,
   deleteAgreement,
   setupMembershipTemplate,
+  setupReceiptTemplate,
 } from "../actions/agreementActions";
 import {
   AGREEMENT_KIND_LABEL,
@@ -30,12 +31,14 @@ import {
   type AgreementRow,
   type AgreementTemplate,
 } from "../types";
+import { computeNextBillingDate } from "../utils/nextBillingDate";
 
 interface Props {
   customerId: number;
   brandId: number;
   agreements: AgreementRow[];
   membershipTemplate: AgreementTemplate | null;
+  receiptTemplate: AgreementTemplate | null;
   templateDiagnostic?: string;
   baseUrl: string;
 }
@@ -53,6 +56,7 @@ export function AgreementSection({
   brandId,
   agreements,
   membershipTemplate,
+  receiptTemplate,
   templateDiagnostic,
   baseUrl,
 }: Props) {
@@ -60,6 +64,50 @@ export function AgreementSection({
   const [pending, start] = useTransition();
   const [planAmount, setPlanAmount] = useState("");
   const [startDate, setStartDate] = useState("");
+  // 領収書フォーム
+  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" }); // YYYY-MM-DD
+  const [receiptAmount, setReceiptAmount] = useState("");
+  const [receiptPurpose, setReceiptPurpose] = useState("施術代として");
+  const [receiptIssueDate, setReceiptIssueDate] = useState(today);
+
+  function genReceipt() {
+    if (!receiptTemplate) {
+      toast.error("領収書テンプレートが見つかりません");
+      return;
+    }
+    const amt = Number(receiptAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      toast.error("受領金額を入力してください");
+      return;
+    }
+    if (!receiptPurpose.trim()) {
+      toast.error("但し書きを入力してください");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(receiptIssueDate)) {
+      toast.error("発行日を入力してください");
+      return;
+    }
+    start(async () => {
+      const res = await createAgreement({
+        customerId,
+        templateId: receiptTemplate.id,
+        vars: {
+          amount_yen: amt.toLocaleString(),
+          purpose: receiptPurpose.trim(),
+          issue_date: receiptIssueDate,
+        },
+        finalizeOnCreate: true, // 領収書は発行時点で確定
+      });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("領収書を発行しました");
+      setReceiptAmount("");
+      router.refresh();
+    });
+  }
 
   function genMembership() {
     if (!membershipTemplate) {
@@ -76,12 +124,14 @@ export function AgreementSection({
       return;
     }
     start(async () => {
+      const nextBillingDate = computeNextBillingDate(startDate);
       const res = await createAgreement({
         customerId,
         templateId: membershipTemplate.id,
         vars: {
           plan_amount_yen: amt.toLocaleString(),
           contract_start_date: startDate,
+          next_billing_date: nextBillingDate,
         },
       });
       if (res.error) {
@@ -231,6 +281,86 @@ export function AgreementSection({
                 </code>
                 を最後まで実行してください。
               </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 領収書 発行フォーム */}
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <div>
+            <h3 className="text-sm font-bold">領収書を発行</h3>
+            <p className="text-[11px] text-gray-500">
+              金額 / 但し書き / 発行日を入力すると、その場で領収書が確定し、
+              LINE またはメールで顧客に送付できます (顧客側の署名は不要)。
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+            <div>
+              <Label className="text-[10px]">受領金額 (税込)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={receiptAmount}
+                onChange={(e) => setReceiptAmount(e.target.value)}
+                placeholder="例: 8800"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px]">但し書き</Label>
+              <Input
+                value={receiptPurpose}
+                onChange={(e) => setReceiptPurpose(e.target.value)}
+                placeholder="例: 施術代として"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px]">発行日</Label>
+              <Input
+                type="date"
+                value={receiptIssueDate}
+                onChange={(e) => setReceiptIssueDate(e.target.value)}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                size="sm"
+                onClick={genReceipt}
+                disabled={pending || !receiptTemplate}
+                className="w-full"
+              >
+                <Plus className="mr-1 h-3 w-3" />
+                発行
+              </Button>
+            </div>
+          </div>
+          {!receiptTemplate && (
+            <div className="space-y-2 rounded-md border border-rose-200 bg-rose-50/50 p-3">
+              <p className="text-xs text-rose-800">
+                ⚠ 領収書テンプレートが用意されていません。
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  start(async () => {
+                    const res = await setupReceiptTemplate({ brandId });
+                    if (res.error) {
+                      toast.error(res.error, { duration: 12000 });
+                      return;
+                    }
+                    toast.success("領収書テンプレートを作成しました");
+                    router.refresh();
+                  });
+                }}
+              >
+                テンプレートを自動作成する
+              </Button>
             </div>
           )}
         </CardContent>

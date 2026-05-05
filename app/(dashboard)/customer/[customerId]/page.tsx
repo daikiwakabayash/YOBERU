@@ -17,10 +17,12 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { CustomerDetailTabs } from "@/feature/customer/components/CustomerDetailTabs";
 import { CustomerAttachmentsSection } from "@/feature/customer-attachment/components/CustomerAttachmentsSection";
 import { AgreementSection } from "@/feature/agreement/components/AgreementSection";
+import { CustomerLineLinkSection } from "@/feature/customer/components/CustomerLineLinkSection";
 import {
   getCustomerAgreements,
   getActiveTemplateWithDiagnostic,
 } from "@/feature/agreement/services/getAgreement";
+import { getCustomerLineLink } from "@/feature/customer/services/getCustomerLineLink";
 import { KarteEditor } from "@/feature/reservation/components/KarteEditor";
 import {
   getActiveBrandId,
@@ -174,17 +176,7 @@ export default async function CustomerDetailPage({
   const brandId = await getActiveBrandId();
   const shopId = await getActiveShopId();
 
-  // 同意書タブ用データ (顧客の既存同意書 + 会員申込テンプレート + ベース URL)
-  const [customerAgreements, templateRes] = await Promise.all([
-    getCustomerAgreements(id),
-    getActiveTemplateWithDiagnostic({
-      brandId,
-      kind: "membership",
-      ensureCreate: true,
-    }),
-  ]);
-  const membershipTemplate = templateRes.template;
-  const templateDiagnostic = templateRes.diagnostic;
+  // ベース URL (LINE 紐付けリンク / 同意書リンク 等で使用)
   const reqHeaders = await headers();
   const proto = reqHeaders.get("x-forwarded-proto") ?? "https";
   const host = reqHeaders.get("host") ?? "";
@@ -192,6 +184,28 @@ export default async function CustomerDetailPage({
     process.env.NEXT_PUBLIC_APP_URL ??
     process.env.NEXT_PUBLIC_SITE_URL ??
     (host ? `${proto}://${host}` : "");
+
+  // 同意書タブ用データ (顧客の既存同意書 + 会員申込/領収書テンプレート + ベース URL)
+  const [customerAgreements, membershipRes, receiptRes] = await Promise.all([
+    getCustomerAgreements(id),
+    getActiveTemplateWithDiagnostic({
+      brandId,
+      kind: "membership",
+      ensureCreate: true,
+    }),
+    getActiveTemplateWithDiagnostic({
+      brandId,
+      kind: "receipt",
+      ensureCreate: true,
+    }),
+  ]);
+  const membershipTemplate = membershipRes.template;
+  const receiptTemplate = receiptRes.template;
+  const templateDiagnostic =
+    membershipRes.diagnostic ?? receiptRes.diagnostic ?? undefined;
+
+  // LINE 紐付け情報 (顧客固有のリンク + QR + 紐付け状態)
+  const lineLink = await getCustomerLineLink({ customerId: id, baseUrl });
 
   return (
     <div>
@@ -254,6 +268,7 @@ export default async function CustomerDetailPage({
 
         <CustomerDetailTabs
           infoTab={
+          <>
           <Card>
             <CardHeader>
               <CardTitle className="text-base">基本情報</CardTitle>
@@ -382,6 +397,21 @@ export default async function CustomerDetailPage({
               </Link>
             </CardContent>
           </Card>
+
+          {/* 公式 LINE 紐付け (URL + QR) */}
+          {lineLink && (
+            <div className="mt-4">
+              <CustomerLineLinkSection
+                customerId={id}
+                token={lineLink.token}
+                url={lineLink.url}
+                lineUserId={lineLink.lineUserId}
+                shopAddFriendUrl={lineLink.shopAddFriendUrl}
+                appUrl={baseUrl}
+              />
+            </div>
+          )}
+          </>
           }
           photosTab={
           <Card>
@@ -508,6 +538,7 @@ export default async function CustomerDetailPage({
               brandId={brandId}
               agreements={customerAgreements}
               membershipTemplate={membershipTemplate}
+              receiptTemplate={receiptTemplate}
               templateDiagnostic={templateDiagnostic}
               baseUrl={baseUrl}
             />
