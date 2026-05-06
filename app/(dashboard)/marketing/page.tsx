@@ -8,6 +8,7 @@ import { MarketingNewCustomer } from "@/feature/marketing/components/MarketingNe
 import { CatchmentMapWrapper } from "@/feature/catchment/components/CatchmentMapWrapper";
 import { MetaAdsTab } from "@/feature/meta-ads/components/MetaAdsTab";
 import { MetaAnalysisTab } from "@/feature/meta-ads/components/MetaAnalysisTab";
+import { AiAnalysisTab } from "@/feature/ai-analysis/components/AiAnalysisTab";
 import { getMetaAdsSummary } from "@/feature/meta-ads/services/getMetaAdsSummary";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
@@ -209,6 +210,11 @@ export default async function MarketingPage({
           metaAppointments={metaApptStats}
           allMedia={allStats}
         />
+      );
+    }
+    if (tab === "ai") {
+      return (
+        <AiAnalysisTab startMonth={startMonth} endMonth={endMonth} />
       );
     }
     if (tab === "catchment") {

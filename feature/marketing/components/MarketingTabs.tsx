@@ -34,7 +34,7 @@ const TABS: Array<{
   { key: "meta-ads", label: "メタ広告", icon: Megaphone },
   { key: "meta-analysis", label: "メタ分析", icon: LineChart },
   { key: "catchment", label: "商圏", icon: MapPinned },
-  { key: "ai", label: "AI分析", icon: Sparkles, disabled: true },
+  { key: "ai", label: "AI分析", icon: Sparkles },
   { key: "market", label: "市場", icon: Globe, disabled: true },
   { key: "shop", label: "店舗別", icon: MapPin },
 ];
