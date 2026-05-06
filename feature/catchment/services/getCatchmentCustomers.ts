@@ -174,16 +174,22 @@ export async function getCatchmentCustomers(params: {
     customerIds.length > 0
       ? supabase
           .from("appointments")
-          .select("customer_id, visit_source_id, start_at")
+          .select("customer_id, visit_source_id, start_at, status")
           .in("customer_id", customerIds)
-          // キャンセル系は「来た媒体」として扱わない
-          .not("status", "in", "(3,4,99)")
+          // status はあえてフィルタしない (キャンセル系も含めて取得):
+          //   - メディア帰属: キャンセルも含めて「どの媒体で予約された
+          //     か」を拾いたい (例: thread から予約 → キャンセル → 後に
+          //     別ルートで再予約、というケースで thread に帰属させたい)
+          //   - 初回来院月: キャンセルを除外したい (期間フィルタは
+          //     "実際に来院した月" を見たいため)
+          // 役割が違うので、JS 側で 2 つの Map に振り分けて使う。
           .is("deleted_at", null)
           .order("start_at", { ascending: true })
       : Promise.resolve({ data: [] as Array<{
           customer_id: number;
           visit_source_id: number | null;
           start_at: string;
+          status: number;
         }> }),
   ]);
   const sourceMap = new Map<number, string>(
@@ -197,14 +203,26 @@ export async function getCatchmentCustomers(params: {
     customer_id: number;
     visit_source_id: number | null;
     start_at: string;
+    status: number;
   }>) {
+    // メディア帰属: キャンセル含めた最古の visit_source_id を採用
+    // (顧客が thread から予約してキャンセルし、後に HP で再予約した場合、
+    //  「thread で発見してくれた」=> thread に帰属させたい)
     if (
       !apptFirstSourceMap.has(r.customer_id) &&
       r.visit_source_id != null
     ) {
       apptFirstSourceMap.set(r.customer_id, r.visit_source_id);
     }
-    if (!apptFirstYearMonthMap.has(r.customer_id) && r.start_at) {
+    // 初回来院月: キャンセル系 (3/4/99) は除外。実際に来院した最古の月。
+    // 期間フィルタは「初来院がこの月」の意味で使うため、キャンセルだけの
+    // 月で「新規」扱いにならないようにする。
+    const isCancel = r.status === 3 || r.status === 4 || r.status === 99;
+    if (
+      !apptFirstYearMonthMap.has(r.customer_id) &&
+      !isCancel &&
+      r.start_at
+    ) {
       // start_at は ISO 文字列 (timestamptz)。先頭 7 文字が YYYY-MM。
       // (timezone offset は ±9h でも月境界がズレるリスクは月初の 0-9 時帯
       // だけなので、店舗運用 (営業時間 10-21) では問題にならない。)
