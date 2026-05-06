@@ -227,7 +227,13 @@ export function MarketingOverview({
                     <td className="px-3 py-2 text-right text-blue-600">
                       {pct(m.joinRate)}
                     </td>
-                    <td className="px-3 py-2 text-right text-gray-700">
+                    <td
+                      className="px-3 py-2 text-right text-gray-700"
+                      title={
+                        `予約 ${m.reservationCount} - 実来院 ${m.visitCount} - C数 ${m.cancelCount} - 待機 ${m.pendingCount}\n` +
+                        `内訳: キャンセル ${m.cancelStandard} / 当日キャンセル ${m.cancelSameDay} / 無断キャンセル ${m.noShow}`
+                      }
+                    >
                       {num(m.cancelCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-red-500">
@@ -317,7 +323,16 @@ export function MarketingOverview({
                     <td className="px-3 py-2 text-right text-blue-600">
                       {pct(s.joinRate)}
                     </td>
-                    <td className="px-3 py-2 text-right text-gray-700">
+                    <td
+                      className="px-3 py-2 text-right text-gray-700"
+                      // C数 の根拠を hover で確認できるように内訳を出す。
+                      // 「C数 3 だけど予約表で数えると合わない」という
+                      // 検証作業のためのツールチップ。
+                      title={
+                        `予約 ${s.reservationCount} - 実来院 ${s.visitCount} - C数 ${s.cancelCount} - 待機 ${s.pendingCount}\n` +
+                        `内訳: キャンセル ${s.cancelStandard} / 当日キャンセル ${s.cancelSameDay} / 無断キャンセル ${s.noShow}`
+                      }
+                    >
                       {num(s.cancelCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-red-500">

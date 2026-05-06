@@ -14,7 +14,15 @@ export interface MarketingTotals {
   visitCount: number;        // 実来院数 (completed or in-progress)
   reservationCount: number;  // 予約総数 (any status)
   joinCount: number;         // 入会数
-  cancelCount: number;       // キャンセル系の数
+  cancelCount: number;       // キャンセル系の数 (= cancelStandard + cancelSameDay + noShow)
+  /** status=3 通常キャンセル (前日までの取消) の件数 */
+  cancelStandard: number;
+  /** status=4 当日キャンセル */
+  cancelSameDay: number;
+  /** status=99 無断キャンセル (no-show) */
+  noShow: number;
+  /** status=0 待機 (これから来店予定 / 未処理) */
+  pendingCount: number;
   adSpend: number;           // 広告費合計
   sales: number;             // 売上 (status = 2 のみ)
   consumedSales: number;     // 消化売上 (前金プランの実消費、status = 2)
@@ -61,6 +69,10 @@ function emptyTotals(): MarketingTotals {
     reservationCount: 0,
     joinCount: 0,
     cancelCount: 0,
+    cancelStandard: 0,
+    cancelSameDay: 0,
+    noShow: 0,
+    pendingCount: 0,
     adSpend: 0,
     sales: 0,
     consumedSales: 0,
@@ -286,6 +298,27 @@ export async function getMarketingData(params: {
       totals.cancelCount += 1;
       mb.cancelCount += 1;
       sb.cancelCount += 1;
+      // 内訳ごとに分けて、UI 側でホバー時に「キャンセル X / 当日 Y / no-show Z」
+      // として検証できるようにする。
+      if (a.status === 3) {
+        totals.cancelStandard += 1;
+        mb.cancelStandard += 1;
+        sb.cancelStandard += 1;
+      } else if (a.status === 4) {
+        totals.cancelSameDay += 1;
+        mb.cancelSameDay += 1;
+        sb.cancelSameDay += 1;
+      } else if (a.status === 99) {
+        totals.noShow += 1;
+        mb.noShow += 1;
+        sb.noShow += 1;
+      }
+    } else if (a.status === 0) {
+      // 待機 (これから来店予定 / 未処理 = 集計実行前) を残す。
+      // 33 - 15 - 3 = 15 のような「埋まらない数字」を即座に説明できる。
+      totals.pendingCount += 1;
+      mb.pendingCount += 1;
+      sb.pendingCount += 1;
     }
     if (isVisit) {
       totals.visitCount += 1;
