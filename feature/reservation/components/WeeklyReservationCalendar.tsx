@@ -629,6 +629,8 @@ export function WeeklyReservationCalendar({
                     const isPast = appt.status === 2;
                     const isInProgress = appt.status === 1;
                     const isCancelled = appt.status === 3 || appt.status === 99;
+                    const isSameDayCancelled = appt.status === 4;
+                    const isAnyCancelled = isCancelled || isSameDayCancelled;
 
                     let borderColor = "border-blue-300";
                     let bgColor = "bg-white";
@@ -648,6 +650,11 @@ export function WeeklyReservationCalendar({
                       statusBadge = "施術中";
                       statusBadgeColor = "bg-green-100 text-green-700";
                       borderColor = "border-green-400";
+                    } else if (isSameDayCancelled) {
+                      statusBadge = "当日キャンセル";
+                      statusBadgeColor = "bg-red-100 text-red-700";
+                      borderColor = "border-red-300";
+                      bgColor = "bg-red-50/40";
                     } else if (isCancelled) {
                       statusBadge = "キャンセル";
                       statusBadgeColor = "bg-red-100 text-red-600";
@@ -682,6 +689,48 @@ export function WeeklyReservationCalendar({
                     }
                     if (statusBadge) tooltipLines.push(statusBadge);
                     const apptTooltip = tooltipLines.join("\n");
+
+                    // キャンセル系は枠を占有せず下部 30% 分だけの細い帯で
+                    // 描画する (= 日ビューと同じ UI)。これで「キャンセル
+                    // された予約が枠 1 個分埋めて見える」違和感を解消。
+                    // クリックすると詳細パネルが開いて取り消し / 削除できる。
+                    if (isAnyCancelled) {
+                      return (
+                        <button
+                          key={appt.id}
+                          type="button"
+                          data-appt={appt.id}
+                          className={`absolute overflow-hidden rounded-md border text-left ${borderColor} ${bgColor} px-1 py-0.5 transition-shadow hover:shadow-md cursor-pointer`}
+                          style={{
+                            left: apptLeft,
+                            width: apptWidth,
+                            bottom: 2,
+                            height: "30%",
+                            zIndex: 20,
+                            touchAction: "pan-x",
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAppt(appt);
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          title={`${appt.customerName ?? "(名無し)"} (${
+                            isSameDayCancelled ? "当日キャンセル" : "キャンセル"
+                          }) - タップで詳細`}
+                        >
+                          <div className="flex items-center gap-1 truncate">
+                            <span
+                              className={`shrink-0 rounded px-1 py-0 text-[8px] font-bold ${statusBadgeColor}`}
+                            >
+                              {isSameDayCancelled ? "当日" : "キャンセル"}
+                            </span>
+                            <span className="truncate text-[9px] font-bold text-gray-700 line-through">
+                              {appt.customerName}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    }
 
                     return (
                       <div
