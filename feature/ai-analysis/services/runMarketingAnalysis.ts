@@ -96,7 +96,12 @@ export async function runMarketingAnalysis(
   try {
     const message = await client.messages.create({
       model,
-      max_tokens: 2000,
+      // 4 セクション (summary / metaAds / flyer / creativeHypotheses /
+      // warnings) の rationale + actionItems を日本語で詳しく書くと
+      // 2000 では足りずに JSON 文字列が途中で切れる事例があったので、
+      // Sonnet の安全領域である 4000 まで引き上げる。Sonnet 4.6 は
+      // 最大 64K まで出せるが、4000 もあれば実用上 全セクション収まる。
+      max_tokens: 4000,
       // システムを 2 ブロックに分けて、固定指示 (役割 + スキーマ) だけ
       // キャッシュ。実データは user メッセージ側に置く。
       system: [
@@ -124,6 +129,17 @@ export async function runMarketingAnalysis(
       ],
     });
 
+    // max_tokens で打ち切られた場合は JSON が途切れる。最初に検知して
+    // 親切なエラーを返す (再試行を案内する)。
+    if (message.stop_reason === "max_tokens") {
+      return {
+        ok: false,
+        error:
+          "AI の出力がトークン上限に達して途中で切れました。" +
+          "「再分析する」をもう一度押すか、期間を狭めてお試しください。",
+      };
+    }
+
     // content は text block だけ想定
     const text = message.content
       .filter((b) => b.type === "text")
@@ -132,20 +148,30 @@ export async function runMarketingAnalysis(
       .trim();
 
     // ```json ... ``` で囲まれていることもあるので剥がす
-    const jsonStr = text
+    let jsonStr = text
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/\s*```$/i, "")
       .trim();
+
+    // 念のため: 最初の "{" から最後の "}" だけを切り出して JSON 単体に
+    // 寄せる (前置き文章が混じった時の防御)。
+    const firstBrace = jsonStr.indexOf("{");
+    const lastBrace = jsonStr.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+    }
 
     let parsed: MarketingAnalysisResult;
     try {
       parsed = JSON.parse(jsonStr) as MarketingAnalysisResult;
     } catch (e) {
+      const detail = e instanceof Error ? ` (${e.message})` : "";
       return {
         ok: false,
         error:
           "Claude の応答を JSON として解釈できませんでした。" +
-          (e instanceof Error ? ` (${e.message})` : ""),
+          "もう一度「再分析する」を押してお試しください。" +
+          detail,
       };
     }
     return { ok: true, result: parsed };
