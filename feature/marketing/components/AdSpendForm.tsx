@@ -63,6 +63,12 @@ export function AdSpendForm({
   );
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
+  /** 編集中の行 id。null = 新規入力モード。
+   *  これを管理することで「編集ボタンを押したのに何も変わらない」と
+   *  感じる UX (= フォーム位置が左 / 上のため反映が見えない) を解消し、
+   *  該当行をハイライト / 保存ボタンを「更新」にラベル変更 / キャンセル
+   *  ボタンで離脱できる、という分かりやすい編集モードを提供する。 */
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   function handleSubmit() {
     if (!sourceId) {
@@ -91,14 +97,16 @@ export function AdSpendForm({
         toast.error(result.error);
         return;
       }
-      toast.success("広告費を保存しました");
+      toast.success(editingId ? "更新しました" : "広告費を保存しました");
       setAmount("");
       setMemo("");
+      setEditingId(null);
       router.refresh();
     });
   }
 
   function handleEdit(row: AdSpendRow) {
+    setEditingId(row.id);
     setYearMonth(row.year_month);
     setSourceId(row.visit_source_id);
     setAmount(String(row.amount));
@@ -106,6 +114,16 @@ export function AdSpendForm({
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
+    // 編集対象がフォームに乗ったことをユーザーに即フィードバック
+    toast.info(
+      `${formatMonthLabel(row.year_month)} ${row.source_name ?? "(不明)"} を編集中`
+    );
+  }
+
+  function handleCancelEdit() {
+    setEditingId(null);
+    setAmount("");
+    setMemo("");
   }
 
   function handleDelete(id: number) {
@@ -127,9 +145,16 @@ export function AdSpendForm({
     <div className="grid gap-6 lg:grid-cols-3">
       {/* Entry form */}
       <div>
-        <Card>
+        <Card className={editingId ? "border-orange-300 ring-1 ring-orange-200" : ""}>
           <CardHeader>
-            <CardTitle className="text-base">広告費を入力</CardTitle>
+            <CardTitle className="text-base">
+              {editingId ? "編集中" : "広告費を入力"}
+              {editingId && (
+                <span className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                  上書き保存
+                </span>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-500">
@@ -192,13 +217,31 @@ export function AdSpendForm({
                 placeholder="任意 (例: CPC キャンペーン名)"
               />
             </div>
-            <Button
-              onClick={handleSubmit}
-              disabled={pending || disabled}
-              className="w-full"
-            >
-              {pending ? "保存中..." : disabled ? "セットアップ未完了" : "保存する"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleSubmit}
+                disabled={pending || disabled}
+                className="flex-1"
+              >
+                {pending
+                  ? "保存中..."
+                  : disabled
+                    ? "セットアップ未完了"
+                    : editingId
+                      ? "更新する"
+                      : "保存する"}
+              </Button>
+              {editingId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCancelEdit}
+                  disabled={pending}
+                >
+                  キャンセル
+                </Button>
+              )}
+            </div>
             <p className="text-[11px] text-muted-foreground">
               同じ 月 × 媒体 の組み合わせは上書き保存されます。
             </p>
@@ -241,7 +284,14 @@ export function AdSpendForm({
                     </tr>
                   ) : (
                     rows.map((r) => (
-                      <tr key={r.id} className="hover:bg-gray-50/60">
+                      <tr
+                        key={r.id}
+                        className={
+                          editingId === r.id
+                            ? "bg-orange-50/70"
+                            : "hover:bg-gray-50/60"
+                        }
+                      >
                         <td className="px-4 py-2 font-medium text-gray-900">
                           {formatMonthLabel(r.year_month)}
                         </td>
