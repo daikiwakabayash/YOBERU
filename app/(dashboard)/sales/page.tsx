@@ -26,11 +26,6 @@ export default async function SalesDashboardPage({
   const endDate = params.end || today;
   const staffId = params.staff ? Number(params.staff) : null;
 
-  // 期間 startDate の月を「口コミカウントの対象月」として使用する。
-  // (期間が複数月にまたがる場合でも、UI には開始月の数字を出す。
-  //  通常はサロン運用上 当月単位で見るので問題ない。)
-  const yearMonth = startDate.slice(0, 7);
-
   const [data, daily, staffs, reviewCounts] = await Promise.all([
     getSalesSummary(shopId, startDate, endDate, staffId).catch(() => ({
       totalSales: 0,
@@ -50,7 +45,10 @@ export default async function SalesDashboardPage({
     // source breakdowns are 店舗単位 per the spec.
     getDailyReport(shopId, startDate, endDate).catch(() => null),
     getStaffs(shopId).catch(() => [] as Array<{ id: number; name: string }>),
-    getStaffReviewCounts(shopId, yearMonth).catch(
+    // 口コミ件数: 期間内に customers.google_review_received_at /
+    // hotpepper_review_received_at が立った顧客を、その時点の最終
+    // 完了予約スタッフに自動帰属して集計する。
+    getStaffReviewCounts(shopId, startDate, endDate).catch(
       () => new Map<number, { staffId: number; googleCount: number; hotpepperCount: number }>()
     ),
   ]);
@@ -91,11 +89,7 @@ export default async function SalesDashboardPage({
           staffId={staffId}
           staffs={staffOptions}
         />
-        <SalesDashboardContent
-          data={data}
-          dateRange={dateRange}
-          yearMonth={yearMonth}
-        />
+        <SalesDashboardContent data={data} dateRange={dateRange} />
         {daily && <DailyReportTable data={daily} />}
       </div>
     </div>

@@ -88,6 +88,12 @@ export interface CalendarAppointment {
   sales: number;
   additionalCharge: number;
   paymentMethod: string | null;
+  /**
+   * 分割払いの内訳。1 会計を複数の支払方法に分けたケース
+   * (例: サブスクは Square、単発は 現金)。NULL または空配列なら
+   * 単一支払 (paymentMethod を使う)。
+   */
+  paymentSplits: Array<{ method: string; amount: number }> | null;
   customerRecord: string | null;
   customerId: number;
   menuManageId: string;

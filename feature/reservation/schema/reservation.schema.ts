@@ -42,6 +42,12 @@ export const appointmentSchema = z.object({
       return false;
     }, z.boolean())
     .optional(),
+  /**
+   * 分割払いの内訳。FormData では JSON 文字列で送る。例:
+   *   '[{"method":"square","amount":24750},{"method":"cash","amount":1000}]'
+   * 空文字 / 未指定なら単一支払 (payment_method) を使う。
+   */
+  payment_splits: z.string().optional(),
 });
 
 export type AppointmentFormValues = z.infer<typeof appointmentSchema>;

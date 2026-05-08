@@ -7,6 +7,27 @@ import { getEffectiveShifts } from "@/feature/shift/services/getStaffShifts";
 import { getDailyStaffUtilization } from "@/feature/sales/services/getStaffUtilization";
 
 /**
+ * appointments.payment_splits (JSONB) → 型付きの配列に変換。
+ * 期待形式は [{method: string, amount: number}, …]。形式が崩れていれば
+ * null を返して呼び出し側で「単一支払フォールバック」させる。
+ */
+function parsePaymentSplits(
+  raw: unknown
+): Array<{ method: string; amount: number }> | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: Array<{ method: string; amount: number }> = [];
+  for (const r of raw) {
+    if (!r || typeof r !== "object") continue;
+    const rec = r as { method?: unknown; amount?: unknown };
+    const method = typeof rec.method === "string" ? rec.method : "";
+    const amount = Number(rec.amount);
+    if (!method || !Number.isFinite(amount) || amount < 0) continue;
+    out.push({ method, amount: Math.round(amount) });
+  }
+  return out.length > 0 ? out : null;
+}
+
+/**
  * Aggregation service for the reservation calendar page.
  * Fetches all data needed to render the day-view calendar in one call.
  */
@@ -31,9 +52,9 @@ export async function getCalendarData(
   // other_label + slot_block_type_code come from migration 00010 / 00012.
   // The SAFE fallback omits them so pre-migration deployments still load.
   const FULL_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, is_member_join, is_continued_billing, consumed_plan_id, consumed_amount, other_label, slot_block_type_code, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, payment_splits, cancelled_at, is_member_join, is_continued_billing, consumed_plan_id, consumed_amount, other_label, slot_block_type_code, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
   const SAFE_SELECT =
-    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, cancelled_at, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
+    "id, staff_id, customer_id, start_at, end_at, status, type, menu_manage_id, memo, sales, customer_record, visit_count, visit_source_id, additional_charge, payment_method, payment_splits, cancelled_at, customers(code, last_name, first_name, phone_number_1, visit_count, created_at)";
 
   function fetchAppointments(select: string) {
     return supabase
@@ -235,6 +256,7 @@ export async function getCalendarData(
     visit_source_id: number | null;
     additional_charge: number | null;
     payment_method: string | null;
+    payment_splits?: unknown;
     cancelled_at: string | null;
     is_member_join?: boolean | null;
     is_continued_billing?: boolean | null;
@@ -510,6 +532,7 @@ export async function getCalendarData(
       sales: a.sales ?? 0,
       additionalCharge: a.additional_charge ?? 0,
       paymentMethod: a.payment_method ?? null,
+      paymentSplits: parsePaymentSplits(a.payment_splits),
       customerRecord: a.customer_record ?? null,
       isMemberJoin: !!a.is_member_join,
       isContinuedBilling: !!a.is_continued_billing,
