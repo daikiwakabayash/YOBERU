@@ -458,17 +458,19 @@ export function ReservationCalendar({
                 className="flex border-b"
                 style={{ height: STAFF_ROW_HEIGHT }}
               >
-                {/* Staff label (sticky left) */}
+                {/* Staff label (sticky left)。
+                    休日のスタッフは ラベル + タイムライン全体を視認できる
+                    グレーで覆って「予約不可」を一目で分かるようにする */}
                 <div
-                  className={`sticky left-0 z-10 flex shrink-0 flex-col items-center justify-center border-r bg-white ${
-                    isOffShift ? "bg-gray-50" : ""
+                  className={`sticky left-0 z-10 flex shrink-0 flex-col items-center justify-center border-r ${
+                    isOffShift ? "bg-gray-100" : "bg-white"
                   }`}
                   style={{ width: STAFF_LABEL_WIDTH }}
                 >
                   <div className="flex items-center gap-1">
                     <div
                       className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ${
-                        isOffShift ? "opacity-60" : ""
+                        isOffShift ? "opacity-50" : ""
                       }`}
                       style={{
                         backgroundColor: staff.shiftColor || "#6366f1",
@@ -478,32 +480,34 @@ export function ReservationCalendar({
                     </div>
                     <span
                       className={`text-xs font-bold ${
-                        isOffShift ? "text-gray-500" : "text-gray-900"
+                        isOffShift ? "text-gray-400" : "text-gray-900"
                       }`}
                     >
                       {staff.name}
                     </span>
-                    <span
-                      className={`rounded px-1 py-0.5 text-[9px] font-bold ${rateClass}`}
-                      title={buildUtilizationTooltip(staff)}
-                    >
-                      {ratePct != null ? `${ratePct}%` : "—"}
-                    </span>
+                    {!isOffShift && (
+                      <span
+                        className={`rounded px-1 py-0.5 text-[9px] font-bold ${rateClass}`}
+                        title={buildUtilizationTooltip(staff)}
+                      >
+                        {ratePct != null ? `${ratePct}%` : "—"}
+                      </span>
+                    )}
                   </div>
                   {staff.shiftStart && staff.shiftEnd ? (
                     <div className="text-[10px] text-gray-400">
                       [{staff.shiftStart.slice(0, 5)}-{staff.shiftEnd.slice(0, 5)}]
                     </div>
                   ) : (
-                    <div className="text-[9px] font-bold text-red-500">
+                    <div className="rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-bold text-gray-500">
                       休日
                     </div>
                   )}
                 </div>
 
-                {/* Timeline area */}
+                {/* Timeline area。休日はベースを薄いグレーで塗る */}
                 <div
-                  className="relative"
+                  className={`relative ${isOffShift ? "bg-gray-100/50" : ""}`}
                   style={{ width: totalWidth, height: STAFF_ROW_HEIGHT }}
                 >
                   {/* Grid lines (vertical) + clickable cells + off-shift shading */}

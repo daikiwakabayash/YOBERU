@@ -414,6 +414,9 @@ export function WeeklyReservationCalendar({
                   : duPct >= 60
                     ? "bg-amber-100 text-amber-700"
                     : "bg-emerald-100 text-emerald-700";
+            // 休日 (シフト未設定 = 開放時間 0 分) の判定。
+            // この日に予約 / 受付ができないことを視覚的に分かりやすくする。
+            const isOffShift = !du || du.openMin === 0;
 
             return (
               <div
@@ -425,7 +428,11 @@ export function WeeklyReservationCalendar({
                 {/* Day label (sticky left) */}
                 <div
                   className={`sticky left-0 z-10 flex shrink-0 flex-col items-center justify-center border-r bg-white ${
-                    isToday ? "bg-blue-50" : ""
+                    isToday
+                      ? "bg-blue-50"
+                      : isOffShift
+                        ? "bg-gray-100"
+                        : ""
                   }`}
                   style={{ width: DAY_LABEL_WIDTH }}
                 >
@@ -433,35 +440,53 @@ export function WeeklyReservationCalendar({
                     className={`text-sm font-medium ${
                       isToday
                         ? "text-blue-600"
-                        : isSunday
-                          ? "text-red-500"
-                          : isSaturday
-                            ? "text-blue-500"
-                            : "text-gray-500"
+                        : isOffShift
+                          ? "text-gray-400"
+                          : isSunday
+                            ? "text-red-500"
+                            : isSaturday
+                              ? "text-blue-500"
+                              : "text-gray-500"
                     }`}
                   >
                     {dayLabel}
                   </div>
                   <div
                     className={`text-lg font-bold ${
-                      isToday ? "text-blue-600" : "text-gray-900"
+                      isToday
+                        ? "text-blue-600"
+                        : isOffShift
+                          ? "text-gray-400"
+                          : "text-gray-900"
                     }`}
                   >
                     {month}/{day}
                   </div>
-                  {du && (
-                    <span
-                      className={`mt-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold ${duClass}`}
-                      title={`${dateStr} 稼働率 — 開放 ${du.openMin}分 / 稼働 ${du.busyMin}分`}
-                    >
-                      {duPct != null ? `${duPct}%` : "—"}
+                  {isOffShift ? (
+                    <span className="mt-0.5 rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-bold text-gray-500">
+                      休日
                     </span>
+                  ) : (
+                    du && (
+                      <span
+                        className={`mt-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold ${duClass}`}
+                        title={`${dateStr} 稼働率 — 開放 ${du.openMin}分 / 稼働 ${du.busyMin}分`}
+                      >
+                        {duPct != null ? `${duPct}%` : "—"}
+                      </span>
+                    )
                   )}
                 </div>
 
-                {/* Timeline area */}
+                {/* Timeline area。休日のときは薄いグレーで「予約不可」が一目で分かるように */}
                 <div
-                  className={`relative ${isToday ? "bg-blue-50/30" : ""}`}
+                  className={`relative ${
+                    isToday
+                      ? "bg-blue-50/30"
+                      : isOffShift
+                        ? "bg-gray-100/60"
+                        : ""
+                  }`}
                   style={{ width: totalWidth, height: DAY_ROW_HEIGHT }}
                 >
                   {/* Grid lines (vertical) + clickable cells */}
