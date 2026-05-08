@@ -317,6 +317,36 @@ export function AppointmentDetailSheet({
     appointment?.paymentMethod ?? ""
   );
 
+  /** 分割払い: 1 会計を複数の支払方法に分けるためのモード。
+   *  単一支払 (paymentMethod だけ) で十分なケースの方が多いので、
+   *  既定では off。サブスクは Square / 単発の初診料は現金、のような
+   *  混在ケースでだけ on にする。
+   *
+   *  splits は 1 行 = { method, amount } の配列。amount は整数 (円)。
+   *  既存予約に payment_splits が入っていれば自動で on にして表示。
+   */
+  const initialSplits = (() => {
+    const raw = (appointment as unknown as { paymentSplits?: unknown })
+      ?.paymentSplits;
+    if (!Array.isArray(raw)) return null;
+    const arr = raw
+      .map((r) => {
+        const m =
+          (r as { method?: string }).method ??
+          (r as { code?: string }).code ??
+          "";
+        const a = Number((r as { amount?: number }).amount ?? 0);
+        if (!m || !Number.isFinite(a) || a < 0) return null;
+        return { method: m, amount: Math.round(a) };
+      })
+      .filter((x): x is { method: string; amount: number } => !!x);
+    return arr.length > 0 ? arr : null;
+  })();
+  const [splitMode, setSplitMode] = useState<boolean>(!!initialSplits);
+  const [paymentSplits, setPaymentSplits] = useState<
+    Array<{ method: string; amount: number | "" }>
+  >(initialSplits ?? []);
+
   // ---- Saving ----
   const [saving, setSaving] = useState(false);
 
@@ -1031,9 +1061,35 @@ export function AppointmentDetailSheet({
     // 0円の場合は支払い方法不要 (プラン会員の2回目以降や、チケット消化
     // 来店など「お金のやり取りが発生しない」ケースを想定)。1円以上ある
     // 場合のみ必須にする。
-    if (total > 0 && !paymentMethod) {
+    if (total > 0 && !splitMode && !paymentMethod) {
       toast.error("支払い方法を選択してください");
       return;
+    }
+    // 分割払いモードのバリデーション: 合計が会計金額と一致 + 全行で
+    // method 選択済 + 金額 > 0 が条件。
+    if (splitMode && total > 0) {
+      if (paymentSplits.length === 0) {
+        toast.error("支払い行を 1 つ以上追加してください");
+        return;
+      }
+      const invalid = paymentSplits.some(
+        (r) =>
+          !r.method || typeof r.amount !== "number" || r.amount <= 0
+      );
+      if (invalid) {
+        toast.error("各支払い行で 方法 と 金額 (1 円以上) を入力してください");
+        return;
+      }
+      const sum = paymentSplits.reduce(
+        (s, r) => s + (typeof r.amount === "number" ? r.amount : 0),
+        0
+      );
+      if (sum !== total) {
+        toast.error(
+          `分割の合計 (¥${sum.toLocaleString()}) が 会計金額 (¥${total.toLocaleString()}) と一致しません`
+        );
+        return;
+      }
     }
 
     setSaving(true);
@@ -1169,8 +1225,32 @@ export function AppointmentDetailSheet({
         if (visitSourceId) {
           form.set("visit_source_id", String(visitSourceId));
         }
-        if (paymentMethod) {
-          form.set("payment_method", paymentMethod);
+        if (splitMode && paymentSplits.length > 0) {
+          // 分割: 行を JSON 文字列で送信。サーバー側で JSONB に保存。
+          // payment_method には先頭行の method を入れて後方互換 (旧 UI の
+          // 「主要支払方法」相当として残す)。
+          form.set(
+            "payment_splits",
+            JSON.stringify(
+              paymentSplits
+                .filter(
+                  (r) => r.method && typeof r.amount === "number" && r.amount > 0
+                )
+                .map((r) => ({
+                  method: r.method,
+                  amount: r.amount,
+                }))
+            )
+          );
+          if (paymentSplits[0]?.method) {
+            form.set("payment_method", paymentSplits[0].method);
+          }
+        } else {
+          // 単一支払: splits を NULL クリア (= 旧データから単一に戻した時)
+          form.set("payment_splits", "null");
+          if (paymentMethod) {
+            form.set("payment_method", paymentMethod);
+          }
         }
         if (Number(additionalCharge)) {
           form.set("additional_charge", additionalCharge);
@@ -2111,27 +2191,149 @@ export function AppointmentDetailSheet({
 
           <Separator />
 
-          {/* ===== Section: Payment Method ===== */}
+          {/* ===== Section: Payment Method =====
+              シンプル運用 (1 支払): pill ボタンで 1 つ選ぶ従来 UI。
+              分割運用 (1 会計を Square + 現金 等で分割): 行を追加して
+              方法 × 金額 を複数登録。月額サブスクは Square、初診料は
+              現金、のような運用に対応する。 */}
           <section className="space-y-2">
-            <Label className="text-xs font-bold text-gray-500">
-              支払い方法
-            </Label>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {effectivePaymentMethods.map((pm) => (
-                <button
-                  key={pm.code}
-                  type="button"
-                  onClick={() => setPaymentMethod(pm.code)}
-                  className={`rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                    paymentMethod === pm.code
-                      ? "border-blue-400 bg-blue-500 text-white"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
-                  }`}
-                >
-                  {pm.name}
-                </button>
-              ))}
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-bold text-gray-500">
+                支払い方法
+              </Label>
+              <button
+                type="button"
+                onClick={() => {
+                  if (splitMode) {
+                    // 分割 → 単一: 既存の splits は破棄
+                    setSplitMode(false);
+                    setPaymentSplits([]);
+                  } else {
+                    // 単一 → 分割: 現在の単一選択 + 残額分の新規行 を初期値にする
+                    const initial =
+                      paymentMethod && total > 0
+                        ? [{ method: paymentMethod, amount: total as number | "" }]
+                        : [];
+                    setSplitMode(true);
+                    setPaymentSplits(initial);
+                  }
+                }}
+                className="text-[11px] font-bold text-blue-600 hover:underline"
+              >
+                {splitMode ? "単一支払に戻す" : "支払いを分ける"}
+              </button>
             </div>
+
+            {!splitMode ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {effectivePaymentMethods.map((pm) => (
+                  <button
+                    key={pm.code}
+                    type="button"
+                    onClick={() => setPaymentMethod(pm.code)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+                      paymentMethod === pm.code
+                        ? "border-blue-400 bg-blue-500 text-white"
+                        : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
+                    }`}
+                  >
+                    {pm.name}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {paymentSplits.map((row, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <select
+                      className="h-9 flex-1 rounded-md border px-2 text-sm"
+                      value={row.method}
+                      onChange={(e) => {
+                        const next = paymentSplits.slice();
+                        next[idx] = { ...next[idx], method: e.target.value };
+                        setPaymentSplits(next);
+                      }}
+                    >
+                      <option value="">選択</option>
+                      {effectivePaymentMethods.map((pm) => (
+                        <option key={pm.code} value={pm.code}>
+                          {pm.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={row.amount === "" ? "" : String(row.amount)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const next = paymentSplits.slice();
+                        next[idx] = {
+                          ...next[idx],
+                          amount: v === "" ? "" : Math.max(0, Math.floor(Number(v) || 0)),
+                        };
+                        setPaymentSplits(next);
+                      }}
+                      placeholder="金額"
+                      className="h-9 w-28 text-right"
+                    />
+                    <span className="text-xs text-gray-500">円</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPaymentSplits(
+                          paymentSplits.filter((_, i) => i !== idx)
+                        )
+                      }
+                      className="rounded p-1 text-gray-400 hover:bg-rose-50 hover:text-rose-600"
+                      aria-label="この行を削除"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                {/* 残額自動補完ボタン */}
+                {(() => {
+                  const splitSum = paymentSplits.reduce(
+                    (s, r) => s + (typeof r.amount === "number" ? r.amount : 0),
+                    0
+                  );
+                  const remaining = total - splitSum;
+                  return (
+                    <div className="flex items-center justify-between gap-2 pt-1 text-[11px]">
+                      <span
+                        className={
+                          remaining === 0
+                            ? "text-emerald-600"
+                            : "text-rose-600"
+                        }
+                      >
+                        合計 ¥{splitSum.toLocaleString()} / 会計 ¥
+                        {total.toLocaleString()}{" "}
+                        {remaining !== 0 && `(差分 ¥${remaining.toLocaleString()})`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPaymentSplits([
+                            ...paymentSplits,
+                            {
+                              method: "",
+                              amount:
+                                remaining > 0 ? remaining : ("" as const),
+                            },
+                          ])
+                        }
+                        className="rounded border px-2 py-1 text-[11px] font-bold text-blue-700 hover:bg-blue-50"
+                      >
+                        + 支払い行を追加
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </section>
 
           <Separator />
