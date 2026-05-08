@@ -1,7 +1,9 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -19,6 +21,8 @@ import {
   AlertTriangle,
   Ticket,
 } from "lucide-react";
+import { toast } from "sonner";
+import { setStaffReviewCount } from "../actions/staffReviewCountActions";
 
 interface SalesData {
   totalSales: number;
@@ -43,6 +47,10 @@ interface SalesData {
     openMin: number;
     busyMin: number;
     utilizationRate: number;
+    /** その月にこのスタッフが受けた G口コミ件数 (手入力) */
+    googleReviewCount?: number;
+    /** その月にこのスタッフが受けた H口コミ件数 (手入力) */
+    hotpepperReviewCount?: number;
   }>;
 }
 
@@ -65,11 +73,14 @@ function utilizationBadgeClass(rate: number): string {
 interface SalesDashboardContentProps {
   data: SalesData;
   dateRange: string;
+  /** YYYY-MM。スタッフ口コミ件数の保存対象月 */
+  yearMonth: string;
 }
 
 export function SalesDashboardContent({
   data,
   dateRange,
+  yearMonth,
 }: SalesDashboardContentProps) {
   return (
     <div className="space-y-6">
@@ -194,13 +205,15 @@ export function SalesDashboardContent({
                 <TableHead className="text-right">稼働率</TableHead>
                 <TableHead className="text-right">施術数</TableHead>
                 <TableHead className="text-right">新規数</TableHead>
+                <TableHead className="text-right">G口コミ</TableHead>
+                <TableHead className="text-right">H口コミ</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.staffSales.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={12}
                     className="py-8 text-center text-muted-foreground"
                   >
                     データがありません
@@ -263,6 +276,22 @@ export function SalesDashboardContent({
                           {staff.newCount}
                         </Badge>
                       </TableCell>
+                      <TableCell className="text-right">
+                        <ReviewCountInput
+                          staffId={staff.staffId}
+                          yearMonth={yearMonth}
+                          kind="google"
+                          initial={staff.googleReviewCount ?? 0}
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <ReviewCountInput
+                          staffId={staff.staffId}
+                          yearMonth={yearMonth}
+                          kind="hotpepper"
+                          initial={staff.hotpepperReviewCount ?? 0}
+                        />
+                      </TableCell>
                     </TableRow>
                   );
                 })
@@ -272,5 +301,73 @@ export function SalesDashboardContent({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * G口コミ / H口コミ の件数を、表のセル内で直接 数字入力できる小コンポーネント。
+ *
+ * - 入力 → blur (フォーカスアウト) または Enter で保存
+ * - 楽観 UI: ローカル state を即時反映、サーバー失敗時に元の値へロールバック
+ * - 0 / 空文字は等価扱い
+ */
+function ReviewCountInput({
+  staffId,
+  yearMonth,
+  kind,
+  initial,
+}: {
+  staffId: number;
+  yearMonth: string;
+  kind: "google" | "hotpepper";
+  initial: number;
+}) {
+  const [value, setValue] = useState<string>(String(initial ?? 0));
+  const [pending, startTransition] = useTransition();
+  const [savedValue, setSavedValue] = useState<number>(initial ?? 0);
+
+  function commit() {
+    const n = value === "" ? 0 : Number(value);
+    if (!Number.isFinite(n) || n < 0) {
+      toast.error("0 以上の整数で入力してください");
+      setValue(String(savedValue));
+      return;
+    }
+    const intN = Math.floor(n);
+    if (intN === savedValue) return; // 変更なし
+    startTransition(async () => {
+      const res = await setStaffReviewCount({
+        staffId,
+        yearMonth,
+        ...(kind === "google" ? { google: intN } : { hotpepper: intN }),
+      });
+      if ("error" in res) {
+        toast.error(res.error);
+        setValue(String(savedValue));
+        return;
+      }
+      setSavedValue(intN);
+      setValue(String(intN));
+      toast.success("保存しました");
+    });
+  }
+
+  return (
+    <Input
+      type="number"
+      min={0}
+      step={1}
+      value={value}
+      disabled={pending}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+        }
+      }}
+      className="ml-auto h-8 w-16 text-right text-xs"
+      aria-label={kind === "google" ? "G口コミ件数" : "H口コミ件数"}
+    />
   );
 }

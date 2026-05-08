@@ -54,7 +54,10 @@ export function MarketingFilters({
   );
 
   return (
-    <div className="sticky top-0 z-10 flex flex-wrap items-end gap-4 rounded-lg border bg-white/95 p-4 shadow-sm backdrop-blur">
+    <div className="sticky top-0 z-30 flex flex-wrap items-end gap-4 rounded-lg border bg-white p-4 shadow-sm">
+      {/* z-30 + 完全不透明 (旧: bg-white/95 backdrop-blur) にする。
+          スクロール時に商圏マップやサイドバーが透けて見えて UI が
+          バグって見える問題への対応。 */}
       <div className="space-y-1">
         <label className="text-xs font-medium text-gray-500">期間</label>
         <div className="flex items-center gap-2">

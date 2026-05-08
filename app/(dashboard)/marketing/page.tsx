@@ -8,6 +8,7 @@ import { MarketingNewCustomer } from "@/feature/marketing/components/MarketingNe
 import { CatchmentMapWrapper } from "@/feature/catchment/components/CatchmentMapWrapper";
 import { MetaAdsTab } from "@/feature/meta-ads/components/MetaAdsTab";
 import { MetaAnalysisTab } from "@/feature/meta-ads/components/MetaAnalysisTab";
+import { AiAnalysisTab } from "@/feature/ai-analysis/components/AiAnalysisTab";
 import { getMetaAdsSummary } from "@/feature/meta-ads/services/getMetaAdsSummary";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
@@ -211,11 +212,19 @@ export default async function MarketingPage({
         />
       );
     }
+    if (tab === "ai") {
+      return (
+        <AiAnalysisTab startMonth={startMonth} endMonth={endMonth} />
+      );
+    }
     if (tab === "catchment") {
       // 商圏タブ: 顧客住所 geocode → 地図ピン表示。
       // 期間フィルタはクライアント側で行うので、サーバは全顧客を返す。
       const [catchmentData, sourcesForMap] = await Promise.all([
-        getCatchmentCustomers({ shopId }),
+        // 上部フィルタの期間 (= startMonth/endMonth) を渡して、
+        // ピンを「初回来院月が範囲内の顧客」だけに絞る。3 月指定なら
+        // 3 月初来院の客だけ表示される。
+        getCatchmentCustomers({ shopId, startMonth, endMonth }),
         (async () => {
           // 商圏マップは visit_sources.color (= 予約バッジと同じ色) を
           // ピンに反映させたいので、ここで color も取得する。
