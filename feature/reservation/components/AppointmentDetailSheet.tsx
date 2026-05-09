@@ -762,6 +762,34 @@ export function AppointmentDetailSheet({
       form.set("customer_record", customerRecord);
       form.set("is_member_join", isMemberJoin ? "true" : "false");
       form.set("is_continued_billing", isContinuedBilling ? "true" : "false");
+      // 支払い方法も「更新」で永続化させる。これが抜けていたため、
+      // 会計確定済の予約でユーザーが Square を選択 → 更新 を押しても
+      // payment_method が NULL のまま残り、日報で「未設定」扱いに
+      // 落ちていた。会計確定 (handleSubmit) と同じ書込ロジックで揃える。
+      if (splitMode && paymentSplits.length > 0) {
+        form.set(
+          "payment_splits",
+          JSON.stringify(
+            paymentSplits
+              .filter(
+                (r) => r.method && typeof r.amount === "number" && r.amount > 0
+              )
+              .map((r) => ({ method: r.method, amount: r.amount }))
+          )
+        );
+        if (paymentSplits[0]?.method) {
+          form.set("payment_method", paymentSplits[0].method);
+        }
+      } else {
+        form.set("payment_splits", "null");
+        if (paymentMethod) {
+          form.set("payment_method", paymentMethod);
+        }
+      }
+      // 追加料金も更新で反映 (旧実装は会計確定でしか書かれなかった)
+      if (additionalCharge !== "" && Number(additionalCharge) >= 0) {
+        form.set("additional_charge", String(additionalCharge));
+      }
 
       const result = await updateAppointment(appointment.id, form);
       if ("error" in result && result.error) {
