@@ -175,24 +175,31 @@ export async function getMarketingData(params: {
 
   // 1. Appointments in range for this shop.
   //
-  // Marketing analytics = 新規のみ.
+  // Marketing analytics = 真の新規のみ.
   // Per product spec ("マーケティング分析の実来院などは全て初回の新規の
   // みだけの数をカウントする。キャンセルなども。") every metric on the
   // marketing dashboard — 実来院 / キャンセル / 入会 / 売上 / 予約数 —
   // must only count the customer's FIRST-EVER appointment. Return
   // visits don't belong here.
   //
-  // We filter on `visit_count = 1`. That column is stamped by
-  // reservationActions.createAppointment as the customer's cumulative
-  // visit number at the time of booking, so visit_count=1 means "this
-  // is the booking that made them a customer".
+  // 旧実装は appointments.visit_count = 1 でフィルタしていたが、これは
+  // 予約作成時に customer.visit_count + 1 でスタンプされる値で、
+  // customer.visit_count は完了時にしか加算されないため、
+  //   - 1 回目キャンセル → 2 回目予約 が visit_count=1 で再スタンプ
+  //   - レガシーデータで customer.visit_count が 0 のまま
+  // のケースで「2 回目以降なのに新規扱い」になってしまい、媒体別内訳の
+  // (不明) 行を膨らませる原因になっていた。
+  //
+  // 新実装: 期間内の予約を一旦 全件取得 → 該当顧客の「全期間の最古の
+  // 非キャンセル予約」と照合し、その最古予約自身だけを「新規」として
+  // 残す。これで stamped visit_count に依存せず、実際の来店履歴から
+  // 「この予約が初回」を判定できる。
   let apptQuery = supabase
     .from("appointments")
     .select(
-      "id, status, start_at, sales, consumed_amount, visit_source_id, is_member_join, cancelled_at, visit_count"
+      "id, customer_id, status, start_at, sales, consumed_amount, visit_source_id, is_member_join, cancelled_at, visit_count"
     )
     .eq("shop_id", shopId)
-    .eq("visit_count", 1)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null);
@@ -245,6 +252,41 @@ export async function getMarketingData(params: {
   const adSpendRows = adSpendRes.data ?? [];
   const reviewRows = reviewsRes.data ?? [];
 
+  // 「真の新規」判定用に、期間内予約の顧客 id を抽出して、その顧客たちの
+  // 全期間 予約履歴を取得し、各顧客の "最古の予約 id" を求める。
+  // キャンセル / no-show も含めて取るのは、「初回キャンセル」も新規予約
+  // 1 件として計上したいため (spec: マーケティング分析は新規のみ、
+  // キャンセルなども)。
+  // 期間内予約のうち、この最古 id と一致するものだけが「人生初の予約
+  // = 真の新規」として集計対象になる。
+  const customerIdsInPeriod = Array.from(
+    new Set(
+      (appointments as Array<{ customer_id: number | null }>)
+        .map((a) => a.customer_id)
+        .filter((id): id is number => id != null)
+    )
+  );
+  const firstEverApptIdByCustomer = new Map<number, number>();
+  if (customerIdsInPeriod.length > 0) {
+    const { data: histRows } = await supabase
+      .from("appointments")
+      .select("id, customer_id, start_at")
+      .eq("shop_id", shopId)
+      .in("customer_id", customerIdsInPeriod)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: true });
+    type HistRow = {
+      id: number;
+      customer_id: number;
+      start_at: string;
+    };
+    for (const r of (histRows ?? []) as HistRow[]) {
+      if (!firstEverApptIdByCustomer.has(r.customer_id)) {
+        firstEverApptIdByCustomer.set(r.customer_id, r.id);
+      }
+    }
+  }
+
   const sourceNameMap = new Map<number, string>(
     sources.map((s) => [s.id as number, s.name as string])
   );
@@ -260,6 +302,8 @@ export async function getMarketingData(params: {
   const totals = emptyTotals();
 
   for (const a of appointments as Array<{
+    id: number;
+    customer_id: number | null;
     status: number;
     start_at: string;
     sales: number | null;
@@ -268,10 +312,14 @@ export async function getMarketingData(params: {
     is_member_join: boolean | null;
     visit_count: number | null;
   }>) {
-    // Defensive: even though the SELECT already filters visit_count=1,
-    // legacy rows may have NULL visit_count (pre-migration 00006).
-    // Exclude them so the dashboard matches spec strictly.
-    if ((a.visit_count ?? 0) !== 1) continue;
+    // 真の新規判定: この予約 id が「顧客の全期間で最古の予約 id」と
+    // 一致するときのみ集計に乗せる。キャンセル含む全レコードから最古を
+    // 選んでいるので、「初回がキャンセルだった顧客」も新規 1 件として
+    // 反映される (spec 通り)。
+    //   - customer_id 無しの予約 (slot block 等) は除外
+    //   - 期間外の予約は SELECT 段で除外済
+    if (a.customer_id == null) continue;
+    if (firstEverApptIdByCustomer.get(a.customer_id) !== a.id) continue;
     const ym = appointmentYearMonth(a.start_at);
     const mb = monthBuckets.get(ym) ?? (() => {
       const b = emptyTotals();
