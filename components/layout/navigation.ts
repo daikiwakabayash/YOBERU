@@ -57,6 +57,7 @@ export const NAVIGATION: NavGroup[] = [
     items: [
       { name: "顧客一覧", href: "/customer", icon: Users },
       { name: "LINE チャット", href: "/line-chat", icon: MessageCircle },
+      { name: "LINE 紐付けキュー", href: "/line-link-queue", icon: Link2 },
       { name: "同意書 (電子契約)", href: "/agreement", icon: FileSignature },
     ],
   },

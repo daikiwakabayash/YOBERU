@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, Loader2, AlertTriangle, ExternalLink } from "lucide-react";
+import {
+  CheckCircle2,
+  Loader2,
+  AlertTriangle,
+  ExternalLink,
+} from "lucide-react";
 import { linkLineUserToCustomer } from "../actions/linkLineUser";
 
 interface LiffApi {
@@ -24,6 +29,13 @@ type State =
   | { kind: "no-liff"; reason: string }
   | { kind: "linking" }
   | { kind: "linked"; customerId: number }
+  | {
+      kind: "confirm";
+      profile: { userId: string; displayName: string };
+      reason: "customer_has_other_line" | "line_taken_by_other_customer";
+      maskedExistingName: string;
+      message: string;
+    }
   | { kind: "error"; message: string };
 
 /**
@@ -31,6 +43,9 @@ type State =
  * 1. LIFF SDK 初期化
  * 2. liff.getProfile() で userId 取得
  * 3. server action で customer.line_user_id を更新
+ *    - 既存紐付けがある場合は requiresConfirmation を返すので、
+ *      ユーザに「本当に切り替えますか？」を表示し、承諾後に
+ *      force=true で再実行する。
  * 4. /mypage へ遷移
  */
 export function LineLinkClient({
@@ -39,6 +54,42 @@ export function LineLinkClient({
   shopAddFriendUrl,
 }: Props) {
   const [state, setState] = useState<State>({ kind: "loading" });
+
+  async function attemptLink(
+    profile: { userId: string; displayName: string },
+    force: boolean
+  ): Promise<void> {
+    const res = await linkLineUserToCustomer({
+      token,
+      lineUserId: profile.userId,
+      displayName: profile.displayName,
+      force,
+    });
+
+    if (res.success) {
+      setState({ kind: "linked", customerId: res.customerId ?? 0 });
+      setTimeout(() => {
+        window.location.replace("/mypage");
+      }, 1200);
+      return;
+    }
+
+    if (res.requiresConfirmation) {
+      setState({
+        kind: "confirm",
+        profile,
+        reason: res.requiresConfirmation.reason,
+        maskedExistingName: res.requiresConfirmation.maskedExistingName,
+        message: res.error ?? "確認が必要です",
+      });
+      return;
+    }
+
+    setState({
+      kind: "error",
+      message: res.error ?? "予期しないエラーが発生しました",
+    });
+  }
 
   useEffect(() => {
     const liffId = process.env.NEXT_PUBLIC_LINE_LIFF_ID;
@@ -75,23 +126,7 @@ export function LineLinkClient({
         await liff.init({ liffId: liffId! });
         const profile = await liff.getProfile();
         setState({ kind: "linking" });
-        const res = await linkLineUserToCustomer({
-          token,
-          lineUserId: profile.userId,
-          displayName: profile.displayName,
-        });
-        if (res.error) {
-          setState({ kind: "error", message: res.error });
-          return;
-        }
-        setState({
-          kind: "linked",
-          customerId: res.customerId ?? 0,
-        });
-        // 1.2 秒後に /mypage へ自動遷移
-        setTimeout(() => {
-          window.location.replace("/mypage");
-        }, 1200);
+        await attemptLink(profile, false);
       } catch (e) {
         setState({
           kind: "error",
@@ -135,13 +170,65 @@ export function LineLinkClient({
             </div>
           )}
 
+          {state.kind === "confirm" && (
+            <div className="space-y-3">
+              <div className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="space-y-1">
+                  <p className="font-semibold">
+                    既存の紐付けが見つかりました
+                  </p>
+                  <p className="text-xs">{state.message}</p>
+                  {state.reason === "line_taken_by_other_customer" && (
+                    <p className="text-xs">
+                      現在の紐付け先:{" "}
+                      <span className="font-mono">
+                        {state.maskedExistingName}
+                      </span>
+                    </p>
+                  )}
+                  {state.reason === "customer_has_other_line" && (
+                    <p className="text-xs">
+                      このカルテ ({state.maskedExistingName}) 宛のリマインドは
+                      現在、別の LINE に送られています。
+                      切り替えると、その紐付けは解除されます。
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Button
+                  className="w-full bg-rose-600 hover:bg-rose-700"
+                  onClick={() => {
+                    setState({ kind: "linking" });
+                    attemptLink(state.profile, true);
+                  }}
+                >
+                  上書きしてこの LINE と紐付ける
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() =>
+                    setState({
+                      kind: "error",
+                      message:
+                        "紐付けをキャンセルしました。お困りの場合は店舗へお問い合わせください。",
+                    })
+                  }
+                >
+                  キャンセル
+                </Button>
+              </div>
+            </div>
+          )}
+
           {state.kind === "no-liff" && (
             <div className="space-y-2">
               <div className="flex items-start gap-2 text-sm text-amber-700">
                 <AlertTriangle className="mt-0.5 h-4 w-4" />
-                <span>
-                  このページは LINE アプリ内で開いてください。
-                </span>
+                <span>このページは LINE アプリ内で開いてください。</span>
               </div>
               <p className="text-[11px] text-gray-500">{state.reason}</p>
               {preLinkedUserId && (
