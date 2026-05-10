@@ -88,13 +88,12 @@ export async function POST(req: NextRequest) {
   let channelSecret: string | null = null;
   let channelAccessToken: string | null = null;
   let shopId: number | null = null;
-  let shopName: string = "当院";
 
   try {
     if (body.destination) {
       const { data: shopRow } = await supabase
         .from("shops")
-        .select("id, name, line_channel_secret, line_channel_access_token")
+        .select("id, line_channel_secret, line_channel_access_token")
         .eq("line_channel_id", body.destination)
         .is("deleted_at", null)
         .maybeSingle();
@@ -103,7 +102,6 @@ export async function POST(req: NextRequest) {
         channelAccessToken =
           (shopRow.line_channel_access_token as string | null) ?? null;
         shopId = shopRow.id as number;
-        shopName = (shopRow.name as string) ?? "当院";
       }
     }
   } catch {
@@ -187,37 +185,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Welcome reply (内容は従来どおり)
-      try {
-        const welcomeText = `友だち追加ありがとうございます！\n${shopName}の予約リマインドをお届けします。\nご質問がありましたら、このトーク画面からお気軽にメッセージをお送りください。`;
-
-        if (channelAccessToken && event.replyToken) {
-          await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${channelAccessToken}`,
-            },
-            body: JSON.stringify({
-              replyToken: event.replyToken,
-              messages: [{ type: "text", text: welcomeText }],
-            }),
-          });
-        }
-
-        await supabase.from("line_messages").insert({
-          shop_id: shopId,
-          customer_id: alreadyLinked,
-          line_user_id: lineUserId,
-          direction: "outbound",
-          message_type: "text",
-          text: welcomeText,
-          source: "follow_welcome",
-          delivery_status: channelAccessToken ? "success" : "failed",
-        });
-      } catch (e) {
-        console.error("[LINE webhook] welcome failed", e);
-      }
+      // welcome 返信は送らない。LINE の自動送信は予約リマインド (cron)
+      // だけに限定する運用方針のため。友だち追加してきた直後にこちらから
+      // 自動メッセージを送ると、保留キューの紐付け前にトーク履歴が
+      // 混ざるという副作用もある。挨拶が必要であれば LINE 公式アカウントの
+      // 「あいさつメッセージ」機能 (Messaging API ではなく LINE 側機能)
+      // を利用する。
     } else if (event.type === "unfollow") {
       // ブロック / 友だち削除。 line_user_id を顧客側から外し、保留行も
       // 「dismissed」扱いにして残す (監査用)。
