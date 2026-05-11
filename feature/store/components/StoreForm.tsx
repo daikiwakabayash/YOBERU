@@ -163,7 +163,20 @@ export function StoreForm({
         if (typeof result.error === "string") {
           setServerError(result.error);
         } else {
-          // Field-level errors from zod
+          // Field-level errors from zod。Switch / 表示されていないフィールドで
+          // 失敗した場合、ユーザに何も見えないまま「保存できない」状態に
+          // なるので、フィールドエラーの内容も serverError にまとめて
+          // 必ず画面上に出す。
+          const summary = Object.entries(result.error)
+            .filter(
+              ([, messages]) => Array.isArray(messages) && messages.length > 0
+            )
+            .map(([field, messages]) => `${field}: ${(messages as string[])[0]}`);
+          if (summary.length > 0) {
+            setServerError(
+              `入力内容にエラーがあります: ${summary.join(" / ")}`
+            );
+          }
           for (const [field, messages] of Object.entries(result.error)) {
             if (Array.isArray(messages) && messages.length > 0) {
               form.setError(field as keyof StoreFormValues, {

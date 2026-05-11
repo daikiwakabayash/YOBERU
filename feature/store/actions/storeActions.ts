@@ -4,11 +4,31 @@ import { storeSchema } from "../schema/store.schema";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-export async function createStore(formData: FormData) {
-  const supabase = await createClient();
-  const raw = Object.fromEntries(formData.entries());
+/**
+ * FormData の boolean 文字列 ("true" / "false") を実際の boolean に
+ * 戻す。`String(true)` / `String(false)` で append された値を zod の
+ * `z.boolean()` に通すための変換ヘルパ。
+ */
+function toBool(v: FormDataEntryValue | undefined, fallback: boolean): boolean {
+  if (typeof v === "string") {
+    if (v === "true") return true;
+    if (v === "false") return false;
+  }
+  return fallback;
+}
 
-  const parsed = storeSchema.safeParse({
+/**
+ * フォーム送信値 (FormData) を zod スキーマが期待する型に揃える。
+ * number 系は Number() で coerce し、boolean 系は toBool() で coerce する。
+ *
+ * 過去に `customer_can_cancel` / `customer_can_modify` の変換が漏れて
+ * いて、フォーム保存が静かに失敗するバグがあった (LINE 設定が
+ * いつまでも反映されない症状の根因)。boolean フィールドを 1 箇所に
+ * 集約することで再発を防ぐ。
+ */
+function coerceStoreFormData(formData: FormData) {
+  const raw = Object.fromEntries(formData.entries());
+  return {
     ...raw,
     brand_id: Number(raw.brand_id),
     area_id: Number(raw.area_id),
@@ -16,9 +36,16 @@ export async function createStore(formData: FormData) {
     frame_min: Number(raw.frame_min),
     scale: Number(raw.scale),
     sort_number: Number(raw.sort_number || 0),
-    is_public: raw.is_public === "true",
-    enable_meeting_booking: raw.enable_meeting_booking !== "false",
-  });
+    is_public: toBool(raw.is_public, true),
+    enable_meeting_booking: toBool(raw.enable_meeting_booking, true),
+    customer_can_cancel: toBool(raw.customer_can_cancel, true),
+    customer_can_modify: toBool(raw.customer_can_modify, false),
+  };
+}
+
+export async function createStore(formData: FormData) {
+  const supabase = await createClient();
+  const parsed = storeSchema.safeParse(coerceStoreFormData(formData));
 
   if (!parsed.success) {
     return { error: parsed.error.flatten().fieldErrors };
@@ -33,19 +60,7 @@ export async function createStore(formData: FormData) {
 
 export async function updateStore(id: number, formData: FormData) {
   const supabase = await createClient();
-  const raw = Object.fromEntries(formData.entries());
-
-  const parsed = storeSchema.safeParse({
-    ...raw,
-    brand_id: Number(raw.brand_id),
-    area_id: Number(raw.area_id),
-    user_id: Number(raw.user_id),
-    frame_min: Number(raw.frame_min),
-    scale: Number(raw.scale),
-    sort_number: Number(raw.sort_number || 0),
-    is_public: raw.is_public === "true",
-    enable_meeting_booking: raw.enable_meeting_booking !== "false",
-  });
+  const parsed = storeSchema.safeParse(coerceStoreFormData(formData));
 
   if (!parsed.success) {
     return { error: parsed.error.flatten().fieldErrors };
