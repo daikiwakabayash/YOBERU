@@ -269,32 +269,49 @@ export async function getDailyReport(
     }
   }
 
-  // 2. For customers who have a member-join in this range, look up their
-  //    earliest member-join globally so we can decide if THIS appointment
-  //    is the customer's first plan purchase (= 新規 by rule b).
-  const customerIdsWithJoinInRange = Array.from(
+  // 2. 「真の新規」判定: 顧客の "最古の完了予約 (status=2)" id を求める。
+  //
+  // 仕様 (ユーザー要望):
+  //   "初めて来店して、初めて集計実行を行った人だけが新規。それ以外は
+  //    すべて 継続。"
+  //
+  // 旧実装は appointments.visit_count = 1 で判定していたが、これは
+  // createAppointment 時に customer.visit_count + 1 でスタンプされ、
+  // customer.visit_count は completeAppointment 時にしか加算されない値。
+  // そのため「1 回目をキャンセル → 2 回目予約 → 完了」のようなケースで
+  // visit_count=1 が再スタンプされ、2 回目来店なのに 新規 扱いになって
+  // しまっていた。
+  //
+  // 期間内に完了予約のある顧客の "全完了予約" を一括取得して、各顧客の
+  // 最古 (start_at ASC, 同日同時刻なら id ASC) の 1 件 = 人生初の来店。
+  // この id と一致する完了予約だけ 新規 扱いにする。マーケティング側
+  // (getMarketingData) と同じ考え方。
+  const customerIdsInPeriod = Array.from(
     new Set(
       appointments
-        .filter((a) => a.is_member_join && a.status === 2)
+        .filter((a) => a.status === 2)
         .map((a) => a.customer_id)
+        .filter((id): id is number => id != null)
     )
   );
-  const earliestJoinByCustomer = new Map<number, string>();
-  if (customerIdsWithJoinInRange.length > 0) {
-    const { data: joinHistory } = await supabase
+  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  if (customerIdsInPeriod.length > 0) {
+    const { data: histRows } = await supabase
       .from("appointments")
-      .select("customer_id, start_at")
-      .in("customer_id", customerIdsWithJoinInRange)
-      .eq("is_member_join", true)
+      .select("id, customer_id, start_at")
+      .eq("shop_id", shopId)
+      .in("customer_id", customerIdsInPeriod)
       .eq("status", 2)
       .is("deleted_at", null)
-      .order("start_at", { ascending: true });
-    for (const r of (joinHistory ?? []) as Array<{
+      .order("start_at", { ascending: true })
+      .order("id", { ascending: true });
+    for (const r of (histRows ?? []) as Array<{
+      id: number;
       customer_id: number;
       start_at: string;
     }>) {
-      if (!earliestJoinByCustomer.has(r.customer_id)) {
-        earliestJoinByCustomer.set(r.customer_id, r.start_at);
+      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
+        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
       }
     }
   }
@@ -362,15 +379,10 @@ export async function getDailyReport(
 
     if (isComplete && a.sales) {
       // 新規 vs 継続 classification
-      let isNew = false;
-      if ((a.visit_count ?? 0) === 1) {
-        isNew = true;
-      } else if (a.is_member_join) {
-        const earliest = earliestJoinByCustomer.get(a.customer_id);
-        if (earliest && earliest === a.start_at) {
-          isNew = true;
-        }
-      }
+      // 「人生初の完了予約 (status=2) 1 件だけ」が新規。それ以外は継続。
+      // a.id が顧客の最古完了予約 id と一致するかで判定。
+      const isNew =
+        firstCompletedApptIdByCustomer.get(a.customer_id) === a.id;
 
       if (isNew) {
         row.newSales += a.sales;
