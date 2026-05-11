@@ -10,10 +10,14 @@ import {
   Lightbulb,
   AlertTriangle,
   Loader2,
+  Save,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { generateMarketingAnalysis } from "../actions/aiAnalysisActions";
+import { saveAnalysisRun } from "../actions/aiAnalysisHistoryActions";
 import type { MarketingAnalysisResult } from "../services/runMarketingAnalysis";
+import { AnalysisHistoryPanel } from "./AnalysisHistoryPanel";
 
 interface Props {
   startMonth: string;
@@ -33,9 +37,15 @@ export function AiAnalysisTab({ startMonth, endMonth }: Props) {
   const [result, setResult] = useState<MarketingAnalysisResult | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 分析結果を ai_analysis_runs に保存したかどうか。保存後は再度押せない
+  // ようにする (= 同じ分析を重複保存させない)。新しく再分析を回すと
+  // ローカル state がリセットされ、また保存できる。
+  const [savedRunId, setSavedRunId] = useState<number | null>(null);
+  const [savePending, startSaveTransition] = useTransition();
 
   function run() {
     setError(null);
+    setSavedRunId(null);
     startTransition(async () => {
       const r = await generateMarketingAnalysis({ startMonth, endMonth });
       if (!r.ok) {
@@ -46,6 +56,25 @@ export function AiAnalysisTab({ startMonth, endMonth }: Props) {
       setResult(r.result);
       setGeneratedAt(r.generatedAt);
       toast.success("分析が完了しました");
+    });
+  }
+
+  function save() {
+    if (!result) return;
+    startSaveTransition(async () => {
+      const r = await saveAnalysisRun({
+        startMonth,
+        endMonth,
+        result,
+      });
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      setSavedRunId(r.runId);
+      toast.success(
+        "分析を保存しました。下の「分析履歴」からアクション追跡できます"
+      );
     });
   }
 
@@ -71,6 +100,32 @@ export function AiAnalysisTab({ startMonth, endMonth }: Props) {
                   timeZone: "Asia/Tokyo",
                 })}
               </span>
+            )}
+            {/* 結果が出てたら「この分析を保存」ボタンを並べる。保存済なら
+                done バッジに切替 (重複保存防止)。 */}
+            {result && (
+              <Button
+                variant="outline"
+                onClick={save}
+                disabled={savePending || savedRunId != null}
+              >
+                {savePending ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    保存中...
+                  </>
+                ) : savedRunId != null ? (
+                  <>
+                    <CheckCircle2 className="mr-1.5 h-4 w-4 text-emerald-600" />
+                    保存済み
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-1.5 h-4 w-4" />
+                    この分析を保存
+                  </>
+                )}
+              </Button>
             )}
             <Button onClick={run} disabled={pending}>
               {pending ? (
@@ -176,6 +231,9 @@ export function AiAnalysisTab({ startMonth, endMonth }: Props) {
           )}
         </>
       )}
+
+      {/* 過去の保存分析 + アクション追跡。一覧と詳細をその場で展開できる */}
+      <AnalysisHistoryPanel />
     </div>
   );
 }

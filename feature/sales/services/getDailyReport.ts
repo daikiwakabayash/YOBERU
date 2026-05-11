@@ -4,6 +4,27 @@ import { createClient } from "@/helper/lib/supabase/server";
 import { toLocalDateString } from "@/helper/utils/time";
 
 /**
+ * appointments.payment_splits (JSONB) を型付き配列に変換。
+ * 期待形式は [{method: string, amount: number}, …]。形式が崩れていれば
+ * null を返して呼び出し側で payment_method への単一フォールバックさせる。
+ */
+function parsePaymentSplits(
+  raw: unknown
+): Array<{ method: string; amount: number }> | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: Array<{ method: string; amount: number }> = [];
+  for (const r of raw) {
+    if (!r || typeof r !== "object") continue;
+    const rec = r as { method?: unknown; amount?: unknown };
+    const method = typeof rec.method === "string" ? rec.method : "";
+    const amount = Number(rec.amount);
+    if (!method || !Number.isFinite(amount) || amount < 0) continue;
+    out.push({ method, amount: Math.round(amount) });
+  }
+  return out.length > 0 ? out : null;
+}
+
+/**
  * Daily sales report aggregation.
  *
  * One row per day. Each row contains:
@@ -113,7 +134,7 @@ export async function getDailyReport(
   const { data: apptRes, error: apptErr } = await supabase
     .from("appointments")
     .select(
-      "id, customer_id, status, start_at, sales, visit_count, is_member_join, payment_method, visit_source_id, cancelled_at"
+      "id, customer_id, status, start_at, sales, visit_count, is_member_join, payment_method, payment_splits, visit_source_id, cancelled_at"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
@@ -132,6 +153,7 @@ export async function getDailyReport(
     visit_count: number | null;
     is_member_join: boolean | null;
     payment_method: string | null;
+    payment_splits?: unknown;
     visit_source_id: number | null;
   }>;
 
@@ -247,9 +269,20 @@ export async function getDailyReport(
       row.totalSales += a.sales;
 
       // Payment method bucket
-      const code = a.payment_method ?? "unknown";
+      // 分割払い (payment_splits JSONB) があれば各行ごとに該当方法へ
+      // 振り分ける。なければ payment_method 1 つに sales 全額を入れる。
+      // これがないと「Square 12,100 + 現金 2,000」が日報で先頭の Square
+      // に 14,100 全額計上されてしまうバグになる。
       const paymap = paymentBuckets.get(day)!;
-      paymap.set(code, (paymap.get(code) ?? 0) + a.sales);
+      const splits = parsePaymentSplits(a.payment_splits);
+      if (splits && splits.length > 0) {
+        for (const s of splits) {
+          paymap.set(s.method, (paymap.get(s.method) ?? 0) + s.amount);
+        }
+      } else {
+        const code = a.payment_method ?? "unknown";
+        paymap.set(code, (paymap.get(code) ?? 0) + a.sales);
+      }
 
       // Source bucket only counts new customers
       if (isNew && a.visit_source_id) {

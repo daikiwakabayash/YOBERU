@@ -30,6 +30,7 @@ import {
   checkinAppointment,
   completeAppointment,
 } from "@/feature/reception/actions/receptionActions";
+import { uncompleteAppointment } from "@/feature/reception/actions/uncompleteAppointment";
 import { searchCustomers } from "@/feature/customer/services/getCustomers";
 import { PlanPurchaseDialog } from "@/feature/customer-plan/components/PlanPurchaseDialog";
 import { getLastVisitForCustomer } from "@/feature/reservation/services/getAppointments";
@@ -724,6 +725,41 @@ export function AppointmentDetailSheet({
   }
 
   // -----------------------------------------------------------------------
+  // 会計確定の取消: 「会計を取り消す」ボタン
+  //
+  // 会計確定済 (status=2) の予約を 来院中 (status=1) に戻し、副作用
+  // (visit_count / consumed_plan_id / customer_plans.used_count /
+  //  last_visit_date) も同時に巻き戻す。プラン間違い・売上額間違い等の
+  // 修正フローの起点。取り消した後ユーザーが正しく直して再度
+  // 「会計を確定する」を押せば、再計算で全ダッシュボードに反映される。
+  // -----------------------------------------------------------------------
+  async function handleUncomplete() {
+    if (!appointment) return;
+    if (
+      !confirm(
+        "この会計確定を取り消し、来院中の状態に戻します。\n" +
+          "・来店回数 / プラン消化 が巻き戻されます\n" +
+          "・取り消し操作は履歴に記録されます\n" +
+          "よろしいですか？"
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    const result = await uncompleteAppointment(appointment.id);
+    setSaving(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    setStatus(1);
+    toast.success(
+      "会計確定を取り消しました。修正後に再度「会計を確定する」を押してください。"
+    );
+    router.refresh();
+  }
+
+  // -----------------------------------------------------------------------
   // 予約情報の部分更新: 「更新」ボタン
   //
   // 既存予約に対して、来店経路 / メニュー / カルテメモ / 入会フラグ
@@ -790,6 +826,13 @@ export function AppointmentDetailSheet({
       if (additionalCharge !== "" && Number(additionalCharge) >= 0) {
         form.set("additional_charge", String(additionalCharge));
       }
+      // 売上 (sales) も更新で反映。
+      // 会計確定済の予約に対して 追加料金 / メニューを直すことで合計値が
+      // 変わったとき、appointments.sales も追従させないと売上ダッシュボード
+      // / マーケティング集計に反映されない。会計確定の status は変えない。
+      // ※ 大きな間違い (プラン間違い・キャンセル扱い等) は「会計を
+      //    取り消す」→ 直す → 再確定 の方を使う。
+      form.set("sales", String(total));
 
       const result = await updateAppointment(appointment.id, form);
       if ("error" in result && result.error) {
@@ -2407,6 +2450,22 @@ export function AppointmentDetailSheet({
               disabled={saving}
             >
               {saving ? "処理中..." : "当日キャンセル"}
+            </Button>
+          )}
+
+          {/* ===== 会計を取り消す button (完了済 のみ) =====
+              プラン間違い / 売上ミス / 口コミチェック忘れ などを修正
+              するために、いったん 来院中 (status=1) に戻して再計算する
+              ための導線。副作用も巻き戻す (uncompleteAppointment 参照)。 */}
+          {!isNew && status === 2 && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full border-2 border-amber-500 py-5 text-base font-bold text-amber-700 hover:bg-amber-50"
+              onClick={handleUncomplete}
+              disabled={saving}
+            >
+              {saving ? "処理中..." : "会計を取り消す (修正用)"}
             </Button>
           )}
 
