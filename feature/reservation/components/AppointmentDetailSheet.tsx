@@ -259,6 +259,20 @@ export function AppointmentDetailSheet({
   const [additionalCharge, setAdditionalCharge] = useState(
     String(appointment?.additionalCharge ?? 0)
   );
+  /** 追加料金の消化タイミング: 'today' = 当日 / 'next' = 次回 / null = 未選択
+   *  追加料金 > 0 のときは選択必須。会計確定 / 更新 のバリデーションで
+   *  どちらにもチェックが無ければ拒否する。 */
+  const [addChargeTiming, setAddChargeTiming] = useState<
+    "today" | "next" | null
+  >(
+    (appointment as unknown as { additionalChargeConsumeTiming?: string })
+      ?.additionalChargeConsumeTiming === "today"
+      ? "today"
+      : (appointment as unknown as { additionalChargeConsumeTiming?: string })
+          ?.additionalChargeConsumeTiming === "next"
+        ? "next"
+        : null
+  );
 
   // ---- 会員プラン ----
   //
@@ -826,6 +840,20 @@ export function AppointmentDetailSheet({
       if (additionalCharge !== "" && Number(additionalCharge) >= 0) {
         form.set("additional_charge", String(additionalCharge));
       }
+      // 追加料金の消化タイミング (today / next) を保存。
+      // 追加料金が 0 のときは NULL (= 該当なし) を送る。
+      form.set(
+        "additional_charge_consume_timing",
+        Number(additionalCharge) > 0 && addChargeTiming
+          ? addChargeTiming
+          : "null"
+      );
+      // handleUpdateOnly 側でも バリデーション (timing 未選択なら拒否)
+      if (Number(additionalCharge) > 0 && !addChargeTiming) {
+        toast.error("追加料金の消化タイミングを選択してください");
+        setSaving(false);
+        return;
+      }
       // 売上 (sales) も更新で反映。
       // 会計確定済の予約に対して 追加料金 / メニューを直すことで合計値が
       // 変わったとき、appointments.sales も追従させないと売上ダッシュボード
@@ -1136,6 +1164,11 @@ export function AppointmentDetailSheet({
       toast.error("支払い方法を選択してください");
       return;
     }
+    // 追加料金がある場合は消化タイミングを必ず選択させる
+    if (Number(additionalCharge) > 0 && addChargeTiming === null) {
+      toast.error("追加料金の消化タイミング (今回 / 次回) を選択してください");
+      return;
+    }
     // 分割払いモードのバリデーション: 合計が会計金額と一致 + 全行で
     // method 選択済 + 金額 > 0 が条件。
     if (splitMode && total > 0) {
@@ -1326,6 +1359,13 @@ export function AppointmentDetailSheet({
         if (Number(additionalCharge)) {
           form.set("additional_charge", additionalCharge);
         }
+        // 追加料金 > 0 のときだけ消化タイミングをセット (validation 済)
+        form.set(
+          "additional_charge_consume_timing",
+          Number(additionalCharge) > 0 && addChargeTiming
+            ? addChargeTiming
+            : "null"
+        );
 
         await updateAppointment(appointment.id, form);
         setStatus(2);
@@ -2180,7 +2220,7 @@ export function AppointmentDetailSheet({
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Label className="shrink-0 text-xs text-gray-500">
                 追加料金
               </Label>
@@ -2192,6 +2232,42 @@ export function AppointmentDetailSheet({
                 placeholder="0"
               />
               <span className="text-xs text-gray-400">円</span>
+              {/* 追加料金 > 0 のときだけ消化タイミング選択を出す。
+                  デフォルト未選択 (null) で、追加料金がある状態では
+                  どちらか必ず選ばないと会計確定 / 更新が通らない。
+                  - 今回: 当日の消化売上に含める
+                  - 次回: 当日は前受金扱い、顧客の次の完了予約日に
+                          消化売上として現れる (= サービス提供日に合わせる) */}
+              {Number(additionalCharge) > 0 && (
+                <div className="flex items-center gap-2 rounded-md border bg-amber-50/40 px-2 py-1">
+                  <label className="flex cursor-pointer items-center gap-1 text-[11px]">
+                    <input
+                      type="checkbox"
+                      checked={addChargeTiming === "today"}
+                      onChange={() =>
+                        setAddChargeTiming(
+                          addChargeTiming === "today" ? null : "today"
+                        )
+                      }
+                      className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
+                    />
+                    <span className="font-bold">今回で消化</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-1 text-[11px]">
+                    <input
+                      type="checkbox"
+                      checked={addChargeTiming === "next"}
+                      onChange={() =>
+                        setAddChargeTiming(
+                          addChargeTiming === "next" ? null : "next"
+                        )
+                      }
+                      className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
+                    />
+                    <span className="font-bold">次回で消化</span>
+                  </label>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between rounded-lg bg-gray-900 px-4 py-2.5 text-white">
               <span className="text-sm font-medium">合計</span>

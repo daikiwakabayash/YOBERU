@@ -138,7 +138,7 @@ export async function getDailyReport(
   const { data: apptRes, error: apptErr } = await supabase
     .from("appointments")
     .select(
-      "id, customer_id, status, start_at, sales, consumed_amount, visit_count, is_member_join, payment_method, payment_splits, visit_source_id, cancelled_at"
+      "id, customer_id, status, start_at, sales, consumed_amount, additional_charge, additional_charge_consume_timing, visit_count, is_member_join, payment_method, payment_splits, visit_source_id, cancelled_at"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
@@ -155,12 +155,86 @@ export async function getDailyReport(
     start_at: string;
     sales: number | null;
     consumed_amount: number | null;
+    additional_charge: number | null;
+    additional_charge_consume_timing: string | null;
     visit_count: number | null;
     is_member_join: boolean | null;
     payment_method: string | null;
     payment_splits?: unknown;
     visit_source_id: number | null;
   }>;
+
+  // 1a. 追加料金の「次回で消化」キャリーオーバーを計算。
+  //
+  // 仕組み:
+  //   - timing='next' の appointment X (= 追加料金 N 円を次回に持ち越し)
+  //   - その顧客の "X より後" の最古の完了 (status=2) appointment Y を探す
+  //   - Y の日に N 円を消化売上として加算する (= Y の deferredApplied[Y.id] += N)
+  //   - X 自身の当日消化からは N 円を除外する (timing='next' なので)
+  //
+  // 期間外の X が期間内の Y に持ち越されるケースも拾いたいので、shop の
+  // 全 timing='next' な完了予約を別クエリで取得して照合する。
+  const deferredAppliedByApptId = new Map<number, number>();
+  {
+    // 期間内に登場する appointments の customer_id をユニーク化
+    const periodCustomerIds = Array.from(
+      new Set(
+        appointments
+          .map((a) => a.customer_id as number | null)
+          .filter((id): id is number => id != null)
+      )
+    );
+    if (periodCustomerIds.length > 0) {
+      // 顧客ごとの全完了予約 (期間外含む) を時系列で取得
+      const { data: histRows } = await supabase
+        .from("appointments")
+        .select(
+          "id, customer_id, start_at, status, additional_charge, additional_charge_consume_timing"
+        )
+        .eq("shop_id", shopId)
+        .in("customer_id", periodCustomerIds)
+        .eq("status", 2)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: true });
+      type Hist = {
+        id: number;
+        customer_id: number;
+        additional_charge: number | null;
+        additional_charge_consume_timing: string | null;
+      };
+      const byCustomer = new Map<number, Hist[]>();
+      for (const r of (histRows ?? []) as Hist[]) {
+        const arr = byCustomer.get(r.customer_id) ?? [];
+        arr.push(r);
+        byCustomer.set(r.customer_id, arr);
+      }
+      for (const [, list] of byCustomer) {
+        // list は start_at ASC
+        for (let i = 0; i < list.length; i++) {
+          const r = list[i];
+          if (
+            r.additional_charge_consume_timing === "next" &&
+            (r.additional_charge ?? 0) > 0
+          ) {
+            // 次の完了予約 Y を探す
+            const next = list[i + 1];
+            if (next) {
+              deferredAppliedByApptId.set(
+                next.id,
+                (deferredAppliedByApptId.get(next.id) ?? 0) +
+                  (r.additional_charge ?? 0)
+              );
+            }
+            // 注: 自身は当日消化から差し引く (集計ループ側で
+            //     additional_charge_consume_timing='next' を見て減算する)。
+            // 注: 次の完了予約が無い場合は「持ち越し未消化」のままになる。
+            //     現状はその金額は消化売上に計上しない (顧客が次回来ない
+            //     限り計上できない、という解釈)。
+          }
+        }
+      }
+    }
+  }
 
   // 1b. プラン購入価格を appointment 単位で集計。
   //
@@ -307,15 +381,24 @@ export async function getDailyReport(
       }
       row.totalSales += a.sales;
       // 消化売上: 当日に「実サービス提供価値」として認識すべき金額。
-      //   = sales (当日入金) + consumed_amount (プラン按分) - plan_purchase_price
-      // プラン購入分は前受金なので消化から除外。普通の有料メニュー
-      // (新規60分 ¥2,000 等) や追加料金は そのまま 消化として計上される。
+      //   = sales (当日入金)
+      //   + consumed_amount (プラン按分)
+      //   - plan_purchase_price (プラン購入額 = 前受金で消化扱いしない)
+      //   - additional_charge if timing='next' (次回繰越しなので当日除外)
+      //   + 過去の timing='next' 分の繰越 (deferredApplied)
       const planPurchasePrice = planPurchasePriceByApptId.get(a.id) ?? 0;
+      const deferredOutOfToday =
+        a.additional_charge_consume_timing === "next"
+          ? a.additional_charge ?? 0
+          : 0;
+      const deferredAppliedToday = deferredAppliedByApptId.get(a.id) ?? 0;
       const todayConsumed =
-        a.sales + (a.consumed_amount ?? 0) - planPurchasePrice;
-      // 防御: 何らかの理由で負値になったら 0 にクランプ (買ったその場で
-      //       全額消化されていないケースで通常起こらないが、データ不整合
-      //       時に売上が マイナス で見えるのを防ぐ)
+        a.sales +
+        (a.consumed_amount ?? 0) -
+        planPurchasePrice -
+        deferredOutOfToday +
+        deferredAppliedToday;
+      // 防御: 何らかの理由で負値になったら 0 にクランプ。
       row.consumedSales += Math.max(0, todayConsumed);
 
       // Payment method bucket

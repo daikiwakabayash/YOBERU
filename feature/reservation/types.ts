@@ -94,6 +94,13 @@ export interface CalendarAppointment {
    * 単一支払 (paymentMethod を使う)。
    */
   paymentSplits: Array<{ method: string; amount: number }> | null;
+  /**
+   * 追加料金の消化タイミング: 'today' = 当日 / 'next' = 次回 / null = 該当なし。
+   * 追加料金 > 0 のとき必須。
+   * 'next' を選んだ場合、当日の消化売上には乗らず、その顧客の次回の
+   * 完了予約日の消化売上に持ち越される。
+   */
+  additionalChargeConsumeTiming: "today" | "next" | null;
   customerRecord: string | null;
   customerId: number;
   menuManageId: string;

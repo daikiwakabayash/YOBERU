@@ -48,6 +48,8 @@ export const appointmentSchema = z.object({
    * 空文字 / 未指定なら単一支払 (payment_method) を使う。
    */
   payment_splits: z.string().optional(),
+  /** 追加料金の消化タイミング: 'today' / 'next' / 'null' (= NULL clear) */
+  additional_charge_consume_timing: z.string().optional(),
 });
 
 export type AppointmentFormValues = z.infer<typeof appointmentSchema>;
