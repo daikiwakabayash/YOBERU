@@ -358,10 +358,21 @@ export async function getDailyReport(
     const isComplete = a.status === 2;
 
     if (isCancel) row.cancelCount += 1;
-    if (isVisit) row.visitCount += 1;
+    // 来店 = 完了 (status=2) のみ。施術中 (status=1) は売上が確定して
+    // いないので新規/継続にも乗らない。来店数を新規+継続と一致させる
+    // ため、ここも status=2 限定にする。
+    if (isComplete) row.visitCount += 1;
+    // isVisit は予約数や経路集計には不要なので参照しないが、将来用に
+    // 計算自体は残しておく (lint で「使われてない」と言われないよう
+    // void 評価)。
+    void isVisit;
 
-    if (isComplete && a.sales) {
+    if (isComplete) {
       // 新規 vs 継続 classification
+      // sales=0 の完了予約 (会員プラン消化のみで現金 0 円の来店など)
+      // も「来店」に含まれるので、ここで分類しないと
+      //   来店数 ≠ 新規 + 継続
+      // という差異が出る。a.sales の有無に関わらず分類する。
       let isNew = false;
       if ((a.visit_count ?? 0) === 1) {
         isNew = true;
@@ -372,14 +383,15 @@ export async function getDailyReport(
         }
       }
 
+      const salesAmt = a.sales ?? 0;
       if (isNew) {
-        row.newSales += a.sales;
+        row.newSales += salesAmt;
         row.newCount += 1;
       } else {
-        row.continuingSales += a.sales;
+        row.continuingSales += salesAmt;
         row.continuingCount += 1;
       }
-      row.totalSales += a.sales;
+      row.totalSales += salesAmt;
       // 消化売上: 当日に「実サービス提供価値」として認識すべき金額。
       //   = sales (当日入金)
       //   + consumed_amount (プラン按分)
@@ -393,7 +405,7 @@ export async function getDailyReport(
           : 0;
       const deferredAppliedToday = deferredAppliedByApptId.get(a.id) ?? 0;
       const todayConsumed =
-        a.sales +
+        salesAmt +
         (a.consumed_amount ?? 0) -
         planPurchasePrice -
         deferredOutOfToday +
@@ -406,15 +418,18 @@ export async function getDailyReport(
       // 振り分ける。なければ payment_method 1 つに sales 全額を入れる。
       // これがないと「Square 12,100 + 現金 2,000」が日報で先頭の Square
       // に 14,100 全額計上されてしまうバグになる。
-      const paymap = paymentBuckets.get(day)!;
-      const splits = parsePaymentSplits(a.payment_splits);
-      if (splits && splits.length > 0) {
-        for (const s of splits) {
-          paymap.set(s.method, (paymap.get(s.method) ?? 0) + s.amount);
+      // sales=0 の完了は決済内訳に載せても 0 円なのでスキップする。
+      if (salesAmt > 0) {
+        const paymap = paymentBuckets.get(day)!;
+        const splits = parsePaymentSplits(a.payment_splits);
+        if (splits && splits.length > 0) {
+          for (const s of splits) {
+            paymap.set(s.method, (paymap.get(s.method) ?? 0) + s.amount);
+          }
+        } else {
+          const code = a.payment_method ?? "unknown";
+          paymap.set(code, (paymap.get(code) ?? 0) + salesAmt);
         }
-      } else {
-        const code = a.payment_method ?? "unknown";
-        paymap.set(code, (paymap.get(code) ?? 0) + a.sales);
       }
 
       // Source bucket only counts new customers

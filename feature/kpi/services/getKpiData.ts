@@ -122,7 +122,7 @@ export async function getKpiData(params: {
   let apptQuery = supabase
     .from("appointments")
     .select(
-      "id, staff_id, customer_id, status, sales, visit_count, is_member_join, staffs(name)"
+      "id, staff_id, customer_id, status, sales, visit_count, is_member_join, start_at, staffs(name)"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
@@ -144,6 +144,11 @@ export async function getKpiData(params: {
     .is("deleted_at", null);
 
   const [apptRes, custResRaw] = await Promise.all([apptQuery, custPopQuery]);
+  // 売上タブ (getDailyReport) と同じ「新規」判定を行うため、
+  // 期間内で is_member_join=true の完了予約を持つ顧客について
+  // 「その顧客の最古の入会予約」を全期間から探す。最古 == 当該予約 の
+  // 場合のみ「初回入会 = 新規」として扱う。
+  // (visit_count===1 はもちろん新規)
   // If the review columns don't exist yet, retry without them so we
   // still get a usable KPI page. The fallback's row shape is a subset
   // of the original so we widen via `as unknown as typeof custResRaw`.
@@ -174,8 +179,37 @@ export async function getKpiData(params: {
     sales: number | null;
     visit_count: number | null;
     is_member_join: boolean | null;
+    start_at: string;
     staffs: { name: string } | null | Array<{ name: string }>;
   }>;
+
+  // 「初回入会 = 新規」判定用の earliest member-join lookup
+  const customerIdsWithJoinInRange = Array.from(
+    new Set(
+      appointments
+        .filter((a) => a.is_member_join && a.status === 2)
+        .map((a) => a.customer_id)
+    )
+  );
+  const earliestJoinByCustomer = new Map<number, string>();
+  if (customerIdsWithJoinInRange.length > 0) {
+    const { data: joinHistory } = await supabase
+      .from("appointments")
+      .select("customer_id, start_at")
+      .in("customer_id", customerIdsWithJoinInRange)
+      .eq("is_member_join", true)
+      .eq("status", 2)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: true });
+    for (const r of (joinHistory ?? []) as Array<{
+      customer_id: number;
+      start_at: string;
+    }>) {
+      if (!earliestJoinByCustomer.has(r.customer_id)) {
+        earliestJoinByCustomer.set(r.customer_id, r.start_at);
+      }
+    }
+  }
   const customers = (custRes.data ?? []) as Array<{
     id: number;
     leaved_at: string | null;
@@ -228,8 +262,19 @@ export async function getKpiData(params: {
 
     if (isComplete && a.sales) {
       totals.totalSales += a.sales;
-      if (visit === 1) totals.newSales += a.sales;
-      else if (visit > 1) totals.continuingSales += a.sales;
+      // 売上タブと同じ「新規」判定: visit_count === 1 OR (is_member_join
+      // === true かつ顧客の最古入会と一致)
+      let isNew = false;
+      if (visit === 1) {
+        isNew = true;
+      } else if (a.is_member_join) {
+        const earliest = earliestJoinByCustomer.get(a.customer_id);
+        if (earliest && earliest === a.start_at) {
+          isNew = true;
+        }
+      }
+      if (isNew) totals.newSales += a.sales;
+      else totals.continuingSales += a.sales;
     }
 
     if (visit === 1 && isVisit) {
