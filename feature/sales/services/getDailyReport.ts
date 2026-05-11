@@ -66,6 +66,9 @@ export interface DailyRow {
   newSales: number;
   continuingSales: number;
   totalSales: number;
+  /** 消化売上: 当日完了の予約の consumed_amount 合計
+   *  (前金で売ったプランが実来店で消化された金額。totalSales とは別軸) */
+  consumedSales: number;
   payments: PaymentTotal[];
   newBySource: SourceCount[];
 }
@@ -81,6 +84,7 @@ export interface DailyReportData {
     newSales: number;
     continuingSales: number;
     totalSales: number;
+    consumedSales: number;
   };
   meta: {
     startDate: string;
@@ -134,7 +138,7 @@ export async function getDailyReport(
   const { data: apptRes, error: apptErr } = await supabase
     .from("appointments")
     .select(
-      "id, customer_id, status, start_at, sales, visit_count, is_member_join, payment_method, payment_splits, visit_source_id, cancelled_at"
+      "id, customer_id, status, start_at, sales, consumed_amount, visit_count, is_member_join, payment_method, payment_splits, visit_source_id, cancelled_at"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
@@ -150,6 +154,7 @@ export async function getDailyReport(
     status: number;
     start_at: string;
     sales: number | null;
+    consumed_amount: number | null;
     visit_count: number | null;
     is_member_join: boolean | null;
     payment_method: string | null;
@@ -225,6 +230,7 @@ export async function getDailyReport(
         newSales: 0,
         continuingSales: 0,
         totalSales: 0,
+        consumedSales: 0,
         payments: [],
         newBySource: [],
       };
@@ -267,6 +273,10 @@ export async function getDailyReport(
         row.continuingCount += 1;
       }
       row.totalSales += a.sales;
+      // 消化売上: 当日完了した予約の consumed_amount を加算。
+      // 前金で売ったプランの実消費額 (= 来店時に実際にサービス提供した
+      // 価値) を、当日入金額 (totalSales) とは独立で集計する。
+      row.consumedSales += a.consumed_amount ?? 0;
 
       // Payment method bucket
       // 分割払い (payment_splits JSONB) があれば各行ごとに該当方法へ
@@ -332,6 +342,7 @@ export async function getDailyReport(
       g.newSales += r.newSales;
       g.continuingSales += r.continuingSales;
       g.totalSales += r.totalSales;
+      g.consumedSales += r.consumedSales;
       return g;
     },
     {
@@ -343,6 +354,7 @@ export async function getDailyReport(
       newSales: 0,
       continuingSales: 0,
       totalSales: 0,
+      consumedSales: 0,
     }
   );
 
@@ -369,6 +381,7 @@ function emptyReport(
       newSales: 0,
       continuingSales: 0,
       totalSales: 0,
+      consumedSales: 0,
     },
     meta: { startDate, endDate, shopId },
   };
