@@ -64,6 +64,9 @@ export function DailyReportTable({ data }: DailyReportTableProps) {
               <th className="px-3 py-2 text-right font-medium">合計売上</th>
               <th className="px-3 py-2 text-right font-medium">新規売上</th>
               <th className="px-3 py-2 text-right font-medium">継続売上</th>
+              <th className="px-3 py-2 text-right font-medium text-cyan-700">
+                消化売上
+              </th>
               <th className="px-3 py-2 text-right font-medium">来店</th>
               <th className="px-3 py-2 text-right font-medium">C</th>
               <th className="px-3 py-2 text-right font-medium">新規数</th>
@@ -76,7 +79,7 @@ export function DailyReportTable({ data }: DailyReportTableProps) {
             {data.rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={11}
                   className="py-10 text-center text-muted-foreground"
                 >
                   期間内のデータがありません
@@ -97,6 +100,9 @@ export function DailyReportTable({ data }: DailyReportTableProps) {
                   </td>
                   <td className="px-3 py-2.5 text-right text-blue-700">
                     {yen(t.continuingSales)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-cyan-800">
+                    {t.consumedSales > 0 ? yen(t.consumedSales) : "-"}
                   </td>
                   <td className="px-3 py-2.5 text-right text-gray-900">
                     {t.visitCount}
@@ -142,6 +148,9 @@ export function DailyReportTable({ data }: DailyReportTableProps) {
                       </td>
                       <td className="px-3 py-2.5 text-right text-blue-600">
                         {r.continuingSales > 0 ? yen(r.continuingSales) : "-"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-cyan-700">
+                        {r.consumedSales > 0 ? yen(r.consumedSales) : "-"}
                       </td>
                       <td className="px-3 py-2.5 text-right text-gray-700">
                         {r.visitCount}

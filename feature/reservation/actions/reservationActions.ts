@@ -329,6 +329,13 @@ export async function createAppointment(formData: FormData) {
   if (raw.slot_block_type_code) {
     insertRow.slot_block_type_code = raw.slot_block_type_code;
   }
+  // 追加料金の消化タイミング (today / next / null)
+  if (raw.additional_charge_consume_timing) {
+    const t = String(raw.additional_charge_consume_timing);
+    if (t === "today" || t === "next") {
+      insertRow.additional_charge_consume_timing = t;
+    }
+  }
   // 分割払い: フォームから JSON 文字列で送られてきていたら parse して
   // JSONB 列に格納。空 or 不正なら何もしない (= NULL のまま)。
   if (raw.payment_splits) {
@@ -399,6 +406,15 @@ export async function updateAppointment(id: number, formData: FormData) {
   if (raw.visit_source_id)
     updateData.visit_source_id = Number(raw.visit_source_id);
   if (raw.payment_method) updateData.payment_method = raw.payment_method;
+  // 追加料金の消化タイミング: 'today' / 'next' / 'null' (= NULL clear)
+  if (raw.additional_charge_consume_timing !== undefined) {
+    const t = String(raw.additional_charge_consume_timing ?? "");
+    if (t === "today" || t === "next") {
+      updateData.additional_charge_consume_timing = t;
+    } else if (t === "null" || t === "") {
+      updateData.additional_charge_consume_timing = null;
+    }
+  }
   // payment_splits は JSON 文字列で送られてくる。空 / 不正なら NULL
   // を入れて単一支払フォールバックする。
   if (raw.payment_splits !== undefined) {
