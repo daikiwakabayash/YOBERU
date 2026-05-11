@@ -157,7 +157,7 @@ async function autoConsumePlanForAppointment(
   const { data: plans } = await supabase
     .from("customer_plans")
     .select(
-      "id, plan_type, used_count, total_count, price_snapshot, purchased_at"
+      "id, plan_type, used_count, total_count, price_snapshot, purchased_at, purchased_appointment_id"
     )
     .eq("customer_id", customerId)
     .eq("status", 0)
@@ -165,7 +165,19 @@ async function autoConsumePlanForAppointment(
     .order("purchased_at", { ascending: true });
   if (!plans || plans.length === 0) return;
 
-  const candidate = plans.find(
+  // この予約自身で購入されたプランは候補から除外する。
+  // 「次回から消化」を選んでプラン購入したケースで、completeAppointment
+  // 側で再度 autoConsume が走って今日の予約に消化してしまうのを防ぐ。
+  // 「今日から消化」を選んだ場合は purchaseCustomerPlan が予約に
+  // consumed_plan_id を立てているので、そもそも autoConsume は呼ばれない
+  // (= completeAppointment 側で early return)。
+  const eligiblePlans = plans.filter(
+    (p: { purchased_appointment_id: number | null }) =>
+      p.purchased_appointment_id !== appointmentId
+  );
+  if (eligiblePlans.length === 0) return;
+
+  const candidate = eligiblePlans.find(
     (p: {
       plan_type: string;
       used_count: number | null;
