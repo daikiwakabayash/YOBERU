@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/helper/lib/supabase/server";
 import { sendEmail } from "@/helper/lib/email/sendEmail";
 import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
+import { toLocalDateString } from "@/helper/utils/time";
 import type { ReminderSetting } from "@/feature/booking-link/types";
 
 /**
@@ -115,10 +116,20 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const today = (() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  })();
+  // "今日" は Asia/Tokyo の日付。Vercel cron は UTC で動くため、
+  // 単純な `new Date()` だと深夜帯に日付がずれて offset_days=0 の
+  // 当日リマインドが取りこぼされる。
+  const today = toLocalDateString(new Date());
+
+  // 現在時刻 (Asia/Tokyo "HH:MM") を取得して setting.send_time との
+  // 比較に使う。送信時刻に達していない reminder_setting はこの回は
+  // 飛ばし、次の cron 周回 (15 分後) で再評価する。
+  const nowHHMM = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tokyo",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date());
 
   const results: Array<{
     appointment_id: number;
@@ -131,6 +142,18 @@ export async function GET(request: NextRequest) {
     const settings = (link.reminder_settings as ReminderSetting[]) ?? [];
     for (const setting of settings) {
       if (!setting.enabled) continue;
+
+      // 送信予定時刻ゲート。setting.send_time ("HH:MM") が現在時刻より
+      // 未来なら、この cron 周回ではスキップ。例えば send_time="09:00"
+      // の reminder は朝 9 時の cron 実行から有効になる (それ以前は wait)。
+      // 値が空 or 不正なら従来通り即座に送信する。
+      if (
+        setting.send_time &&
+        /^\d{2}:\d{2}$/.test(setting.send_time) &&
+        nowHHMM < setting.send_time
+      ) {
+        continue;
+      }
 
       const targetDate = addDays(today, setting.offset_days);
 
