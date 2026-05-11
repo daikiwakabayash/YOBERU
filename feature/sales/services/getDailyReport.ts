@@ -162,6 +162,39 @@ export async function getDailyReport(
     visit_source_id: number | null;
   }>;
 
+  // 1b. プラン購入価格を appointment 単位で集計。
+  //
+  //   消化売上 = (sales + consumed_amount) - plan_purchase_price_on_this_appt
+  //
+  //   - sales には「プラン購入額 (前受金)」が含まれていることがある。
+  //     前受金は実サービス提供時に按分で計上したいので、購入分は
+  //     消化売上から差し引く。
+  //   - consumed_amount はそのプランの 当日 1 回分の消化額 (前受金の按分)。
+  //
+  //   結果として「その日に提供したサービスの価値」(= 消化売上) が出る。
+  //   通常の有料メニュー (¥2,000 等) は sales に乗り、購入分の差し引きが
+  //   無いので そのまま 消化売上に計上される。
+  const apptIds = appointments.map((a) => a.id);
+  const planPurchasePriceByApptId = new Map<number, number>();
+  if (apptIds.length > 0) {
+    const { data: plansBoughtHere } = await supabase
+      .from("customer_plans")
+      .select("purchased_appointment_id, price_snapshot")
+      .in("purchased_appointment_id", apptIds)
+      .is("deleted_at", null);
+    for (const p of (plansBoughtHere ?? []) as Array<{
+      purchased_appointment_id: number;
+      price_snapshot: number | null;
+    }>) {
+      if (!p.purchased_appointment_id) continue;
+      planPurchasePriceByApptId.set(
+        p.purchased_appointment_id,
+        (planPurchasePriceByApptId.get(p.purchased_appointment_id) ?? 0) +
+          (p.price_snapshot ?? 0)
+      );
+    }
+  }
+
   // 2. For customers who have a member-join in this range, look up their
   //    earliest member-join globally so we can decide if THIS appointment
   //    is the customer's first plan purchase (= 新規 by rule b).
@@ -273,10 +306,17 @@ export async function getDailyReport(
         row.continuingCount += 1;
       }
       row.totalSales += a.sales;
-      // 消化売上: 当日完了した予約の consumed_amount を加算。
-      // 前金で売ったプランの実消費額 (= 来店時に実際にサービス提供した
-      // 価値) を、当日入金額 (totalSales) とは独立で集計する。
-      row.consumedSales += a.consumed_amount ?? 0;
+      // 消化売上: 当日に「実サービス提供価値」として認識すべき金額。
+      //   = sales (当日入金) + consumed_amount (プラン按分) - plan_purchase_price
+      // プラン購入分は前受金なので消化から除外。普通の有料メニュー
+      // (新規60分 ¥2,000 等) や追加料金は そのまま 消化として計上される。
+      const planPurchasePrice = planPurchasePriceByApptId.get(a.id) ?? 0;
+      const todayConsumed =
+        a.sales + (a.consumed_amount ?? 0) - planPurchasePrice;
+      // 防御: 何らかの理由で負値になったら 0 にクランプ (買ったその場で
+      //       全額消化されていないケースで通常起こらないが、データ不整合
+      //       時に売上が マイナス で見えるのを防ぐ)
+      row.consumedSales += Math.max(0, todayConsumed);
 
       // Payment method bucket
       // 分割払い (payment_splits JSONB) があれば各行ごとに該当方法へ
