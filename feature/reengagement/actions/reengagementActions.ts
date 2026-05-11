@@ -2,9 +2,15 @@
 
 import { createClient } from "@/helper/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
 import { sendEmail } from "@/helper/lib/email/sendEmail";
 import type { ReengagementSegment } from "../types";
+
+/**
+ * 再来店促進キャンペーンは email 固定で配信する。LINE の自動送信は
+ * 誤送信防止の観点から「予約リマインド (cron)」だけに限定する方針のため、
+ * 顧客に LINE 紐付けがあっても利用しない。LINE でフォローアップを
+ * 送りたい場合は /line-chat からスタッフが手動で個別送信すること。
+ */
 
 // ---------------------------------------------------------------------------
 // テンプレート CRUD
@@ -102,8 +108,9 @@ export interface SendCampaignResult {
  *      a. 直近 cooldown_days 内に同セグメントで送信済なら skip
  *      b. クーポン menu_manage_id が指定されていれば customer_plans に
  *         1 回限定チケットを発行
- *      c. LINE userId があれば LINE 送信。無ければメールにフォールバック。
- *         どちらも無ければ skipped_no_contact。
+ *      c. email で送信 (LINE 自動送信は予約リマインドのみに限定する方針
+ *         のため、LINE 紐付けがあっても利用しない)。email が未登録なら
+ *         skipped_no_contact。
  *      d. reengagement_logs に結果を INSERT
  *   3. 集計を返す
  */
@@ -143,15 +150,13 @@ export async function sendReengagementCampaign(
     (tmpl.coupon_menu_manage_id as string | null) ?? null;
   const cooldownDays = (tmpl.cooldown_days as number) ?? 30;
 
-  // 店舗の LINE channel token と屋号
+  // 店舗の屋号 / 返信先メール (再来店促進は email 固定)
   const { data: shopRow } = await supabase
     .from("shops")
-    .select("id, name, email1, line_channel_access_token")
+    .select("id, name, email1")
     .eq("id", input.shopId)
     .maybeSingle();
   const shopName = (shopRow?.name as string | null) ?? "";
-  const lineToken =
-    (shopRow?.line_channel_access_token as string | null) ?? null;
   const shopEmail = (shopRow?.email1 as string | null) ?? null;
 
   // クーポンメニュー情報
@@ -234,10 +239,9 @@ export async function sendReengagementCampaign(
       continue;
     }
 
-    // 2. 連絡手段チェック
-    const hasLine = !!(c.line_user_id && lineToken);
+    // 2. 連絡手段チェック (email のみ。LINE は予約リマインド専用)
     const hasEmail = !!c.email;
-    if (!hasLine && !hasEmail) {
+    if (!hasEmail) {
       await insertLog(supabase, {
         brandId: input.brandId,
         shopId: input.shopId,
@@ -288,22 +292,12 @@ export async function sendReengagementCampaign(
       .replaceAll("{shop_name}", shopName)
       .replaceAll("{coupon_name}", couponLine);
 
-    // 5. 送信
-    let channel: "line" | "email" = hasLine ? "line" : "email";
+    // 5. 送信 (email 固定。LINE 自動送信は予約リマインドのみに限定する方針)
+    const channel = "email" as const;
     let sendOk = false;
     let errMsg: string | null = null;
 
-    if (hasLine) {
-      const r = await sendLineMessage({
-        to: c.line_user_id!,
-        text: rendered,
-        channelAccessToken: lineToken!,
-      });
-      sendOk = r.success;
-      errMsg = r.error ?? null;
-    }
-    if (!sendOk && hasEmail) {
-      channel = "email";
+    if (hasEmail) {
       const r = await sendEmail({
         to: c.email!,
         subject: `${shopName}よりご案内`,
