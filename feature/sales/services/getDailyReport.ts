@@ -269,32 +269,37 @@ export async function getDailyReport(
     }
   }
 
-  // 2. For customers who have a member-join in this range, look up their
-  //    earliest member-join globally so we can decide if THIS appointment
-  //    is the customer's first plan purchase (= 新規 by rule b).
-  const customerIdsWithJoinInRange = Array.from(
+  // 2. 「真の新規」判定用: 期間内に出てくる顧客の "全期間最古の予約 id" を引く。
+  //
+  // stamped visit_count に依存しない (= キャンセル → 再予約で visit_count=1
+  // が再 stamp される問題や、レガシーデータで customer.visit_count=0 の
+  // ままになっている問題を回避する)。getMarketingData.ts と同じ方式。
+  //
+  // 「真の新規」 = この予約 id が顧客の全期間で最古の予約 id と一致する
+  //   完了 (status=2) 予約。それ以外の完了予約は 継続。
+  const customerIdsInPeriod = Array.from(
     new Set(
       appointments
-        .filter((a) => a.is_member_join && a.status === 2)
-        .map((a) => a.customer_id)
+        .map((a) => a.customer_id as number | null)
+        .filter((id): id is number => id != null)
     )
   );
-  const earliestJoinByCustomer = new Map<number, string>();
-  if (customerIdsWithJoinInRange.length > 0) {
-    const { data: joinHistory } = await supabase
+  const firstEverApptIdByCustomer = new Map<number, number>();
+  if (customerIdsInPeriod.length > 0) {
+    const { data: histRows } = await supabase
       .from("appointments")
-      .select("customer_id, start_at")
-      .in("customer_id", customerIdsWithJoinInRange)
-      .eq("is_member_join", true)
-      .eq("status", 2)
+      .select("id, customer_id, start_at")
+      .eq("shop_id", shopId)
+      .in("customer_id", customerIdsInPeriod)
       .is("deleted_at", null)
       .order("start_at", { ascending: true });
-    for (const r of (joinHistory ?? []) as Array<{
+    for (const r of (histRows ?? []) as Array<{
+      id: number;
       customer_id: number;
       start_at: string;
     }>) {
-      if (!earliestJoinByCustomer.has(r.customer_id)) {
-        earliestJoinByCustomer.set(r.customer_id, r.start_at);
+      if (!firstEverApptIdByCustomer.has(r.customer_id)) {
+        firstEverApptIdByCustomer.set(r.customer_id, r.id);
       }
     }
   }
@@ -368,20 +373,15 @@ export async function getDailyReport(
     void isVisit;
 
     if (isComplete) {
-      // 新規 vs 継続 classification
-      // sales=0 の完了予約 (会員プラン消化のみで現金 0 円の来店など)
-      // も「来店」に含まれるので、ここで分類しないと
-      //   来店数 ≠ 新規 + 継続
-      // という差異が出る。a.sales の有無に関わらず分類する。
-      let isNew = false;
-      if ((a.visit_count ?? 0) === 1) {
-        isNew = true;
-      } else if (a.is_member_join) {
-        const earliest = earliestJoinByCustomer.get(a.customer_id);
-        if (earliest && earliest === a.start_at) {
-          isNew = true;
-        }
-      }
+      // 真の新規 vs 継続 classification
+      //   新規 = この予約 id が顧客の全期間最古の予約 id と一致する
+      //   継続 = それ以外
+      // visit_count のスタンプ不整合に依存しないので、レガシーデータや
+      // キャンセル後再予約のケースでも正しく判定できる。
+      // customer_id が無い予約 (slot block 等) は new 扱いしない (継続側)。
+      const isNew =
+        a.customer_id != null &&
+        firstEverApptIdByCustomer.get(a.customer_id) === a.id;
 
       const salesAmt = a.sales ?? 0;
       if (isNew) {
