@@ -11,6 +11,7 @@ import {
   Globe,
   Megaphone,
   LineChart,
+  ClipboardList,
 } from "lucide-react";
 
 export type MarketingTabKey =
@@ -21,7 +22,8 @@ export type MarketingTabKey =
   | "meta-analysis"
   | "catchment"
   | "ai"
-  | "market";
+  | "market"
+  | "history";
 
 const TABS: Array<{
   key: MarketingTabKey;
@@ -31,6 +33,7 @@ const TABS: Array<{
 }> = [
   { key: "overview", label: "概要", icon: LayoutDashboard },
   { key: "new-customer", label: "新規管理", icon: UserPlus },
+  { key: "history", label: "受付履歴", icon: ClipboardList },
   { key: "meta-ads", label: "メタ広告", icon: Megaphone },
   { key: "meta-analysis", label: "メタ分析", icon: LineChart },
   { key: "catchment", label: "商圏", icon: MapPinned },
