@@ -54,6 +54,11 @@ export function ReceptionHistoryTab({ data, onlyNew, onlyMemberJoin }: Props) {
   );
 
   // 集計サマリー (フィルタ後)
+  // 売上 / 新規来店 / 入会 は「完了 (status=2)」限定で集計する。
+  // - キャンセル予約に最古フラグが立っていても新規来店にカウントしない
+  // - キャンセル予約の sales / consumed_amount も集計に乗せない
+  // - is_member_join がキャンセル予約に立っていても入会にカウントしない
+  // 件数 (= 受付件数) / 完了件数 だけは全 status 母集団でそのまま表示。
   const summary = useMemo(() => {
     let total = 0;
     let newSales = 0;
@@ -63,13 +68,15 @@ export function ReceptionHistoryTab({ data, onlyNew, onlyMemberJoin }: Props) {
     let firstVisitCount = 0;
     let completed = 0;
     for (const r of data.rows) {
-      total += r.sales;
-      if (r.classification === "new") newSales += r.sales;
-      else continuingSales += r.sales;
-      consumed += r.consumedAmount;
-      if (r.isMemberJoin) memberJoinCount += 1;
-      if (r.isFirstEverVisit) firstVisitCount += 1;
-      if (r.status === 2) completed += 1;
+      if (r.status === 2) {
+        completed += 1;
+        total += r.sales;
+        if (r.classification === "new") newSales += r.sales;
+        else continuingSales += r.sales;
+        consumed += r.consumedAmount;
+        if (r.isMemberJoin) memberJoinCount += 1;
+        if (r.isFirstEverVisit) firstVisitCount += 1;
+      }
     }
     return {
       rowCount: data.rows.length,
