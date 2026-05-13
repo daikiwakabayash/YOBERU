@@ -35,6 +35,12 @@ export interface BookingLink {
   immediate_email_enabled: boolean;
   immediate_email_subject: string | null;
   immediate_email_template: string | null;
+  /**
+   * 強制リンク (00048)。true のとき:
+   *   - 予約完了画面で LINE 友だち追加 LIFF を必須提示
+   *   - cron リマインドの対象 (他に visit_count=1 かつ line_user_id 紐付け済みが必要)
+   */
+  is_mandatory_line: boolean;
   reminder_settings: ReminderSetting[];
   created_at: string;
   updated_at: string;

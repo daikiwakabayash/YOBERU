@@ -40,6 +40,7 @@ export const bookingLinkSchema = z.object({
   immediate_email_enabled: z.boolean().default(true),
   immediate_email_subject: z.string().optional().nullable(),
   immediate_email_template: z.string().optional().nullable(),
+  is_mandatory_line: z.boolean().default(false),
   reminder_settings: z.array(reminderSettingSchema).default([]),
 });
 

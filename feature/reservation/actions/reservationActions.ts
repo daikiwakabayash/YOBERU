@@ -372,13 +372,19 @@ export async function createAppointment(formData: FormData) {
     } catch (e) {
       console.error("[createAppointment] 確認メール送信失敗", e);
     }
-    try {
-      const { sendBookingLineNotice } = await import(
-        "@/feature/line-chat/services/sendBookingLineNotice"
-      );
-      await sendBookingLineNotice(inserted.id as number);
-    } catch (e) {
-      console.error("[createAppointment] LINE 通知失敗", e);
+    // 予約確定通知 LINE 送信 (旧仕様)。誤送信防止のため、本仕様 (00048)
+    // では **AUTO_LINE_NOTICES=true** が env に明示設定されているときだけ
+    // 送る。デフォルト OFF。LINE リマインドは cron 経由の 1 通 (強制リンク
+    // + 初回 + 紐付け済み) のみが自動送信されることを保証する。
+    if (process.env.AUTO_LINE_NOTICES === "true") {
+      try {
+        const { sendBookingLineNotice } = await import(
+          "@/feature/line-chat/services/sendBookingLineNotice"
+        );
+        await sendBookingLineNotice(inserted.id as number);
+      } catch (e) {
+        console.error("[createAppointment] LINE 通知失敗", e);
+      }
     }
   }
 

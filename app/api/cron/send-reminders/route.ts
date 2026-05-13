@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/helper/lib/supabase/server";
-import { sendEmail } from "@/helper/lib/email/sendEmail";
 import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
 import { toLocalDateString } from "@/helper/utils/time";
 import type { ReminderSetting } from "@/feature/booking-link/types";
@@ -8,24 +7,26 @@ import type { ReminderSetting } from "@/feature/booking-link/types";
 /**
  * Cron endpoint that processes reminder sends.
  *
+ * 仕様 (migration 00048 以降):
+ *   - **LINE only**。reminder_settings の type="line" エントリだけを処理し、
+ *     type="email" / "sms" は無視する (誤送信防止のため LINE/Email の
+ *     チャネル混在を完全に廃止)。
+ *   - **強制リンクのみ**。booking_links.is_mandatory_line=true の link 配下の
+ *     予約のみが対象。
+ *   - **初回予約のみ**。appointments.visit_count=1 の予約のみが対象。
+ *   - **LINE 紐付け済みのみ**。customers.line_user_id IS NOT NULL の顧客
+ *     のみが対象。未紐付けは silent skip。
+ *   - **多重送信防止**。reminder_logs を INSERT FIRST 方式 (upsert +
+ *     ignoreDuplicates) で確保してから送信。SELECT → 送信 → INSERT の
+ *     race condition を原理的に防ぐ。
+ *   - **緊急停止**。LINE_SEND_DISABLED=true が env にあれば全停止
+ *     (sendLineMessage 側でも防御するが、cron は早期 return)。
+ *
  * Deployment:
- *   - Vercel Cron: add to vercel.json:
- *     {"crons": [{"path": "/api/cron/send-reminders", "schedule": "*\/15 * * * *"}]}
- *   - External cron: GET https://your-app.com/api/cron/send-reminders
- *     with header `Authorization: Bearer <CRON_SECRET>` (if CRON_SECRET env is set)
- *
- * What it does:
- *   1. Finds all booking_links that have any enabled reminder_settings
- *   2. For each setting, computes the target date = today + offset_days
- *   3. Finds appointments on that date that came from a matching link
- *      (identified via visit_source_id OR memo content containing the link slug)
- *   4. For each appointment, checks reminder_logs to avoid duplicate sends
- *   5. Sends the reminder via the configured channel
- *   6. Inserts a row into reminder_logs with the result
- *
- * メール送信は helper/lib/email/sendEmail.ts 経由で Resend が担当する。
- * RESEND_API_KEY 未設定なら送信をスキップ (ログのみ)。ドメイン認証
- * (SPF/DKIM/DMARC) 手順は .env.example のコメント参照。
+ *   - Vercel Cron: vercel.json で {"path": "/api/cron/send-reminders",
+ *     "schedule": "*\/15 * * * *"}
+ *   - External cron: GET https://<host>/api/cron/send-reminders
+ *     with header `Authorization: Bearer <CRON_SECRET>` (CRON_SECRET 必須)
  */
 
 function requireCronAuth(request: NextRequest): boolean {
@@ -43,18 +44,16 @@ interface AppointmentForReminder {
   start_at: string;
   shop_id: number;
   visit_source_id: number | null;
+  visit_count: number | null;
 }
 
 interface ReminderContext {
   customer_id: number;
   customer_name: string;
-  customer_email: string | null;
-  customer_phone: string | null;
-  customer_line_user_id: string | null;
+  customer_line_user_id: string;
   shop_id: number;
   shop_name: string;
-  shop_email: string | null;
-  shop_line_channel_access_token: string | null;
+  shop_line_channel_access_token: string;
   staff_name: string;
   menu_name: string;
   date: string;
@@ -79,37 +78,61 @@ function addDays(dateStr: string, days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+type ResultStatus =
+  | "sent"
+  | "failed"
+  | "skipped_existing"
+  | "skipped_locked"
+  | "skipped_not_linked"
+  | "skipped_no_token";
+
 export async function GET(request: NextRequest) {
   if (!requireCronAuth(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // 緊急停止スイッチ。Vercel env に LINE_SEND_DISABLED=true を入れて
+  // 再デプロイすると即時停止。sendLineMessage 側にも同等チェックがあるが
+  // ここで早期 return することで DB アクセスすら発生させない。
+  if (process.env.LINE_SEND_DISABLED === "true") {
+    return NextResponse.json({
+      processed_at: new Date().toISOString(),
+      skipped: "LINE_SEND_DISABLED",
+    });
+  }
+
   const supabase = await createClient();
 
-  // 1. Load all booking links with at least one enabled reminder
+  // 1. 強制リンク (is_mandatory_line=true) で enabled な LINE reminder_settings
+  //    を含む booking_links を取得。
   let links: Array<{
     id: number;
     brand_id: number;
     shop_id: number | null;
     visit_source_id: number | null;
     reminder_settings: ReminderSetting[];
+    is_mandatory_line: boolean;
   }> = [];
   try {
     const { data, error } = await supabase
       .from("booking_links")
-      .select("id, brand_id, shop_id, visit_source_id, reminder_settings")
-      .is("deleted_at", null);
+      .select(
+        "id, brand_id, shop_id, visit_source_id, reminder_settings, is_mandatory_line"
+      )
+      .is("deleted_at", null)
+      .eq("is_mandatory_line", true);
     if (error) throw error;
     links = (data ?? []).filter((l) => {
       const settings = (l.reminder_settings as ReminderSetting[]) ?? [];
-      return settings.some((s) => s.enabled);
+      // type="line" の enabled なエントリが 1 つでもあればこの link は対象
+      return settings.some((s) => s.enabled && s.type === "line");
     });
   } catch (err) {
     return NextResponse.json(
       {
         error:
           err instanceof Error && err.message.includes("does not exist")
-            ? "booking_links/reminder_settings テーブルが未セットアップです。migration 004 を実行してください。"
+            ? "booking_links のセットアップが未完了です。migration 00048 を適用してください。"
             : String(err),
       },
       { status: 500 }
@@ -133,8 +156,7 @@ export async function GET(request: NextRequest) {
 
   const results: Array<{
     appointment_id: number;
-    type: string;
-    status: string;
+    status: ResultStatus;
     error?: string;
   }> = [];
 
@@ -142,11 +164,12 @@ export async function GET(request: NextRequest) {
     const settings = (link.reminder_settings as ReminderSetting[]) ?? [];
     for (const setting of settings) {
       if (!setting.enabled) continue;
+      // LINE only。email / sms は完全に無視する (誤送信防止の根本対策)
+      if (setting.type !== "line") continue;
 
       // 送信予定時刻ゲート。setting.send_time ("HH:MM") が現在時刻より
-      // 未来なら、この cron 周回ではスキップ。例えば send_time="09:00"
-      // の reminder は朝 9 時の cron 実行から有効になる (それ以前は wait)。
-      // 値が空 or 不正なら従来通り即座に送信する。
+      // 未来ならこの cron 周回はスキップ。値が空 or 不正なら従来通り
+      // 即座に送信する。
       if (
         setting.send_time &&
         /^\d{2}:\d{2}$/.test(setting.send_time) &&
@@ -156,17 +179,22 @@ export async function GET(request: NextRequest) {
       }
 
       const targetDate = addDays(today, setting.offset_days);
+      const nextDate = addDays(targetDate, 1);
 
-      // 2. Find appointments on target date for this link's shop/visit_source
+      // 2. 対象日の予約を取得。
+      //    - visit_count=1 (初回)
+      //    - link の shop / visit_source 制約
+      //    - キャンセル / 論理削除でない
       let apptQuery = supabase
         .from("appointments")
         .select(
-          "id, customer_id, staff_id, menu_manage_id, start_at, shop_id, visit_source_id"
+          "id, customer_id, staff_id, menu_manage_id, start_at, shop_id, visit_source_id, visit_count"
         )
         .gte("start_at", `${targetDate}T00:00:00`)
-        .lt("start_at", `${targetDate}T23:59:59`)
+        .lt("start_at", `${nextDate}T00:00:00`)
         .is("deleted_at", null)
-        .is("cancelled_at", null);
+        .is("cancelled_at", null)
+        .eq("visit_count", 1);
 
       if (link.shop_id) apptQuery = apptQuery.eq("shop_id", link.shop_id);
       if (link.visit_source_id)
@@ -175,10 +203,9 @@ export async function GET(request: NextRequest) {
       const { data: appts } = await apptQuery;
       const appointments = (appts ?? []) as AppointmentForReminder[];
 
-      // 同じ顧客が同じ日に複数予約を持っていても 1 回しか通知しない。
-      // 既存 UNIQUE(appointment_id, type, offset_days) では「同じ予約」
-      // のみ防げないため、先に per-customer 単位でデデュップする。
-      // 先にソートして古い予約 (朝) を残し、後続 (昼) はスキップ。
+      // 同じ顧客が複数予約を持っていても 1 回しか通知しない安全装置。
+      // visit_count=1 のため通常 1 件しかヒットしないが、データ不整合時の
+      // 保険として保持。早い時間の予約を残す。
       const seenCustomerIds = new Set<number>();
       const dedupedAppointments = appointments
         .slice()
@@ -190,31 +217,33 @@ export async function GET(request: NextRequest) {
         });
 
       for (const appt of dedupedAppointments) {
-        // 3. Check if already sent (同じ appointment / type / offset_days)
+        // 3a. (高速 path) 既送信なら何もしない。本確認は早期 skip 用の最適化。
+        //     真の重複防止は下の upsert で行う。
         const { data: existingLog } = await supabase
           .from("reminder_logs")
           .select("id")
           .eq("appointment_id", appt.id)
-          .eq("type", setting.type)
+          .eq("type", "line")
           .eq("offset_days", setting.offset_days)
           .maybeSingle();
         if (existingLog) {
-          continue; // already sent
+          results.push({ appointment_id: appt.id, status: "skipped_existing" });
+          continue;
         }
 
-
-        // 4. Build context
-        const [customer, staff, menu, shop] = await Promise.all([
+        // 3b. 顧客 / 店舗の必要情報を取得。LINE 紐付け / トークン未設定なら
+        //     reminder_logs を書かずに skip (= 紐付くまで送信を保留)。
+        const [customerRes, staffRes, menuRes, shopRes] = await Promise.all([
           supabase
             .from("customers")
-            .select("last_name, first_name, email, phone_number_1, line_user_id")
+            .select("last_name, first_name, line_user_id")
             .eq("id", appt.customer_id)
-            .single(),
+            .maybeSingle(),
           supabase
             .from("staffs")
             .select("name")
             .eq("id", appt.staff_id)
-            .single(),
+            .maybeSingle(),
           supabase
             .from("menus")
             .select("name")
@@ -222,124 +251,128 @@ export async function GET(request: NextRequest) {
             .maybeSingle(),
           supabase
             .from("shops")
-            .select("name, email1, line_channel_access_token")
+            .select("name, line_channel_access_token")
             .eq("id", appt.shop_id)
-            .single(),
+            .maybeSingle(),
         ]);
 
+        const lineUserId =
+          (customerRes.data?.line_user_id as string | null) ?? null;
+        const channelAccessToken =
+          (shopRes.data?.line_channel_access_token as string | null) ?? null;
+
+        if (!lineUserId) {
+          // LINE 未紐付け。reminder_logs にはまだ書かない (= 後で紐付いて
+          // 当日中に cron が再走したら送れるようにする)。ただし
+          // visit_count=1 + 当日対象なので、紐付かないまま日付を跨げば
+          // 自然に対象外になる。
+          results.push({
+            appointment_id: appt.id,
+            status: "skipped_not_linked",
+          });
+          continue;
+        }
+        if (!channelAccessToken) {
+          // 店舗のトークン未設定。これも reminder_logs には書かず skip。
+          results.push({
+            appointment_id: appt.id,
+            status: "skipped_no_token",
+          });
+          continue;
+        }
+
+        // 4. INSERT FIRST。lock row を upsert で確保してから送信する。
+        //    UNIQUE(appointment_id, type, offset_days) で他プロセス / 過去の
+        //    成功行と衝突した場合は ignoreDuplicates により行が返らず、
+        //    送信処理に進まない (= 多重送信を原理的に防ぐ)。
+        const { data: locked, error: lockErr } = await supabase
+          .from("reminder_logs")
+          .upsert(
+            {
+              appointment_id: appt.id,
+              booking_link_id: link.id,
+              type: "line",
+              offset_days: setting.offset_days,
+              status: "sending",
+              channel: "line",
+            },
+            {
+              onConflict: "appointment_id,type,offset_days",
+              ignoreDuplicates: true,
+            }
+          )
+          .select("id")
+          .maybeSingle();
+
+        if (lockErr) {
+          console.error("[send-reminders] lock upsert failed", {
+            apptId: appt.id,
+            lockErr,
+          });
+          results.push({
+            appointment_id: appt.id,
+            status: "failed",
+            error: `lock failed: ${lockErr.message}`,
+          });
+          continue;
+        }
+        if (!locked) {
+          // 並走する他プロセスが先に lock を取得した。重複送信を防止。
+          results.push({
+            appointment_id: appt.id,
+            status: "skipped_locked",
+          });
+          continue;
+        }
+
+        // 5. 本文をレンダリング & LINE 送信
+        const customerName =
+          `${customerRes.data?.last_name ?? ""} ${customerRes.data?.first_name ?? ""}`.trim() ||
+          "お客様";
         const ctx: ReminderContext = {
           customer_id: appt.customer_id,
-          customer_name: `${customer.data?.last_name ?? ""} ${customer.data?.first_name ?? ""}`.trim() || "お客様",
-          customer_email: customer.data?.email ?? null,
-          customer_phone: customer.data?.phone_number_1 ?? null,
-          customer_line_user_id:
-            (customer.data?.line_user_id as string | null) ?? null,
+          customer_name: customerName,
+          customer_line_user_id: lineUserId,
           shop_id: appt.shop_id,
-          shop_name: shop.data?.name ?? "店舗",
-          shop_email: shop.data?.email1 ?? null,
-          shop_line_channel_access_token:
-            (shop.data?.line_channel_access_token as string | null) ?? null,
-          staff_name: staff.data?.name ?? "担当",
-          menu_name: menu.data?.name ?? "メニュー",
+          shop_name: (shopRes.data?.name as string) ?? "店舗",
+          shop_line_channel_access_token: channelAccessToken,
+          staff_name: (staffRes.data?.name as string) ?? "担当",
+          menu_name: (menuRes.data?.name as string) ?? "メニュー",
           date: appt.start_at.slice(0, 10),
           time: appt.start_at.slice(11, 16),
           offset_days: setting.offset_days,
         };
-
-        // 5. Send。setting.type が 'line' でも、顧客が未連携なら email に
-        // フォールバック。逆に 'email' でも line_user_id があれば LINE 優先
-        // (メール疲れ / 到達率向上目的)。実送信チャネルを effectiveType に
-        // 記録して reminder_logs に残す。
-        let sendResult: { success: boolean; error?: string };
-        let effectiveType: "email" | "line" | "sms" = setting.type;
         const body = renderTemplate(setting.template, ctx);
-        const subject = renderTemplate(setting.subject ?? "", ctx);
 
-        const canSendLine =
-          !!ctx.customer_line_user_id && !!ctx.shop_line_channel_access_token;
-
-        if (setting.type === "line" || (setting.type === "email" && canSendLine)) {
-          if (canSendLine) {
-            effectiveType = "line";
-            sendResult = await sendLineMessage({
-              to: ctx.customer_line_user_id!,
-              text: body,
-              channelAccessToken: ctx.shop_line_channel_access_token!,
-              audit: {
-                supabase,
-                shopId: ctx.shop_id,
-                customerId: ctx.customer_id,
-                source: "reminder",
-              },
-            });
-          } else if (setting.type === "email") {
-            // キープ: email で送る
-            effectiveType = "email";
-            if (!ctx.customer_email) {
-              sendResult = { success: false, error: "メールアドレスなし" };
-            } else {
-              sendResult = await sendEmail({
-                to: ctx.customer_email,
-                subject,
-                body,
-                fromName: ctx.shop_name,
-                replyTo: ctx.shop_email,
-              });
-            }
-          } else {
-            // setting=line だが未連携 → email フォールバック
-            if (ctx.customer_email) {
-              effectiveType = "email";
-              sendResult = await sendEmail({
-                to: ctx.customer_email,
-                subject,
-                body,
-                fromName: ctx.shop_name,
-                replyTo: ctx.shop_email,
-              });
-            } else {
-              sendResult = {
-                success: false,
-                error: "LINE 未連携でメールも無いため送信できません",
-              };
-            }
-          }
-        } else if (setting.type === "email") {
-          effectiveType = "email";
-          if (!ctx.customer_email) {
-            sendResult = { success: false, error: "メールアドレスなし" };
-          } else {
-            sendResult = await sendEmail({
-              to: ctx.customer_email,
-              subject,
-              body,
-              fromName: ctx.shop_name,
-              replyTo: ctx.shop_email,
-            });
-          }
-        } else {
-          // sms: 未実装
-          console.log("[REMINDER SMS] (未実装)", {
-            to: ctx.customer_phone,
-            body,
-          });
-          sendResult = { success: true };
-        }
-
-        // 6. Log
-        await supabase.from("reminder_logs").insert({
-          appointment_id: appt.id,
-          booking_link_id: link.id,
-          type: setting.type,
-          offset_days: setting.offset_days,
-          status: sendResult.success ? "sent" : "failed",
-          error_message: sendResult.error ?? null,
-          channel: effectiveType,
+        const sendResult = await sendLineMessage({
+          to: ctx.customer_line_user_id,
+          text: body,
+          channelAccessToken: ctx.shop_line_channel_access_token,
+          audit: {
+            supabase,
+            shopId: ctx.shop_id,
+            customerId: ctx.customer_id,
+            source: "reminder",
+          },
         });
+
+        // 6. lock row のステータスを送信結果で更新
+        const { error: updateErr } = await supabase
+          .from("reminder_logs")
+          .update({
+            status: sendResult.success ? "sent" : "failed",
+            error_message: sendResult.error ?? null,
+          })
+          .eq("id", locked.id as number);
+        if (updateErr) {
+          console.error("[send-reminders] log status update failed", {
+            apptId: appt.id,
+            updateErr,
+          });
+        }
 
         results.push({
           appointment_id: appt.id,
-          type: effectiveType,
           status: sendResult.success ? "sent" : "failed",
           error: sendResult.error,
         });
@@ -347,10 +380,17 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const count = (s: ResultStatus) =>
+    results.filter((r) => r.status === s).length;
+
   return NextResponse.json({
     processed_at: new Date().toISOString(),
-    total_sent: results.filter((r) => r.status === "sent").length,
-    total_failed: results.filter((r) => r.status === "failed").length,
+    total_sent: count("sent"),
+    total_failed: count("failed"),
+    total_skipped_existing: count("skipped_existing"),
+    total_skipped_locked: count("skipped_locked"),
+    total_skipped_not_linked: count("skipped_not_linked"),
+    total_skipped_no_token: count("skipped_no_token"),
     details: results,
   });
 }
