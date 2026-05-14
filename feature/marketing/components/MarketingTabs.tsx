@@ -12,6 +12,7 @@ import {
   Megaphone,
   LineChart,
   ClipboardList,
+  Repeat,
 } from "lucide-react";
 
 export type MarketingTabKey =
@@ -23,7 +24,8 @@ export type MarketingTabKey =
   | "catchment"
   | "ai"
   | "market"
-  | "history";
+  | "history"
+  | "retention";
 
 const TABS: Array<{
   key: MarketingTabKey;
@@ -34,6 +36,7 @@ const TABS: Array<{
   { key: "overview", label: "概要", icon: LayoutDashboard },
   { key: "new-customer", label: "新規管理", icon: UserPlus },
   { key: "history", label: "受付履歴", icon: ClipboardList },
+  { key: "retention", label: "継続管理", icon: Repeat },
   { key: "meta-ads", label: "メタ広告", icon: Megaphone },
   { key: "meta-analysis", label: "メタ分析", icon: LineChart },
   { key: "catchment", label: "商圏", icon: MapPinned },
