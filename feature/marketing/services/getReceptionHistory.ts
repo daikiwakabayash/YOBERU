@@ -111,9 +111,12 @@ export async function getReceptionHistory(params: {
   let apptQuery = supabase
     .from("appointments")
     .select(
-      "id, customer_id, staff_id, status, start_at, sales, consumed_amount, memo, is_member_join, payment_method, payment_splits, visit_source_id"
+      "id, customer_id, staff_id, status, start_at, sales, consumed_amount, memo, is_member_join, payment_method, payment_splits, visit_source_id, type"
     )
     .eq("shop_id", shopId)
+    // 通常予約のみ。type=1 (ミーティング) / type=2 (その他) はスロット
+    // ブロック (SYS-BLOCK-<shopId> 顧客に紐付く) なので集計から除外。
+    .eq("type", 0)
     .gte("start_at", `${startDate}T00:00:00`)
     .lt("start_at", `${nextDateStr}T00:00:00`)
     .is("deleted_at", null)
@@ -137,6 +140,7 @@ export async function getReceptionHistory(params: {
     payment_method: string | null;
     payment_splits?: unknown;
     visit_source_id: number | null;
+    type: number;
   };
   const appointments = (apptRes.data ?? []) as ApptRow[];
 
