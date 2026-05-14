@@ -219,7 +219,7 @@ export async function getRetentionData(params: {
   const [customersRes, apptsRes] = await Promise.all([
     supabase
       .from("customers")
-      .select("id, code, last_name, first_name")
+      .select("id, code, last_name, first_name, first_visit_source_id")
       .in("id", cohortCustomerIds),
     firstApptIds.length
       ? supabase
@@ -234,6 +234,7 @@ export async function getRetentionData(params: {
     code: string | null;
     last_name: string | null;
     first_name: string | null;
+    first_visit_source_id: number | null;
   };
   const customerById = new Map<number, CustomerRow>();
   for (const c of (customersRes.data ?? []) as CustomerRow[]) {
@@ -249,7 +250,45 @@ export async function getRetentionData(params: {
     apptById.set(a.id, a);
   }
 
-  // staff / visit_source 名前ルックアップ
+  // 1 回目購入予約 / customers.first_visit_source_id どちらも null だった
+  // 顧客について、最後のフォールバックとして「その顧客の予約のうち
+  // visit_source_id が non-null な最古の予約」から拾う。
+  const fallbackNeeded: number[] = [];
+  for (const cid of cohortCustomerIds) {
+    const firstPlan = plansByCustomer.get(cid)?.[0];
+    const appt =
+      firstPlan?.purchased_appointment_id != null
+        ? apptById.get(firstPlan.purchased_appointment_id)
+        : undefined;
+    if (appt?.visit_source_id != null) continue;
+    if (customerById.get(cid)?.first_visit_source_id != null) continue;
+    fallbackNeeded.push(cid);
+  }
+  const fallbackSourceByCustomer = new Map<number, number>();
+  if (fallbackNeeded.length > 0) {
+    const { data: fallbackRows } = await supabase
+      .from("appointments")
+      .select("customer_id, visit_source_id, start_at")
+      .eq("shop_id", shopId)
+      .in("customer_id", fallbackNeeded)
+      .not("visit_source_id", "is", null)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: true });
+    for (const r of (fallbackRows ?? []) as Array<{
+      customer_id: number;
+      visit_source_id: number | null;
+      start_at: string;
+    }>) {
+      if (r.visit_source_id == null) continue;
+      if (!fallbackSourceByCustomer.has(r.customer_id)) {
+        fallbackSourceByCustomer.set(r.customer_id, r.visit_source_id);
+      }
+    }
+  }
+
+  // staff / visit_source 名前ルックアップ。フォールバック経路
+  // (customers.first_visit_source_id / 最古の non-null 予約) も含めて
+  // すべての候補 id を集める。
   const staffIds = Array.from(
     new Set(
       Array.from(apptById.values())
@@ -257,13 +296,15 @@ export async function getRetentionData(params: {
         .filter((id): id is number => id != null)
     )
   );
-  const sourceIds = Array.from(
-    new Set(
-      Array.from(apptById.values())
-        .map((a) => a.visit_source_id)
-        .filter((id): id is number => id != null)
-    )
-  );
+  const sourceIdSet = new Set<number>();
+  for (const a of apptById.values()) {
+    if (a.visit_source_id != null) sourceIdSet.add(a.visit_source_id);
+  }
+  for (const c of customerById.values()) {
+    if (c.first_visit_source_id != null) sourceIdSet.add(c.first_visit_source_id);
+  }
+  for (const sid of fallbackSourceByCustomer.values()) sourceIdSet.add(sid);
+  const sourceIds = Array.from(sourceIdSet);
   const [staffsRes, sourcesRes] = await Promise.all([
     staffIds.length
       ? supabase.from("staffs").select("id, name").in("id", staffIds)
@@ -293,9 +334,19 @@ export async function getRetentionData(params: {
         ? apptById.get(firstPlan.purchased_appointment_id)
         : undefined;
 
-    // フィルタ: 1 回目購入予約の staff / visit_source で絞る
+    // 媒体は次の優先順位で解決:
+    //   1. 1 回目購入予約の visit_source_id
+    //   2. customers.first_visit_source_id (初回来店経路)
+    //   3. その顧客の visit_source_id が non-null な最古の予約
+    const resolvedSourceId =
+      appt?.visit_source_id ??
+      cust?.first_visit_source_id ??
+      fallbackSourceByCustomer.get(cid) ??
+      null;
+
+    // フィルタ: 1 回目購入予約の staff / 解決後の visit_source で絞る
     if (staffId != null && appt?.staff_id !== staffId) continue;
-    if (visitSourceId != null && appt?.visit_source_id !== visitSourceId) continue;
+    if (visitSourceId != null && resolvedSourceId !== visitSourceId) continue;
 
     const hasActive = plans.some((p) => p.status === 0);
     const status: RetentionStatus = hasActive ? "active" : "churned";
@@ -346,10 +397,10 @@ export async function getRetentionData(params: {
         appt?.staff_id != null
           ? staffName.get(appt.staff_id) ?? "(不明)"
           : "",
-      firstVisitSourceId: appt?.visit_source_id ?? null,
+      firstVisitSourceId: resolvedSourceId,
       firstVisitSourceName:
-        appt?.visit_source_id != null
-          ? sourceName.get(appt.visit_source_id) ?? ""
+        resolvedSourceId != null
+          ? sourceName.get(resolvedSourceId) ?? ""
           : "",
       firstPlanType: firstPlan.plan_type,
       firstPlanName: firstPlan.menu_name_snapshot ?? "(不明プラン)",
