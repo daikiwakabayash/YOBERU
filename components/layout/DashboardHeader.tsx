@@ -1,6 +1,7 @@
 import { ShopSelector } from "./ShopSelector";
 import { MobileSidebar } from "./MobileSidebar";
 import { HeaderRefreshButton } from "./HeaderRefreshButton";
+import { LogoutButton } from "./LogoutButton";
 import { getActiveBrandId, getActiveShopId } from "@/helper/lib/shop-context";
 import { createClient } from "@/helper/lib/supabase/server";
 
@@ -52,6 +53,7 @@ export async function DashboardHeader() {
       <div className="flex shrink-0 items-center gap-1">
         <HeaderRefreshButton />
         <ShopSelector shops={shops} activeShopId={activeShopId} />
+        <LogoutButton />
       </div>
     </header>
   );
