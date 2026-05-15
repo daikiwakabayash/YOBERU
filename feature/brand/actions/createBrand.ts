@@ -98,24 +98,74 @@ export async function createBrand(
     };
   }
   const admin = createAdminClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false },
+    auth: { autoRefreshToken: false, persistSession: false },
   });
-  const { data: created, error: createErr } = await admin.auth.admin.createUser({
-    email: parsed.data.adminLoginId,
-    password: parsed.data.adminPassword,
-    email_confirm: true,
-  });
-  if (createErr || !created.user) {
-    return {
-      ok: false,
-      error: `管理者アカウント作成に失敗しました: ${createErr?.message ?? "unknown"}`,
-    };
+
+  // service_role キーの簡易検証 (JWT payload が role:"service_role" か)
+  // 取り違えで anon キーが入っていると admin API は "User not allowed" を返す。
+  // 事前にチェックして親切なエラーを出す。
+  try {
+    const payload = JSON.parse(
+      Buffer.from(serviceRoleKey.split(".")[1] ?? "", "base64").toString()
+    ) as { role?: string };
+    if (payload.role !== "service_role") {
+      return {
+        ok: false,
+        error: `SUPABASE_SERVICE_ROLE_KEY が anon キーになっています (role="${payload.role}")。Supabase の Project Settings → API から service_role キーをコピーして Vercel の環境変数を更新し、Redeploy してください。`,
+      };
+    }
+  } catch {
+    /* JWT パース失敗時は無視して通常フローに進める */
   }
 
-  // 以降のエラー時のロールバック用
+  // 既存 auth.users に同一 email があるかチェック (再作成エラー回避)
+  // listUsers で email 一致を探し、見つかれば再利用する。
+  let authUserId: string | null = null;
+  try {
+    const { data: list } = await admin.auth.admin.listUsers();
+    const existingAuth = list?.users.find(
+      (u) => u.email?.toLowerCase() === parsed.data.adminLoginId.toLowerCase()
+    );
+    if (existingAuth) {
+      authUserId = existingAuth.id;
+      // パスワードを今回入力されたものに更新 (運用上のリセットも兼ねる)
+      await admin.auth.admin.updateUserById(existingAuth.id, {
+        password: parsed.data.adminPassword,
+        email_confirm: true,
+      });
+    }
+  } catch {
+    /* listUsers 失敗は無視。下の createUser でエラーになる */
+  }
+
+  if (!authUserId) {
+    const { data: created, error: createErr } =
+      await admin.auth.admin.createUser({
+        email: parsed.data.adminLoginId,
+        password: parsed.data.adminPassword,
+        email_confirm: true,
+      });
+    if (createErr || !created.user) {
+      const hint =
+        createErr?.message === "User not allowed"
+          ? " (service_role キーが anon キーになっている可能性が高いです)"
+          : "";
+      return {
+        ok: false,
+        error: `管理者アカウント作成に失敗しました: ${createErr?.message ?? "unknown"}${hint}`,
+      };
+    }
+    authUserId = created.user.id;
+  }
+
+  // 以降のエラー時のロールバック用 (auth user を「今回新規作成した」場合のみ削除)
+  const createdNewAuthUser = !!authUserId; // 既存だった場合はここまで来てない (false にしない)
+  const rollbackAuthUserId = authUserId;
   const rollback = async () => {
+    // 既存ユーザーを再利用したケースでは auth.users は触らない
+    if (!createdNewAuthUser || !rollbackAuthUserId) return;
     try {
-      if (created.user) await admin.auth.admin.deleteUser(created.user.id);
+      await admin.auth.admin.deleteUser(rollbackAuthUserId);
     } catch {
       /* best effort */
     }
@@ -127,24 +177,41 @@ export async function createBrand(
   // 一致させる必要がある。これが揃ってないと、ログイン後のロール判定
   // (users.brand_id を email で引く) が落ちて root 扱いされない。
   // 連絡用メール (adminEmail) は name の括弧に併記する形で残す。
-  const { data: insertedUser, error: userErr } = await admin
+  //
+  // 既存の public.users.email が同じ場合は UPDATE 扱いにする (上で auth
+  // ユーザーを再利用したケースとの整合性)。
+  const { data: existingPublicUser } = await admin
     .from("users")
-    .insert({
-      email: parsed.data.adminLoginId, // ← ログイン ID と一致させる
-      password: "supabase_auth", // public.users.password は NOT NULL なのでダミー
-      name:
-        parsed.data.adminEmail && parsed.data.adminEmail !== parsed.data.adminLoginId
-          ? `${parsed.data.name} 管理者 (${parsed.data.adminEmail})`
-          : `${parsed.data.name} 管理者`,
-    })
     .select("id")
-    .single();
-  if (userErr || !insertedUser) {
-    await rollback();
-    return {
-      ok: false,
-      error: `users 登録に失敗しました: ${userErr?.message ?? "unknown"}`,
-    };
+    .eq("email", parsed.data.adminLoginId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  let userId: number;
+  if (existingPublicUser) {
+    userId = existingPublicUser.id as number;
+  } else {
+    const { data: insertedUser, error: userErr } = await admin
+      .from("users")
+      .insert({
+        email: parsed.data.adminLoginId,
+        password: "supabase_auth",
+        name:
+          parsed.data.adminEmail &&
+          parsed.data.adminEmail !== parsed.data.adminLoginId
+            ? `${parsed.data.name} 管理者 (${parsed.data.adminEmail})`
+            : `${parsed.data.name} 管理者`,
+      })
+      .select("id")
+      .single();
+    if (userErr || !insertedUser) {
+      await rollback();
+      return {
+        ok: false,
+        error: `users 登録に失敗しました: ${userErr?.message ?? "unknown"}`,
+      };
+    }
+    userId = insertedUser.id as number;
   }
 
   // 6. brands を作成
@@ -153,16 +220,18 @@ export async function createBrand(
     .insert({
       name: parsed.data.name,
       code: parsed.data.code,
-      user_id: insertedUser.id,
+      user_id: userId,
     })
     .select("id")
     .single();
   if (brandErr || !insertedBrand) {
-    // ロールバック: 直前に作った users と auth.users を削除
-    try {
-      await admin.from("users").delete().eq("id", insertedUser.id);
-    } catch {
-      /* ignore */
+    // ロールバック: 直前に作った users (新規作成だった場合のみ) と auth.users
+    if (!existingPublicUser) {
+      try {
+        await admin.from("users").delete().eq("id", userId);
+      } catch {
+        /* ignore */
+      }
     }
     await rollback();
     return {
@@ -175,7 +244,7 @@ export async function createBrand(
   await admin
     .from("users")
     .update({ brand_id: insertedBrand.id })
-    .eq("id", insertedUser.id);
+    .eq("id", userId);
 
   revalidatePath("/brand");
   return { ok: true, brandId: insertedBrand.id as number };
