@@ -122,12 +122,20 @@ export async function createBrand(
   };
 
   // 5. public.users に管理者レコードを作成 (brand_id は後で更新)
+  //
+  // 重要: public.users.email は「Supabase Auth のログイン email」と
+  // 一致させる必要がある。これが揃ってないと、ログイン後のロール判定
+  // (users.brand_id を email で引く) が落ちて root 扱いされない。
+  // 連絡用メール (adminEmail) は name の括弧に併記する形で残す。
   const { data: insertedUser, error: userErr } = await admin
     .from("users")
     .insert({
-      email: parsed.data.adminEmail,
+      email: parsed.data.adminLoginId, // ← ログイン ID と一致させる
       password: "supabase_auth", // public.users.password は NOT NULL なのでダミー
-      name: parsed.data.name + " 管理者",
+      name:
+        parsed.data.adminEmail && parsed.data.adminEmail !== parsed.data.adminLoginId
+          ? `${parsed.data.name} 管理者 (${parsed.data.adminEmail})`
+          : `${parsed.data.name} 管理者`,
     })
     .select("id")
     .single();
