@@ -25,6 +25,7 @@ import {
   CalendarCheck,
   Gift,
   FileSignature,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
 
@@ -67,6 +68,7 @@ export const NAVIGATION: NavGroup[] = [
       { name: "ブランド", href: "/brand", icon: Building2 },
       { name: "店舗", href: "/store", icon: Building2 },
       { name: "スタッフ", href: "/staff", icon: UserCog },
+      { name: "アカウント発行", href: "/account", icon: KeyRound },
       { name: "メニューカテゴリ", href: "/menu-category", icon: Layers },
       { name: "メニュー", href: "/menu", icon: Utensils },
       { name: "設備", href: "/facility", icon: Grid3X3 },
