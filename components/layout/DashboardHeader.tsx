@@ -1,19 +1,27 @@
 import { ShopSelector } from "./ShopSelector";
+import { BrandSelector } from "./BrandSelector";
 import { MobileSidebar } from "./MobileSidebar";
 import { HeaderRefreshButton } from "./HeaderRefreshButton";
-import { getActiveBrandId, getActiveShopId } from "@/helper/lib/shop-context";
+import {
+  getActiveBrandId,
+  getActiveShopId,
+  getAccessibleBrands,
+} from "@/helper/lib/shop-context";
 import { createClient } from "@/helper/lib/supabase/server";
 
 /**
  * Server component. Fetches the brand's shops list and current active
- * shop, then renders the top-right ShopSelector. Falls back to a minimal
- * bar when the database isn't reachable.
+ * shop, then renders the top-right BrandSelector + ShopSelector. Falls
+ * back to a minimal bar when the database isn't reachable.
  *
  * モバイルでは左端にハンバーガーメニュー (MobileSidebar) を表示する。
  */
 export async function DashboardHeader() {
-  const brandId = await getActiveBrandId();
-  const activeShopId = await getActiveShopId();
+  const [brandId, activeShopId, brands] = await Promise.all([
+    getActiveBrandId(),
+    getActiveShopId(),
+    getAccessibleBrands(),
+  ]);
 
   let shops: Array<{ id: number; name: string }> = [];
   try {
@@ -51,6 +59,7 @@ export async function DashboardHeader() {
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <HeaderRefreshButton />
+        <BrandSelector brands={brands} activeBrandId={brandId} />
         <ShopSelector shops={shops} activeShopId={activeShopId} />
       </div>
     </header>
