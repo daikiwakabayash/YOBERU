@@ -269,39 +269,43 @@ export async function getDailyReport(
     }
   }
 
-  // 2. 「真の新規」判定: 顧客の "最古の完了予約 (status=2)" id を求める。
+  // 2. 新規/継続 売上の分類 (= プラン購入ベース)
   //
-  // 仕様 (ユーザー要望):
-  //   "初めて来店して、初めて集計実行を行った人だけが新規。それ以外は
-  //    すべて 継続。"
+  // 仕様:
+  //   - 新規売上: 顧客の人生で最初のプラン購入を含む予約、または
+  //              プラン購入を伴わない予約 (= まだ会員でない状態の売上)
+  //   - 継続売上: 2 回目以降のプラン購入を含む予約 (= 会員の更新 / 追加購入)
   //
-  // 旧実装は appointments.visit_count = 1 で判定していたが、これは
-  // createAppointment 時に customer.visit_count + 1 でスタンプされ、
-  // customer.visit_count は completeAppointment 時にしか加算されない値。
-  // そのため「1 回目をキャンセル → 2 回目予約 → 完了」のようなケースで
-  // visit_count=1 が再スタンプされ、2 回目来店なのに 新規 扱いになって
-  // しまっていた。
+  // 判定:
+  //   - 期間内の顧客について、customer_plans を購入時系列で並べる
+  //   - 顧客の最古プラン (purchased_at が最小) の purchased_appointment_id
+  //     を `firstPlanApptId` に保持
+  //   - 予約 a に紐づくプランが 1 つ以上あり、その中に最古プランを含む
+  //     → 新規 (= この予約で初回入会した)
+  //   - 予約 a に紐づくプランが 1 つ以上あるが、全部が最古プランではない
+  //     → 継続 (= 2 回目以降の購入)
+  //   - 予約 a に紐づくプランが無い
+  //     → 新規 (= 通常メニューの単発売上は新規扱い)
   //
-  // 期間内に完了予約のある顧客の "全完了予約" を一括取得して、各顧客の
-  // 最古 (start_at ASC, 同日同時刻なら id ASC) の 1 件 = 人生初の来店。
-  // この id と一致する完了予約だけ 新規 扱いにする。マーケティング側
-  // (getMarketingData) と同じ考え方。
+  // 「真の新規来店 (新規数 KPI)」は visit_count に依存せず、人生最古の
+  // 予約 id (start_at ASC, id ASC) と一致するかで判定する。これにより
+  // 1 回目キャンセル → 2 回目で visit_count=1 が再スタンプされる問題や
+  // レガシーデータで customer.visit_count=0 のままになっている問題を回避。
   const customerIdsInPeriod = Array.from(
     new Set(
       appointments
-        .filter((a) => a.status === 2)
-        .map((a) => a.customer_id)
+        .map((a) => a.customer_id as number | null)
         .filter((id): id is number => id != null)
     )
   );
-  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  // 2a. 「真の新規来店」用 (= 新規数 / 継続数 のカウントに使う)
+  const firstEverApptIdByCustomer = new Map<number, number>();
   if (customerIdsInPeriod.length > 0) {
     const { data: histRows } = await supabase
       .from("appointments")
       .select("id, customer_id, start_at")
       .eq("shop_id", shopId)
       .in("customer_id", customerIdsInPeriod)
-      .eq("status", 2)
       .is("deleted_at", null)
       .order("start_at", { ascending: true })
       .order("id", { ascending: true });
@@ -310,8 +314,37 @@ export async function getDailyReport(
       customer_id: number;
       start_at: string;
     }>) {
-      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
-        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
+      if (!firstEverApptIdByCustomer.has(r.customer_id)) {
+        firstEverApptIdByCustomer.set(r.customer_id, r.id);
+      }
+    }
+  }
+  // 2b. 「初回プラン購入予約」用 (= 新規売上 / 継続売上 のカウントに使う)
+  //   - apptId → その予約に紐づく customer_plans の id 配列
+  //   - customerId → 顧客の最古プランの id
+  const plansByApptId = new Map<number, number[]>();
+  const firstPlanIdByCustomer = new Map<number, number>();
+  if (customerIdsInPeriod.length > 0) {
+    const { data: planRows } = await supabase
+      .from("customer_plans")
+      .select("id, customer_id, purchased_appointment_id, purchased_at")
+      .in("customer_id", customerIdsInPeriod)
+      .is("deleted_at", null)
+      .order("purchased_at", { ascending: true });
+    type PlanRow = {
+      id: number;
+      customer_id: number;
+      purchased_appointment_id: number | null;
+      purchased_at: string;
+    };
+    for (const p of (planRows ?? []) as PlanRow[]) {
+      if (!firstPlanIdByCustomer.has(p.customer_id)) {
+        firstPlanIdByCustomer.set(p.customer_id, p.id);
+      }
+      if (p.purchased_appointment_id != null) {
+        const arr = plansByApptId.get(p.purchased_appointment_id) ?? [];
+        arr.push(p.id);
+        plansByApptId.set(p.purchased_appointment_id, arr);
       }
     }
   }
@@ -375,23 +408,49 @@ export async function getDailyReport(
     const isComplete = a.status === 2;
 
     if (isCancel) row.cancelCount += 1;
-    if (isVisit) row.visitCount += 1;
+    // 来店 = 完了 (status=2) のみ。施術中 (status=1) は売上が確定して
+    // いないので新規/継続にも乗らない。来店数を新規+継続と一致させる
+    // ため、ここも status=2 限定にする。
+    if (isComplete) row.visitCount += 1;
+    // isVisit は予約数や経路集計には不要なので参照しないが、将来用に
+    // 計算自体は残しておく (lint で「使われてない」と言われないよう
+    // void 評価)。
+    void isVisit;
 
-    if (isComplete && a.sales) {
-      // 新規 vs 継続 classification
-      // 「人生初の完了予約 (status=2) 1 件だけ」が新規。それ以外は継続。
-      // a.id が顧客の最古完了予約 id と一致するかで判定。
-      const isNew =
-        firstCompletedApptIdByCustomer.get(a.customer_id) === a.id;
+    if (isComplete) {
+      // 「真の新規来店」判定 (新規数 / 継続数 = 来店人数のカウント用)
+      //   この予約 id が顧客の人生最古の予約 id と一致するなら新規来店。
+      const isNewVisit =
+        a.customer_id != null &&
+        firstEverApptIdByCustomer.get(a.customer_id) === a.id;
 
-      if (isNew) {
-        row.newSales += a.sales;
+      // 「継続売上」判定 (新規売上 / 継続売上 のカウント用)
+      //   この予約に紐づくプラン購入が、すべて 2 回目以降の購入
+      //   (= 最古プランを含まない) なら継続売上。
+      //   - プラン購入なし → 新規売上 (会員でない時期の単発売上)
+      //   - 初回プラン購入を含む → 新規売上 (人生初の入会)
+      const planIds = plansByApptId.get(a.id) ?? [];
+      const firstPlanId =
+        a.customer_id != null
+          ? firstPlanIdByCustomer.get(a.customer_id) ?? null
+          : null;
+      const containsFirstPlan =
+        firstPlanId != null && planIds.some((id) => id === firstPlanId);
+      const isContinuingSale = planIds.length > 0 && !containsFirstPlan;
+
+      const salesAmt = a.sales ?? 0;
+      if (isContinuingSale) {
+        row.continuingSales += salesAmt;
+      } else {
+        row.newSales += salesAmt;
+      }
+      // 新規数 / 継続数 (人数) は来店ベースで分類する。
+      if (isNewVisit) {
         row.newCount += 1;
       } else {
-        row.continuingSales += a.sales;
         row.continuingCount += 1;
       }
-      row.totalSales += a.sales;
+      row.totalSales += salesAmt;
       // 消化売上: 当日に「実サービス提供価値」として認識すべき金額。
       //   = sales (当日入金)
       //   + consumed_amount (プラン按分)
@@ -405,7 +464,7 @@ export async function getDailyReport(
           : 0;
       const deferredAppliedToday = deferredAppliedByApptId.get(a.id) ?? 0;
       const todayConsumed =
-        a.sales +
+        salesAmt +
         (a.consumed_amount ?? 0) -
         planPurchasePrice -
         deferredOutOfToday +
@@ -418,19 +477,22 @@ export async function getDailyReport(
       // 振り分ける。なければ payment_method 1 つに sales 全額を入れる。
       // これがないと「Square 12,100 + 現金 2,000」が日報で先頭の Square
       // に 14,100 全額計上されてしまうバグになる。
-      const paymap = paymentBuckets.get(day)!;
-      const splits = parsePaymentSplits(a.payment_splits);
-      if (splits && splits.length > 0) {
-        for (const s of splits) {
-          paymap.set(s.method, (paymap.get(s.method) ?? 0) + s.amount);
+      // sales=0 の完了は決済内訳に載せても 0 円なのでスキップする。
+      if (salesAmt > 0) {
+        const paymap = paymentBuckets.get(day)!;
+        const splits = parsePaymentSplits(a.payment_splits);
+        if (splits && splits.length > 0) {
+          for (const s of splits) {
+            paymap.set(s.method, (paymap.get(s.method) ?? 0) + s.amount);
+          }
+        } else {
+          const code = a.payment_method ?? "unknown";
+          paymap.set(code, (paymap.get(code) ?? 0) + salesAmt);
         }
-      } else {
-        const code = a.payment_method ?? "unknown";
-        paymap.set(code, (paymap.get(code) ?? 0) + a.sales);
       }
 
-      // Source bucket only counts new customers
-      if (isNew && a.visit_source_id) {
+      // Source bucket only counts new customers (新規来店ベース)
+      if (isNewVisit && a.visit_source_id) {
         const smap = sourceBuckets.get(day)!;
         smap.set(
           a.visit_source_id,

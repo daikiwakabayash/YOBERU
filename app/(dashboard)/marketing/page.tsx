@@ -9,10 +9,14 @@ import { CatchmentMapWrapper } from "@/feature/catchment/components/CatchmentMap
 import { MetaAdsTab } from "@/feature/meta-ads/components/MetaAdsTab";
 import { MetaAnalysisTab } from "@/feature/meta-ads/components/MetaAnalysisTab";
 import { AiAnalysisTab } from "@/feature/ai-analysis/components/AiAnalysisTab";
+import { ReceptionHistoryTab } from "@/feature/marketing/components/ReceptionHistoryTab";
+import { RetentionTab } from "@/feature/marketing/components/RetentionTab";
 import { getMetaAdsSummary } from "@/feature/meta-ads/services/getMetaAdsSummary";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
 import { getNewCustomerAnalytics } from "@/feature/marketing/services/getNewCustomerAnalytics";
+import { getReceptionHistory } from "@/feature/marketing/services/getReceptionHistory";
+import { getRetentionData } from "@/feature/marketing/services/getRetentionData";
 import { getCatchmentCustomers } from "@/feature/catchment/services/getCatchmentCustomers";
 import { getLineFriendStats } from "@/feature/marketing/services/getLineFriendStats";
 import {
@@ -31,6 +35,8 @@ interface MarketingPageProps {
     source?: string;
     staff?: string;
     tab?: string;
+    onlyNew?: string;
+    onlyJoin?: string;
   }>;
 }
 
@@ -69,6 +75,8 @@ const VALID_TABS = new Set<MarketingTabKey>([
   "catchment",
   "ai",
   "market",
+  "history",
+  "retention",
 ]);
 
 export default async function MarketingPage({
@@ -215,6 +223,57 @@ export default async function MarketingPage({
     if (tab === "ai") {
       return (
         <AiAnalysisTab startMonth={startMonth} endMonth={endMonth} />
+      );
+    }
+    if (tab === "retention") {
+      // 継続管理タブ: 期間内に「初回プラン購入」した顧客のリテンション
+      // 分析。期間 / 媒体 / スタッフは上部フィルタで絞り込む。
+      const [, , ey2, em2] = [
+        ...startMonth.split("-").map(Number),
+        ...endMonth.split("-").map(Number),
+      ];
+      const startDate = `${startMonth}-01`;
+      const endDate = (() => {
+        const lastDay = new Date(ey2, em2, 0).getDate();
+        return `${endMonth}-${String(lastDay).padStart(2, "0")}`;
+      })();
+      const retentionData = await getRetentionData({
+        shopId,
+        startDate,
+        endDate,
+        staffId,
+        visitSourceId,
+      });
+      return <RetentionTab data={retentionData} />;
+    }
+    if (tab === "history") {
+      // 受付履歴タブ: 期間内の予約を 1 行ずつ明細表示。新規/入会の追加
+      // フィルタはタブ内チェックボックスで切替える (?onlyNew / ?onlyJoin)。
+      const [sy, sm] = startMonth.split("-").map(Number);
+      const [ey, em] = endMonth.split("-").map(Number);
+      const startDate = `${startMonth}-01`;
+      const endDate = (() => {
+        const lastDay = new Date(ey, em, 0).getDate();
+        return `${endMonth}-${String(lastDay).padStart(2, "0")}`;
+      })();
+      void sy;
+      void sm;
+      const onlyNew = sp.onlyNew === "1";
+      const onlyMemberJoin = sp.onlyJoin === "1";
+      const data = await getReceptionHistory({
+        shopId,
+        startDate,
+        endDate,
+        staffId,
+        onlyNew,
+        onlyMemberJoin,
+      });
+      return (
+        <ReceptionHistoryTab
+          data={data}
+          onlyNew={onlyNew}
+          onlyMemberJoin={onlyMemberJoin}
+        />
       );
     }
     if (tab === "catchment") {

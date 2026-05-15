@@ -122,7 +122,7 @@ export async function getKpiData(params: {
   let apptQuery = supabase
     .from("appointments")
     .select(
-      "id, staff_id, customer_id, status, sales, visit_count, is_member_join, staffs(name)"
+      "id, staff_id, customer_id, status, sales, visit_count, is_member_join, start_at, staffs(name)"
     )
     .eq("shop_id", shopId)
     .gte("start_at", `${startDate}T00:00:00`)
@@ -174,8 +174,70 @@ export async function getKpiData(params: {
     sales: number | null;
     visit_count: number | null;
     is_member_join: boolean | null;
+    start_at: string;
     staffs: { name: string } | null | Array<{ name: string }>;
   }>;
+
+  // 「真の新規来店」 (= 新規獲得人数) と「新規/継続売上」の分類用ルックアップ
+  //   - firstEverApptIdByCustomer: 顧客の人生最初の予約 id
+  //   - firstPlanIdByCustomer:     顧客の人生最初のプラン購入 id
+  //   - plansByApptId:             予約 id → 紐づく customer_plans の id 配列
+  //
+  // 新規/継続 売上の分類 (getDailyReport.ts と完全に同じロジック):
+  //   - 予約に最古プランを含む or プラン購入なし → 新規売上
+  //   - 予約に 2 回目以降のプランしかない         → 継続売上
+  const customerIdsInRange = Array.from(
+    new Set(
+      appointments
+        .map((a) => a.customer_id as number | null)
+        .filter((id): id is number => id != null)
+    )
+  );
+  const firstEverApptIdByCustomer = new Map<number, number>();
+  if (customerIdsInRange.length > 0) {
+    const { data: histRows } = await supabase
+      .from("appointments")
+      .select("id, customer_id, start_at")
+      .eq("shop_id", shopId)
+      .in("customer_id", customerIdsInRange)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: true });
+    for (const r of (histRows ?? []) as Array<{
+      id: number;
+      customer_id: number;
+      start_at: string;
+    }>) {
+      if (!firstEverApptIdByCustomer.has(r.customer_id)) {
+        firstEverApptIdByCustomer.set(r.customer_id, r.id);
+      }
+    }
+  }
+  const plansByApptId = new Map<number, number[]>();
+  const firstPlanIdByCustomer = new Map<number, number>();
+  if (customerIdsInRange.length > 0) {
+    const { data: planRows } = await supabase
+      .from("customer_plans")
+      .select("id, customer_id, purchased_appointment_id, purchased_at")
+      .in("customer_id", customerIdsInRange)
+      .is("deleted_at", null)
+      .order("purchased_at", { ascending: true });
+    type PlanRow = {
+      id: number;
+      customer_id: number;
+      purchased_appointment_id: number | null;
+      purchased_at: string;
+    };
+    for (const p of (planRows ?? []) as PlanRow[]) {
+      if (!firstPlanIdByCustomer.has(p.customer_id)) {
+        firstPlanIdByCustomer.set(p.customer_id, p.id);
+      }
+      if (p.purchased_appointment_id != null) {
+        const arr = plansByApptId.get(p.purchased_appointment_id) ?? [];
+        arr.push(p.id);
+        plansByApptId.set(p.purchased_appointment_id, arr);
+      }
+    }
+  }
   const customers = (custRes.data ?? []) as Array<{
     id: number;
     leaved_at: string | null;
@@ -226,16 +288,36 @@ export async function getKpiData(params: {
     if (isCancel) totals.cancelCount += 1;
     if (isComplete) totals.completedCount += 1;
 
+    // 「真の新規来店」 = この予約 id が顧客の人生最初の予約 id と一致
+    const isTrueNew =
+      a.customer_id != null &&
+      firstEverApptIdByCustomer.get(a.customer_id) === a.id;
+
+    // 「継続売上」 = この予約に紐づくプランがあり、最古プランを含まない
+    // (= 2 回目以降のプラン購入のみ)。最古プランを含む / プラン購入なし
+    // は新規売上とする。
+    const planIds = plansByApptId.get(a.id) ?? [];
+    const firstPlanId =
+      a.customer_id != null
+        ? firstPlanIdByCustomer.get(a.customer_id) ?? null
+        : null;
+    const containsFirstPlan =
+      firstPlanId != null && planIds.some((id) => id === firstPlanId);
+    const isContinuingSale = planIds.length > 0 && !containsFirstPlan;
+
     if (isComplete && a.sales) {
       totals.totalSales += a.sales;
-      if (visit === 1) totals.newSales += a.sales;
-      else if (visit > 1) totals.continuingSales += a.sales;
+      if (isContinuingSale) totals.continuingSales += a.sales;
+      else totals.newSales += a.sales;
     }
 
-    if (visit === 1 && isVisit) {
+    // 総新規数 = 期間内に「人生初の予約 (= status は問わない)」が立った
+    // 顧客のユニーク数。来店分母は完了 + 施術中。
+    if (isTrueNew && isVisit) {
       newCustomerSet.add(a.customer_id);
       newVisitDenominator += 1;
     }
+    void visit;
     if (a.is_member_join) totals.joinCount += 1;
 
     // Staff bucket — join name. Supabase returns joined row as either

@@ -64,6 +64,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "マスタ管理",
     items: [
+      { name: "ブランド", href: "/brand", icon: Building2 },
       { name: "店舗", href: "/store", icon: Building2 },
       { name: "スタッフ", href: "/staff", icon: UserCog },
       { name: "メニューカテゴリ", href: "/menu-category", icon: Layers },
