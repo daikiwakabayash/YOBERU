@@ -101,17 +101,28 @@ export async function createBrand(
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // service_role キーの簡易検証 (JWT payload が role:"service_role" か)
-  // 取り違えで anon キーが入っていると admin API は "User not allowed" を返す。
+  // service_role キーの簡易検証 (JWT payload が role:"service_role" か,
+  // かつ ref が SUPABASE_URL と一致するか)
+  // - 取り違えで anon キーが入っていると admin API は "User not allowed"
+  // - 別プロジェクトのキーが入っていると "Invalid API key"
   // 事前にチェックして親切なエラーを出す。
   try {
     const payload = JSON.parse(
       Buffer.from(serviceRoleKey.split(".")[1] ?? "", "base64").toString()
-    ) as { role?: string };
+    ) as { role?: string; ref?: string };
     if (payload.role !== "service_role") {
       return {
         ok: false,
         error: `SUPABASE_SERVICE_ROLE_KEY が anon キーになっています (role="${payload.role}")。Supabase の Project Settings → API から service_role キーをコピーして Vercel の環境変数を更新し、Redeploy してください。`,
+      };
+    }
+    // SUPABASE_URL から ref を抽出 (https://<ref>.supabase.co)
+    const urlMatch = supabaseUrl.match(/^https?:\/\/([a-z0-9]+)\.supabase\./i);
+    const urlRef = urlMatch?.[1] ?? null;
+    if (urlRef && payload.ref && urlRef !== payload.ref) {
+      return {
+        ok: false,
+        error: `SUPABASE_URL のプロジェクト (${urlRef}) と SUPABASE_SERVICE_ROLE_KEY のプロジェクト (${payload.ref}) が一致していません。同じ Supabase プロジェクトのキーを Vercel に設定してください。`,
       };
     }
   } catch {
@@ -146,13 +157,18 @@ export async function createBrand(
         email_confirm: true,
       });
     if (createErr || !created.user) {
-      const hint =
-        createErr?.message === "User not allowed"
-          ? " (service_role キーが anon キーになっている可能性が高いです)"
-          : "";
+      const msg = createErr?.message ?? "unknown";
+      let hint = "";
+      if (msg === "User not allowed") {
+        hint =
+          " (SUPABASE_SERVICE_ROLE_KEY が anon キーになっている可能性が高いです)";
+      } else if (/invalid api key/i.test(msg)) {
+        hint =
+          " (SUPABASE_SERVICE_ROLE_KEY と SUPABASE_URL が別プロジェクトのものになっているか、キー値が破損しています。Supabase の Project Settings → API から正しい service_role キーを再コピーして Vercel に設定し、Redeploy してください)";
+      }
       return {
         ok: false,
-        error: `管理者アカウント作成に失敗しました: ${createErr?.message ?? "unknown"}${hint}`,
+        error: `管理者アカウント作成に失敗しました: ${msg}${hint}`,
       };
     }
     authUserId = created.user.id;
