@@ -149,8 +149,10 @@ function isCancelStatus(s: number): boolean {
 export async function getNewCustomerAnalytics(params: {
   shopId: number;
   yearMonth: string; // 'YYYY-MM'
+  staffId?: number | null;
+  visitSourceId?: number | null;
 }): Promise<NewCustomerAnalytics> {
-  const { shopId, yearMonth } = params;
+  const { shopId, yearMonth, staffId, visitSourceId } = params;
   const supabase = await createClient();
 
   // Asia/Tokyo 境界で当月の開始 / 翌月の開始を決める。
@@ -167,7 +169,11 @@ export async function getNewCustomerAnalytics(params: {
   //    新規管理タブに 離反扱いで出てくるのを防ぐ。
   //    運用フロー: 予約表で 完了 (= 集計実行 前にお会計確定) された
   //    タイミングで初めて当タブに反映される。
-  const firstVisitRes = await supabase
+  //
+  //    staffId / visitSourceId フィルター: 指定があれば「その担当 /
+  //    その媒体で初回来店した顧客のみ」に絞り込む。台帳・スタッフ別
+  //    pivot・売上 KPI すべてが連動して絞り込まれる。
+  let firstVisitQuery = supabase
     .from("appointments")
     .select(
       "id, customer_id, staff_id, visit_source_id, menu_manage_id, start_at, status, sales, is_member_join, visit_count"
@@ -177,14 +183,23 @@ export async function getNewCustomerAnalytics(params: {
     .eq("status", 2)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
-    .is("deleted_at", null)
-    .order("start_at", { ascending: true });
+    .is("deleted_at", null);
+  if (staffId != null) {
+    firstVisitQuery = firstVisitQuery.eq("staff_id", staffId);
+  }
+  if (visitSourceId != null) {
+    firstVisitQuery = firstVisitQuery.eq("visit_source_id", visitSourceId);
+  }
+  const firstVisitRes = await firstVisitQuery.order("start_at", {
+    ascending: true,
+  });
 
   const firstVisits = (firstVisitRes.data ?? []) as ApptRow[];
 
   if (firstVisits.length === 0) {
     // 何もない月でも 既存売上 だけは出したいので続行する。
-    const existingRes = await supabase
+    // (staff / source フィルターは ここの既存売上にも反映)
+    let existingQuery = supabase
       .from("appointments")
       .select("sales, consumed_amount, status, visit_count")
       .eq("shop_id", shopId)
@@ -192,6 +207,10 @@ export async function getNewCustomerAnalytics(params: {
       .gte("start_at", startTs)
       .lt("start_at", endTsExclusive)
       .is("deleted_at", null);
+    if (staffId != null) existingQuery = existingQuery.eq("staff_id", staffId);
+    if (visitSourceId != null)
+      existingQuery = existingQuery.eq("visit_source_id", visitSourceId);
+    const existingRes = await existingQuery;
     const existingRows = (existingRes.data ?? []) as Array<{
       sales: number | null;
       consumed_amount: number | null;
@@ -253,14 +272,19 @@ export async function getNewCustomerAnalytics(params: {
       .in("customer_id", customerIds)
       .is("deleted_at", null)
       .order("start_at", { ascending: true }),
-    supabase
-      .from("appointments")
-      .select("sales, consumed_amount, visit_count, status")
-      .eq("shop_id", shopId)
-      .eq("status", 2)
-      .gte("start_at", startTs)
-      .lt("start_at", endTsExclusive)
-      .is("deleted_at", null),
+    (() => {
+      let q = supabase
+        .from("appointments")
+        .select("sales, consumed_amount, visit_count, status")
+        .eq("shop_id", shopId)
+        .eq("status", 2)
+        .gte("start_at", startTs)
+        .lt("start_at", endTsExclusive)
+        .is("deleted_at", null);
+      if (staffId != null) q = q.eq("staff_id", staffId);
+      if (visitSourceId != null) q = q.eq("visit_source_id", visitSourceId);
+      return q;
+    })(),
     // 口コミ受領状態は customers.google_review_received_at /
     // hotpepper_review_received_at に保存されているので、新規管理表でも
     // セルに表示できるよう一緒に取得する。マイグレーション 00009 未適用の

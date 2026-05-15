@@ -139,10 +139,14 @@ export default async function MarketingPage({
     }
     if (tab === "new-customer") {
       // 新規管理タブは単月ビュー。?start= をそのまま対象月として使う。
-      // ?end / ?source / ?staff は現状無視 (月内すべての新規客を列挙)。
+      // ?source (媒体) / ?staff (担当) フィルターは新規客台帳・スタッフ別
+      // pivot・売上 KPI すべてに反映される (= そのスタッフ / 媒体で初回
+      // 来店した顧客だけが台帳に並ぶ)。
       const data = await getNewCustomerAnalytics({
         shopId,
         yearMonth: startMonth,
+        staffId,
+        visitSourceId,
       });
       return <MarketingNewCustomer data={data} />;
     }
