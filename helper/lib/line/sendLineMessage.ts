@@ -75,6 +75,51 @@ export async function sendLineMessage(
       ? `${input.text.slice(0, 4990)}...(以下省略)`
       : input.text;
 
+  // ---- テスト用キルスイッチ ---------------------------------------------
+  // LINE_TEST_USER_ID 環境変数が設定されている時は「ホワイトリストモード」
+  // になり、その userId 以外への LINE 送信を完全にスキップする。
+  // 本番運用と並行してテスト予約を行う際に、テストユーザだけが LINE を
+  // 受け取り、他の顧客には絶対に送らないようにするための緊急停止用。
+  //
+  // 使い方:
+  //   - LINE_TEST_USER_ID=Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  //       → 指定 userId のみ送信 OK、他は黙ってスキップ
+  //   - LINE_TEST_USER_ID=DISABLE_ALL (実在しない値)
+  //       → 全 LINE 送信を停止 (どの userId もマッチしないため)
+  //   - LINE_TEST_USER_ID 未設定
+  //       → 通常運用 (全顧客に送信)
+  //
+  // スキップしたものは line_messages に delivery_status='skipped' として
+  // 監査記録される。reminder_logs 側にはこの関数の戻り値が success で
+  // 入るため、再送リトライは行われない (= 1 日のテスト期間中、対象顧客
+  // へのリマインドは失われる点に注意)。テスト後は env を削除して通常運用に戻す。
+  const whitelistUserId = process.env.LINE_TEST_USER_ID?.trim();
+  if (whitelistUserId && input.to !== whitelistUserId) {
+    console.log(
+      `[sendLineMessage] LINE_TEST_USER_ID 設定中。${input.to.slice(0, 8)}... への送信をスキップ`
+    );
+    if (input.audit) {
+      try {
+        await input.audit.supabase.from("line_messages").insert({
+          shop_id: input.audit.shopId,
+          customer_id: input.audit.customerId ?? null,
+          line_user_id: input.to,
+          direction: "outbound",
+          message_type: "text",
+          text,
+          source: input.audit.source,
+          sent_by_user_id: input.audit.sentByUserId ?? null,
+          delivery_status: "skipped",
+          error_message: "LINE_TEST_USER_ID により本番送信をスキップ",
+        });
+      } catch (e) {
+        console.error("[sendLineMessage] テストスキップ監査失敗", e);
+      }
+    }
+    return { success: true };
+  }
+  // ----------------------------------------------------------------------
+
   const result = await (async (): Promise<SendLineResult> => {
     try {
       const res = await fetch(LINE_PUSH_ENDPOINT, {

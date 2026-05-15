@@ -287,7 +287,10 @@ export async function getDailyReport(
   //   - 予約 a に紐づくプランが無い
   //     → 新規 (= 通常メニューの単発売上は新規扱い)
   //
-  // 個別の「真の新規来店 (新規数 KPI)」は別途、人生最古の予約 id で判定する。
+  // 「真の新規来店 (新規数 KPI)」は visit_count に依存せず、人生最古の
+  // 予約 id (start_at ASC, id ASC) と一致するかで判定する。これにより
+  // 1 回目キャンセル → 2 回目で visit_count=1 が再スタンプされる問題や
+  // レガシーデータで customer.visit_count=0 のままになっている問題を回避。
   const customerIdsInPeriod = Array.from(
     new Set(
       appointments
@@ -304,7 +307,8 @@ export async function getDailyReport(
       .eq("shop_id", shopId)
       .in("customer_id", customerIdsInPeriod)
       .is("deleted_at", null)
-      .order("start_at", { ascending: true });
+      .order("start_at", { ascending: true })
+      .order("id", { ascending: true });
     for (const r of (histRows ?? []) as Array<{
       id: number;
       customer_id: number;
@@ -334,11 +338,9 @@ export async function getDailyReport(
       purchased_at: string;
     };
     for (const p of (planRows ?? []) as PlanRow[]) {
-      // 顧客ごとの最古プラン (purchased_at ASC で最初に出た 1 件)
       if (!firstPlanIdByCustomer.has(p.customer_id)) {
         firstPlanIdByCustomer.set(p.customer_id, p.id);
       }
-      // 予約 ID → プラン ID 配列 のマップ
       if (p.purchased_appointment_id != null) {
         const arr = plansByApptId.get(p.purchased_appointment_id) ?? [];
         arr.push(p.id);

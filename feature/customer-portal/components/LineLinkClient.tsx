@@ -13,6 +13,8 @@ import { linkLineUserToCustomer } from "../actions/linkLineUser";
 
 interface LiffApi {
   init: (opts: { liffId: string }) => Promise<void>;
+  isLoggedIn: () => boolean;
+  login: (opts?: { redirectUri?: string }) => void;
   getProfile: () => Promise<{ userId: string; displayName: string }>;
   isInClient?: () => boolean;
 }
@@ -26,6 +28,7 @@ interface Props {
 
 type State =
   | { kind: "loading" }
+  | { kind: "redirecting-login" }
   | { kind: "no-liff"; reason: string }
   | { kind: "linking" }
   | { kind: "linked"; customerId: number }
@@ -40,13 +43,20 @@ type State =
 
 /**
  * 顧客固有の LINE 紐付けランディング。
- * 1. LIFF SDK 初期化
- * 2. liff.getProfile() で userId 取得
- * 3. server action で customer.line_user_id を更新
- *    - 既存紐付けがある場合は requiresConfirmation を返すので、
- *      ユーザに「本当に切り替えますか？」を表示し、承諾後に
- *      force=true で再実行する。
- * 4. /mypage へ遷移
+ *
+ * フロー:
+ *   1. LIFF SDK 初期化
+ *   2. liff.isLoggedIn() でログイン状態を確認
+ *      - 未ログイン (PC ブラウザ / 普通のスマホブラウザから開いた場合)
+ *        → liff.login() で LINE OAuth へリダイレクト。完了後 同じ URL に
+ *          戻ってくるので、再実行で 2 周目に入って紐付けが進む。
+ *      - ログイン済 (LINE アプリ内で開いた場合 = 自動的に true)
+ *        → そのまま 3. へ
+ *   3. liff.getProfile() で userId 取得
+ *   4. server action で customer.line_user_id を更新
+ *      - 既存紐付けと衝突する場合は requiresConfirmation を返すので、
+ *        顧客に確認 UI を表示し、承諾後に force=true で再実行
+ *   5. /mypage へ遷移
  */
 export function LineLinkClient({
   token,
@@ -124,15 +134,32 @@ export function LineLinkClient({
       }
       try {
         await liff.init({ liffId: liffId! });
+
+        // PC ブラウザや LINE 外スマホブラウザで開かれた場合は未ログイン状態。
+        // liff.login() を呼ぶと LINE OAuth ページに飛び、認可後に同 URL に
+        // 戻ってきて isLoggedIn() が true になる (= 2 周目の useEffect で
+        // getProfile に進める)。
+        if (!liff.isLoggedIn()) {
+          setState({ kind: "redirecting-login" });
+          liff.login({ redirectUri: window.location.href });
+          return;
+        }
+
         const profile = await liff.getProfile();
         setState({ kind: "linking" });
         await attemptLink(profile, false);
       } catch (e) {
-        setState({
-          kind: "error",
-          message:
-            e instanceof Error ? e.message : "予期しないエラーが発生しました",
-        });
+        const raw = e instanceof Error ? e.message : String(e);
+        // よくある LIFF エラーの日本語化
+        let msg = raw;
+        if (raw.includes("access_token")) {
+          msg =
+            "LINE ログインが完了していません。ページを再読込してもう一度お試しください。";
+        } else if (raw.toLowerCase().includes("liff id")) {
+          msg =
+            "LIFF ID の設定に問題があります。店舗までお問い合わせください。";
+        }
+        setState({ kind: "error", message: msg });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,6 +175,18 @@ export function LineLinkClient({
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Loader2 className="h-4 w-4 animate-spin" />
               読み込み中...
+            </div>
+          )}
+
+          {state.kind === "redirecting-login" && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                LINE ログイン画面へ移動します...
+              </div>
+              <p className="text-[11px] text-gray-500">
+                自動で遷移しない場合はページを再読込してください。
+              </p>
             </div>
           )}
 
