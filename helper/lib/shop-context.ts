@@ -106,5 +106,8 @@ export async function setActiveBrandId(brandId: number): Promise<void> {
     httpOnly: false,
     sameSite: "lax",
   });
+  // ブランド切替時は店舗 cookie も削除。これで新ブランドで最初に
+  // 取れる shop (= sort_number 最小) が自動的に active になる。
+  store.delete(ACTIVE_SHOP_COOKIE);
   revalidatePath("/", "layout");
 }

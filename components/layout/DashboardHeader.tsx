@@ -1,4 +1,5 @@
 import { ShopSelector } from "./ShopSelector";
+import { BrandSelector } from "./BrandSelector";
 import { MobileSidebar } from "./MobileSidebar";
 import { HeaderRefreshButton } from "./HeaderRefreshButton";
 import { LogoutButton } from "./LogoutButton";
@@ -17,16 +18,40 @@ export async function DashboardHeader() {
   const activeShopId = await getActiveShopId();
 
   let shops: Array<{ id: number; name: string }> = [];
+  let brands: Array<{ id: number; name: string }> = [];
+  let isRoot = false;
   try {
     const supabase = await createClient();
-    const { data } = await supabase
+    const { data: shopRows } = await supabase
       .from("shops")
       .select("id, name")
       .eq("brand_id", brandId)
       .is("deleted_at", null)
       .order("sort_number", { ascending: true, nullsFirst: false })
       .order("id", { ascending: true });
-    shops = data ?? [];
+    shops = shopRows ?? [];
+
+    // root 判定 (users.brand_id IS NULL) してブランドセレクタを出すか決める
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user?.email) {
+      const { data: u } = await supabase
+        .from("users")
+        .select("brand_id")
+        .eq("email", user.email)
+        .maybeSingle();
+      if (u && u.brand_id == null) isRoot = true;
+    }
+
+    if (isRoot) {
+      const { data: brandRows } = await supabase
+        .from("brands")
+        .select("id, name")
+        .is("deleted_at", null)
+        .order("id", { ascending: true });
+      brands = brandRows ?? [];
+    }
   } catch {
     shops = [];
   }
@@ -52,6 +77,9 @@ export async function DashboardHeader() {
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <HeaderRefreshButton />
+        {isRoot && brands.length > 0 ? (
+          <BrandSelector brands={brands} activeBrandId={brandId} />
+        ) : null}
         <ShopSelector shops={shops} activeShopId={activeShopId} />
         <LogoutButton />
       </div>
