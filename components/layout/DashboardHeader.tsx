@@ -20,6 +20,13 @@ export async function DashboardHeader() {
   let shops: Array<{ id: number; name: string }> = [];
   let brands: Array<{ id: number; name: string }> = [];
   let isRoot = false;
+
+  // デバッグ用: 現在のログインユーザー情報
+  let debugEmail: string | null = null;
+  let debugUserExists = false;
+  let debugBrandIdInDb: number | null = null;
+  let debugBrandCount = 0;
+
   try {
     const supabase = await createClient();
     const { data: shopRows } = await supabase
@@ -36,21 +43,29 @@ export async function DashboardHeader() {
       data: { user },
     } = await supabase.auth.getUser();
     if (user?.email) {
+      debugEmail = user.email;
       const { data: u } = await supabase
         .from("users")
         .select("brand_id")
         .eq("email", user.email)
         .maybeSingle();
-      if (u && u.brand_id == null) isRoot = true;
+      if (u) {
+        debugUserExists = true;
+        debugBrandIdInDb = (u.brand_id as number | null) ?? null;
+        if (u.brand_id == null) isRoot = true;
+      }
     }
 
+    // ブランドは root 限定でなく常時取得 (デバッグ表示用に件数を出す)
+    const { data: brandRows } = await supabase
+      .from("brands")
+      .select("id, name")
+      .is("deleted_at", null)
+      .order("id", { ascending: true });
+    const allBrands = brandRows ?? [];
+    debugBrandCount = allBrands.length;
     if (isRoot) {
-      const { data: brandRows } = await supabase
-        .from("brands")
-        .select("id, name")
-        .is("deleted_at", null)
-        .order("id", { ascending: true });
-      brands = brandRows ?? [];
+      brands = allBrands;
     }
   } catch {
     shops = [];
@@ -76,6 +91,24 @@ export async function DashboardHeader() {
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        {/* DEBUG: ログイン中ユーザーの状態 (root 判定が効かない時の切り分け用) */}
+        <div
+          className="hidden items-center gap-1.5 rounded-md border border-dashed border-amber-400 bg-amber-50 px-2 py-1 text-[10px] font-mono text-amber-800 sm:inline-flex"
+          title="DEBUG: ログイン中ユーザー / DB の brand_id / 全ブランド件数"
+        >
+          <span className="font-bold">DBG</span>
+          <span>
+            {debugEmail ?? "未ログイン"}
+            {" | "}
+            DB:{debugUserExists ? (debugBrandIdInDb == null ? "root" : `brand=${debugBrandIdInDb}`) : "未登録"}
+            {" | "}
+            判定:{isRoot ? "root" : "brand"}
+            {" | "}
+            活性brand={brandId}
+            {" | "}
+            全brand={debugBrandCount}
+          </span>
+        </div>
         <HeaderRefreshButton />
         {isRoot && brands.length > 0 ? (
           <BrandSelector brands={brands} activeBrandId={brandId} />
