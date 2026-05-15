@@ -101,22 +101,23 @@ export async function createBrand(
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // service_role キーの簡易検証 (JWT payload が role:"service_role" か,
-  // かつ ref が SUPABASE_URL と一致するか)
-  // - 取り違えで anon キーが入っていると admin API は "User not allowed"
-  // - 別プロジェクトのキーが入っていると "Invalid API key"
-  // 事前にチェックして親切なエラーを出す。
+  // service_role キーの簡易検証 + 診断情報の抽出
+  // payload には role / ref / iat (発行時刻) などが入っている。
+  // ref と発行時刻をエラーメッセージに含めて、ユーザーが
+  //   - Vercel 側に入っているキーがどのプロジェクトのものか
+  //   - キーがいつ発行されたか (ローテーションした覚えがあるか)
+  // を確認できるようにする。
+  let keyDiagnostics = "";
   try {
     const payload = JSON.parse(
       Buffer.from(serviceRoleKey.split(".")[1] ?? "", "base64").toString()
-    ) as { role?: string; ref?: string };
+    ) as { role?: string; ref?: string; iat?: number };
     if (payload.role !== "service_role") {
       return {
         ok: false,
         error: `SUPABASE_SERVICE_ROLE_KEY が anon キーになっています (role="${payload.role}")。Supabase の Project Settings → API から service_role キーをコピーして Vercel の環境変数を更新し、Redeploy してください。`,
       };
     }
-    // SUPABASE_URL から ref を抽出 (https://<ref>.supabase.co)
     const urlMatch = supabaseUrl.match(/^https?:\/\/([a-z0-9]+)\.supabase\./i);
     const urlRef = urlMatch?.[1] ?? null;
     if (urlRef && payload.ref && urlRef !== payload.ref) {
@@ -125,8 +126,12 @@ export async function createBrand(
         error: `SUPABASE_URL のプロジェクト (${urlRef}) と SUPABASE_SERVICE_ROLE_KEY のプロジェクト (${payload.ref}) が一致していません。同じ Supabase プロジェクトのキーを Vercel に設定してください。`,
       };
     }
+    const issuedAt = payload.iat
+      ? new Date(payload.iat * 1000).toISOString().slice(0, 10)
+      : "?";
+    keyDiagnostics = ` [診断: url.ref=${urlRef ?? "?"} / key.ref=${payload.ref ?? "?"} / key.iat=${issuedAt} / key.len=${serviceRoleKey.length}]`;
   } catch {
-    /* JWT パース失敗時は無視して通常フローに進める */
+    keyDiagnostics = ` [診断: JWT パース失敗 / key.len=${serviceRoleKey.length}]`;
   }
 
   // 既存 auth.users に同一 email があるかチェック (再作成エラー回避)
@@ -164,11 +169,11 @@ export async function createBrand(
           " (SUPABASE_SERVICE_ROLE_KEY が anon キーになっている可能性が高いです)";
       } else if (/invalid api key/i.test(msg)) {
         hint =
-          " (SUPABASE_SERVICE_ROLE_KEY と SUPABASE_URL が別プロジェクトのものになっているか、キー値が破損しています。Supabase の Project Settings → API から正しい service_role キーを再コピーして Vercel に設定し、Redeploy してください)";
+          " (キー値はプロジェクト ref が合っているが Supabase 側で拒否されています。可能性: (1) Supabase 側でキーをローテーションして古い値が Vercel に残っている (2) 新 API キー体系 [publishable/secret] に切り替わって Legacy JWT が無効化されている (3) Vercel の Environment Variables を編集後に Redeploy していない。Supabase ダッシュボード → Project Settings → API で service_role キーを Reveal してそのまま再コピー → Vercel に貼り直し → Redeploy してください)";
       }
       return {
         ok: false,
-        error: `管理者アカウント作成に失敗しました: ${msg}${hint}`,
+        error: `管理者アカウント作成に失敗しました: ${msg}${hint}${keyDiagnostics}`,
       };
     }
     authUserId = created.user.id;
