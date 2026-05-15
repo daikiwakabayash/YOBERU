@@ -29,14 +29,59 @@ const ACTIVE_BRAND_COOKIE = "yoberu_active_brand_id";
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
 
 /**
- * Read the active brand_id from cookie, falling back to 1 (MVP single
- * brand). In the future this can be derived from the authenticated user.
+ * Read the active brand_id.
+ *
+ * Resolution order:
+ *   1. limited ユーザー (users.brand_id IS NOT NULL): 自分の brand_id を強制
+ *      (cookie の値は無視 = 他ブランドを見られないようにする)
+ *   2. root ユーザー: `yoberu_active_brand_id` cookie
+ *   3. cookie が無ければ最初のブランドの id
+ *   4. それも無ければ 1
+ *
+ * DB エラー時は cookie / fallback の組み合わせで最終的に 1 を返す。
  */
 export async function getActiveBrandId(): Promise<number> {
   const store = await cookies();
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    if (authUser?.email) {
+      const { data: me } = await supabase
+        .from("users")
+        .select("brand_id")
+        .eq("email", authUser.email)
+        .maybeSingle();
+      if (me && me.brand_id != null) {
+        // limited ユーザーは自分のブランドに固定
+        return me.brand_id as number;
+      }
+    }
+  } catch {
+    // フォールスルー
+  }
+
   const raw = store.get(ACTIVE_BRAND_COOKIE)?.value;
   const n = Number(raw);
   if (!isNaN(n) && n > 0) return n;
+
+  // cookie 未設定の root: 最初の brand を返す
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("brands")
+      .select("id")
+      .is("deleted_at", null)
+      .order("id", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) return data.id as number;
+  } catch {
+    /* fall through */
+  }
+
   return 1;
 }
 
@@ -100,11 +145,78 @@ export async function setActiveShopId(shopId: number): Promise<void> {
 
 export async function setActiveBrandId(brandId: number): Promise<void> {
   const store = await cookies();
+  // 認可: 現ユーザーがこの brand_id にアクセスできるか確認
+  // root (users.brand_id IS NULL) は全 OK、それ以外は自分の brand_id のみ。
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    if (authUser?.email) {
+      const { data } = await supabase
+        .from("users")
+        .select("brand_id")
+        .eq("email", authUser.email)
+        .maybeSingle();
+      if (data && data.brand_id != null && data.brand_id !== brandId) {
+        // limited ユーザーが他ブランドに切り替えようとした → 拒否
+        throw new Error("このブランドにアクセスする権限がありません");
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("アクセスする権限")) {
+      throw e;
+    }
+    // それ以外 (DB 接続エラー等) はフォールスルー
+  }
+
   store.set(ACTIVE_BRAND_COOKIE, String(brandId), {
     path: "/",
     maxAge: ONE_YEAR_SECONDS,
     httpOnly: false,
     sameSite: "lax",
   });
+  // ブランド切替時は店舗 cookie をクリア。getActiveShopId() の
+  // 「ブランド配下の最初の店舗を自動選択」フォールバックが効く。
+  store.delete(ACTIVE_SHOP_COOKIE);
   revalidatePath("/", "layout");
+}
+
+/**
+ * 現ユーザーが切り替え可能なブランド一覧を返す。
+ *   - root (users.brand_id IS NULL): 全ブランド
+ *   - limited (users.brand_id = X):  X 1 件のみ
+ *
+ * UI 側はこの結果が 2 件以上のときだけ BrandSelector を出す想定。
+ */
+export async function getAccessibleBrands(): Promise<
+  Array<{ id: number; name: string }>
+> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    if (!authUser?.email) return [];
+
+    const { data: me } = await supabase
+      .from("users")
+      .select("brand_id")
+      .eq("email", authUser.email)
+      .maybeSingle();
+    if (!me) return [];
+
+    const query = supabase
+      .from("brands")
+      .select("id, name")
+      .is("deleted_at", null)
+      .order("id", { ascending: true });
+    const { data } = me.brand_id == null ? await query : await query.eq("id", me.brand_id);
+    return (data ?? []).map((b) => ({
+      id: b.id as number,
+      name: (b.name as string) ?? "",
+    }));
+  } catch {
+    return [];
+  }
 }
