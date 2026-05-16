@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { CustomerList } from "@/feature/customer/components/CustomerList";
 import { getCustomers } from "@/feature/customer/services/getCustomers";
-import { Plus } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import type { Customer } from "@/feature/customer/types";
 import { getActiveShopId } from "@/helper/lib/shop-context";
 
@@ -37,12 +37,20 @@ export default async function CustomerListPage({ searchParams }: CustomerListPag
         title="顧客一覧"
         description="顧客の管理を行います"
         actions={
-          <Link href="/customer/register">
-            <Button>
-              <Plus className="mr-1 h-4 w-4" />
-              新規登録
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/customer/import">
+              <Button variant="outline">
+                <Upload className="mr-1 h-4 w-4" />
+                CSV インポート
+              </Button>
+            </Link>
+            <Link href="/customer/register">
+              <Button>
+                <Plus className="mr-1 h-4 w-4" />
+                新規登録
+              </Button>
+            </Link>
+          </div>
         }
       />
       <div className="p-3 sm:p-6">
