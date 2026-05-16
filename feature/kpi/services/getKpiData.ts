@@ -10,9 +10,15 @@ import { toLocalDateString } from "@/helper/utils/time";
  *
  * Metrics:
  *  - 総売上 / 新規売上 / 継続売上: sum(sales) where status=2, split by
- *    appointments.visit_count === 1 vs > 1
- *  - 総新規数: count(distinct customer) with visit_count === 1 in range
- *  - 入会率: is_member_join / visit-count-1 appointments (status 1 or 2)
+ *    プラン購入の最古/2回目以降 (getDailyReport と同じロジック)
+ *  - 総新規数: 期間内に「人生最古の status=2 予約」が立った顧客の
+ *    ユニーク数 (true-new attribution, visit_count スタンプには依存しない)
+ *  - 入会率: 新規顧客のうち、ライフタイムで入会済み (customer_plans 持ち
+ *    or 任意の予約で is_member_join=true) の割合
+ *
+ * 入会判定は「予約自身の is_member_join フラグ」ではなく顧客レベル。
+ * 5/30 新規来店 → 6/10 サブスク購入のケースで 5 月に入会としてバック
+ * アタッチされる (マーケティング概要 / 新患管理 / 売上 と統一)。
  *  - 退会率: simplified as
  *      count(customers.leaved_at IN range) / count(shop customers)
  *    This is intentionally loose for round 1 — documented in the spec.
@@ -178,14 +184,14 @@ export async function getKpiData(params: {
     staffs: { name: string } | null | Array<{ name: string }>;
   }>;
 
-  // 「真の新規来店」 (= 新規獲得人数) と「新規/継続売上」の分類用ルックアップ
-  //   - firstEverApptIdByCustomer: 顧客の人生最初の予約 id
-  //   - firstPlanIdByCustomer:     顧客の人生最初のプラン購入 id
-  //   - plansByApptId:             予約 id → 紐づく customer_plans の id 配列
-  //
-  // 新規/継続 売上の分類 (getDailyReport.ts と完全に同じロジック):
-  //   - 予約に最古プランを含む or プラン購入なし → 新規売上
-  //   - 予約に 2 回目以降のプランしかない         → 継続売上
+  // ライフタイム attribution ルックアップ:
+  //   - firstCompletedApptIdByCustomer: 顧客の人生最古の status=2 予約 id
+  //     (= 真の新規 1 件として集計対象になる appointment)
+  //   - customerEverJoined: いつかの時点で入会/購入した顧客 id Set
+  //     (= customer_plans 持ち or is_member_join=true 予約持ち)
+  //   - firstPlanIdByCustomer / plansByApptId: 新規/継続 売上の分類用
+  //     (予約に最古プランを含む or プラン購入なし → 新規売上、
+  //      2 回目以降プランのみ → 継続売上)
   const customerIdsInRange = Array.from(
     new Set(
       appointments
@@ -193,41 +199,50 @@ export async function getKpiData(params: {
         .filter((id): id is number => id != null)
     )
   );
-  const firstEverApptIdByCustomer = new Map<number, number>();
+  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  const customerEverJoined = new Set<number>();
+  const plansByApptId = new Map<number, number[]>();
+  const firstPlanIdByCustomer = new Map<number, number>();
   if (customerIdsInRange.length > 0) {
-    const { data: histRows } = await supabase
-      .from("appointments")
-      .select("id, customer_id, start_at")
-      .eq("shop_id", shopId)
-      .in("customer_id", customerIdsInRange)
-      .is("deleted_at", null)
-      .order("start_at", { ascending: true });
-    for (const r of (histRows ?? []) as Array<{
+    const [completedHistRes, planRowsRes, joinFlagApptsRes] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("id, customer_id, start_at")
+        .eq("shop_id", shopId)
+        .eq("status", 2)
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: true }),
+      supabase
+        .from("customer_plans")
+        .select("id, customer_id, purchased_appointment_id, purchased_at")
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null)
+        .order("purchased_at", { ascending: true }),
+      supabase
+        .from("appointments")
+        .select("customer_id")
+        .eq("shop_id", shopId)
+        .eq("is_member_join", true)
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null),
+    ]);
+    for (const r of (completedHistRes.data ?? []) as Array<{
       id: number;
       customer_id: number;
       start_at: string;
     }>) {
-      if (!firstEverApptIdByCustomer.has(r.customer_id)) {
-        firstEverApptIdByCustomer.set(r.customer_id, r.id);
+      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
+        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
       }
     }
-  }
-  const plansByApptId = new Map<number, number[]>();
-  const firstPlanIdByCustomer = new Map<number, number>();
-  if (customerIdsInRange.length > 0) {
-    const { data: planRows } = await supabase
-      .from("customer_plans")
-      .select("id, customer_id, purchased_appointment_id, purchased_at")
-      .in("customer_id", customerIdsInRange)
-      .is("deleted_at", null)
-      .order("purchased_at", { ascending: true });
     type PlanRow = {
       id: number;
       customer_id: number;
       purchased_appointment_id: number | null;
       purchased_at: string;
     };
-    for (const p of (planRows ?? []) as PlanRow[]) {
+    for (const p of (planRowsRes.data ?? []) as PlanRow[]) {
       if (!firstPlanIdByCustomer.has(p.customer_id)) {
         firstPlanIdByCustomer.set(p.customer_id, p.id);
       }
@@ -236,6 +251,12 @@ export async function getKpiData(params: {
         arr.push(p.id);
         plansByApptId.set(p.purchased_appointment_id, arr);
       }
+      customerEverJoined.add(p.customer_id);
+    }
+    for (const r of (joinFlagApptsRes.data ?? []) as Array<{
+      customer_id: number;
+    }>) {
+      customerEverJoined.add(r.customer_id);
     }
   }
   const customers = (custRes.data ?? []) as Array<{
@@ -263,9 +284,11 @@ export async function getKpiData(params: {
   };
 
   const newCustomerSet = new Set<number>();
-  let newVisitDenominator = 0; // visit_count === 1 appointments in status 1 or 2
 
-  // Per-staff bucketing for rankings
+  // Per-staff bucketing for rankings.
+  //   total       = 期間内の全予約 (join rate ranking 分母)
+  //   newCount    = この担当者が施した「真の新規 (= 最古完了)」予約の件数
+  //   joinCount   = 担当者の新規顧客のうちライフタイムで入会済みの件数
   const staffBuckets = new Map<
     number,
     {
@@ -273,8 +296,9 @@ export async function getKpiData(params: {
       staffName: string;
       sales: number;
       count: number;
+      newCount: number;
       joinCount: number;
-      total: number; // all appointments (for join rate denominator)
+      total: number;
     }
   >();
 
@@ -282,16 +306,15 @@ export async function getKpiData(params: {
     totals.reservationCount += 1;
     const isCancel = a.status === 3 || a.status === 4 || a.status === 99;
     const isComplete = a.status === 2;
-    const isVisit = a.status === 1 || a.status === 2;
-    const visit = a.visit_count ?? 0;
 
     if (isCancel) totals.cancelCount += 1;
     if (isComplete) totals.completedCount += 1;
 
-    // 「真の新規来店」 = この予約 id が顧客の人生最初の予約 id と一致
+    // 「真の新規来店」 = この予約 id が顧客の人生最古の status=2 予約 id
+    // と一致 (= status=2 確定)。
     const isTrueNew =
       a.customer_id != null &&
-      firstEverApptIdByCustomer.get(a.customer_id) === a.id;
+      firstCompletedApptIdByCustomer.get(a.customer_id) === a.id;
 
     // 「継続売上」 = この予約に紐づくプランがあり、最古プランを含まない
     // (= 2 回目以降のプラン購入のみ)。最古プランを含む / プラン購入なし
@@ -311,14 +334,15 @@ export async function getKpiData(params: {
       else totals.newSales += a.sales;
     }
 
-    // 総新規数 = 期間内に「人生初の予約 (= status は問わない)」が立った
-    // 顧客のユニーク数。来店分母は完了 + 施術中。
-    if (isTrueNew && isVisit) {
+    // 総新規数 = 期間内に最古完了予約 (= 真の新規) が立った顧客の
+    // ユニーク数。入会数はライフタイム判定で「その新規顧客が入会済み
+    // であれば 1 加算」する。
+    if (isTrueNew && a.customer_id != null) {
       newCustomerSet.add(a.customer_id);
-      newVisitDenominator += 1;
+      if (customerEverJoined.has(a.customer_id)) {
+        totals.joinCount += 1;
+      }
     }
-    void visit;
-    if (a.is_member_join) totals.joinCount += 1;
 
     // Staff bucket — join name. Supabase returns joined row as either
     // object or one-element array depending on codegen.
@@ -332,6 +356,7 @@ export async function getKpiData(params: {
         staffName,
         sales: 0,
         count: 0,
+        newCount: 0,
         joinCount: 0,
         total: 0,
       };
@@ -342,12 +367,18 @@ export async function getKpiData(params: {
       bucket.sales += a.sales;
       bucket.count += 1;
     }
-    if (a.is_member_join) bucket.joinCount += 1;
+    if (isTrueNew && a.customer_id != null) {
+      bucket.newCount += 1;
+      if (customerEverJoined.has(a.customer_id)) {
+        bucket.joinCount += 1;
+      }
+    }
   }
 
   totals.totalAcquired = newCustomerSet.size;
+  // 入会率 = 新規顧客のうちライフタイム入会済みの割合
   totals.joinRate =
-    newVisitDenominator > 0 ? totals.joinCount / newVisitDenominator : 0;
+    totals.totalAcquired > 0 ? totals.joinCount / totals.totalAcquired : 0;
 
   // --- 口コミ (shop-wide cumulative, NOT date-filtered) ------------------
   // Staff toggle these flags once per customer; the KPI card shows the
@@ -386,15 +417,18 @@ export async function getKpiData(params: {
       count: b.count,
     }));
 
+  // 入会率 ranking: 担当者の新規顧客 (= newCount) が分母、ライフタイム
+  // 入会済み新規 (= joinCount) が分子。新規が MIN_SAMPLE 未満の担当は
+  // ノイズになるので除外。
   const MIN_SAMPLE = 3;
   const joinRateRows = [...buckets]
-    .filter((b) => b.total >= MIN_SAMPLE)
+    .filter((b) => b.newCount >= MIN_SAMPLE)
     .map((b) => ({
       staffId: b.staffId,
       staffName: b.staffName,
       joinCount: b.joinCount,
-      total: b.total,
-      joinRate: b.total > 0 ? b.joinCount / b.total : 0,
+      total: b.newCount,
+      joinRate: b.newCount > 0 ? b.joinCount / b.newCount : 0,
     }))
     .sort((a, b) => b.joinRate - a.joinRate)
     .slice(0, 10);

@@ -237,20 +237,31 @@ CTA を置く。
     amount INT, memo, deleted_at)`。月 × 店舗 × 媒体で 1 行。
     入力は `/ad-spend` ページ。
 
+#### 新規 / 入会 attribution (4 タブ共通仕様)
+
+マーケティング (`getMarketingData` / `getMarketingByShop` / `getMarketingByMenu`) /
+売上 (`getSales`) / 経営指標 (`getKpiData`) / 新患管理 (`getNewCustomerAnalytics`)
+の 4 タブで以下の attribution に統一済み:
+
+- **新規判定** = 顧客の人生最古の **status=2 (完了) 予約 id** と一致する appointment 1 件 = 新規 1 件
+  - visit_count スタンプには依存しない (キャンセル後の再スタンプで誤計上するのを避ける)
+  - 1 顧客 = 1 新規 (= 1 実来院 = 1 予約 = 1 売上計上対象)
+- **入会/購入判定** = 顧客レベルのライフタイム判定 (バックアタッチ)
+  - `customer_plans` を 1 つでも持つ **または** 任意の予約で `is_member_join=true` のいずれかが立てば入会済み
+  - 例: 5/30 新規来店 → 6/10 サブスク購入 のケースで、5 月の新規顧客 A さんに入会フラグが立つ
+  - 「サブスク・回数券・チケットのどれであっても初めて購入した時点でカウント」
+
 #### KPI の計算式
 | KPI | 式 |
 |---|---|
-| 実来院数 | `count(visit_count >= 1 OR status IN (1,2))` |
-| 予約数 | `count(appointments)` |
-| 入会数 | `count(is_member_join = true)` |
-| 入会率 | `入会数 / 実来院数` |
-| キャンセル数 | `count(status IN (3,4,99))` |
-| キャンセル率 | `キャンセル数 / 予約数` |
+| 新規数 / 実来院数 | `count(人生最古 status=2 予約 id 一致)` (1 顧客 = 1 件) |
+| 入会数 | `count(新規顧客のうちライフタイム入会済み)` |
+| 入会率 | `入会数 / 新規数` |
 | 広告費 | `sum(ad_spend.amount)` |
-| 売上 | `sum(sales) where status = 2` |
-| CPA | `広告費 / 実来院数` |
+| 売上 | `sum(sales)` (新規 attribution の予約のみ) |
+| CPA | `広告費 / 新規数` |
 | ROAS | `売上 / 広告費` (broken → `-`) |
-| 平均客単価 | `売上 / 実来院数` |
+| 平均客単価 | `売上 / 新規数` |
 
 #### 集計サービス
 `feature/marketing/services/getMarketingData.ts`:

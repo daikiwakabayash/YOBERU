@@ -175,25 +175,28 @@ export async function getMarketingData(params: {
 
   // 1. Appointments in range for this shop.
   //
-  // Marketing analytics = 真の新規のみ.
-  // Per product spec ("マーケティング分析の実来院などは全て初回の新規の
-  // みだけの数をカウントする。キャンセルなども。") every metric on the
-  // marketing dashboard — 実来院 / キャンセル / 入会 / 売上 / 予約数 —
-  // must only count the customer's FIRST-EVER appointment. Return
-  // visits don't belong here.
+  // Marketing analytics = "真の新規" (the customer's first ever completed
+  // visit, status=2). キャンセル / no-show / pending は新規としてカウント
+  // しない。
   //
-  // 旧実装は appointments.visit_count = 1 でフィルタしていたが、これは
-  // 予約作成時に customer.visit_count + 1 でスタンプされる値で、
-  // customer.visit_count は完了時にしか加算されないため、
-  //   - 1 回目キャンセル → 2 回目予約 が visit_count=1 で再スタンプ
-  //   - レガシーデータで customer.visit_count が 0 のまま
-  // のケースで「2 回目以降なのに新規扱い」になってしまい、媒体別内訳の
-  // (不明) 行を膨らませる原因になっていた。
+  // 新規 attribution:
+  //   - その顧客の人生で最初に status=2 (完了) になった予約だけを
+  //     「新規 1 件」として全 KPI (実来院 / 売上 / 入会 / キャンセル) に
+  //     乗せる。
+  //   - 媒体 (visit_source_id) は最古完了予約のものをそのまま使う。
+  //   - 入会/購入 (joinCount) は顧客レベルでライフタイム判定する。
+  //     具体的には「customer_plans を 1 つでも持つ」または「is_member_join
+  //     = true な予約を 1 つでも持つ」顧客を入会扱い。
+  //     例: 5/30 に新規来店した A さんが 6/10 にサブスク購入した場合、
+  //          5/30 の新規データに入会フラグが付き、5 月の新規 1 件 +
+  //          5 月の入会 1 件として集計される。
   //
-  // 新実装: 期間内の予約を一旦 全件取得 → 該当顧客の「全期間の最古の
-  // 非キャンセル予約」と照合し、その最古予約自身だけを「新規」として
-  // 残す。これで stamped visit_count に依存せず、実際の来店履歴から
-  // 「この予約が初回」を判定できる。
+  // 旧実装の問題点:
+  //   - visit_count=1 はキャンセルで再スタンプされるケースがあり信頼性が低い
+  //   - "最古予約 id (キャンセル含む)" 方式は「初回キャンセル → 後日完了」
+  //     な顧客を新規としてカウントしない (= 真の新規が漏れる)
+  //   - 入会判定が予約自身の is_member_join フラグだけだと、2 回目以降に
+  //     入会した新規顧客が拾えない
   let apptQuery = supabase
     .from("appointments")
     .select(
@@ -252,13 +255,12 @@ export async function getMarketingData(params: {
   const adSpendRows = adSpendRes.data ?? [];
   const reviewRows = reviewsRes.data ?? [];
 
-  // 「真の新規」判定用に、期間内予約の顧客 id を抽出して、その顧客たちの
-  // 全期間 予約履歴を取得し、各顧客の "最古の予約 id" を求める。
-  // キャンセル / no-show も含めて取るのは、「初回キャンセル」も新規予約
-  // 1 件として計上したいため (spec: マーケティング分析は新規のみ、
-  // キャンセルなども)。
-  // 期間内予約のうち、この最古 id と一致するものだけが「人生初の予約
-  // = 真の新規」として集計対象になる。
+  // 「真の新規」判定用に、期間内予約の顧客 id を抽出し、その顧客たちの
+  // 全期間 status=2 (完了) 予約と、ライフタイム入会判定を取得する。
+  //   - firstCompletedApptIdByCustomer: 顧客が人生で初めて完了した予約 id
+  //     (= 新規 1 件として集計対象になる appointment)
+  //   - customerEverJoined: いつかの時点で入会/購入した顧客 id Set
+  //     (= customer_plans 持ちor is_member_join=true 予約持ち)
   const customerIdsInPeriod = Array.from(
     new Set(
       (appointments as Array<{ customer_id: number | null }>)
@@ -266,24 +268,50 @@ export async function getMarketingData(params: {
         .filter((id): id is number => id != null)
     )
   );
-  const firstEverApptIdByCustomer = new Map<number, number>();
+  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  const customerEverJoined = new Set<number>();
   if (customerIdsInPeriod.length > 0) {
-    const { data: histRows } = await supabase
-      .from("appointments")
-      .select("id, customer_id, start_at")
-      .eq("shop_id", shopId)
-      .in("customer_id", customerIdsInPeriod)
-      .is("deleted_at", null)
-      .order("start_at", { ascending: true });
-    type HistRow = {
+    const [completedHistRes, plansRes, joinFlagApptsRes] = await Promise.all([
+      // 顧客の全期間 完了予約 → 各顧客の最古完了 id
+      supabase
+        .from("appointments")
+        .select("id, customer_id, start_at")
+        .eq("shop_id", shopId)
+        .eq("status", 2)
+        .in("customer_id", customerIdsInPeriod)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: true }),
+      // 顧客のライフタイム プラン購入有無
+      supabase
+        .from("customer_plans")
+        .select("customer_id")
+        .in("customer_id", customerIdsInPeriod)
+        .is("deleted_at", null),
+      // 顧客のライフタイム is_member_join=true 予約有無
+      supabase
+        .from("appointments")
+        .select("customer_id")
+        .eq("shop_id", shopId)
+        .eq("is_member_join", true)
+        .in("customer_id", customerIdsInPeriod)
+        .is("deleted_at", null),
+    ]);
+    for (const r of (completedHistRes.data ?? []) as Array<{
       id: number;
       customer_id: number;
       start_at: string;
-    };
-    for (const r of (histRows ?? []) as HistRow[]) {
-      if (!firstEverApptIdByCustomer.has(r.customer_id)) {
-        firstEverApptIdByCustomer.set(r.customer_id, r.id);
+    }>) {
+      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
+        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
       }
+    }
+    for (const r of (plansRes.data ?? []) as Array<{ customer_id: number }>) {
+      customerEverJoined.add(r.customer_id);
+    }
+    for (const r of (joinFlagApptsRes.data ?? []) as Array<{
+      customer_id: number;
+    }>) {
+      customerEverJoined.add(r.customer_id);
     }
   }
 
@@ -312,14 +340,16 @@ export async function getMarketingData(params: {
     is_member_join: boolean | null;
     visit_count: number | null;
   }>) {
-    // 真の新規判定: この予約 id が「顧客の全期間で最古の予約 id」と
-    // 一致するときのみ集計に乗せる。キャンセル含む全レコードから最古を
-    // 選んでいるので、「初回がキャンセルだった顧客」も新規 1 件として
-    // 反映される (spec 通り)。
+    // 新規 attribution: この予約 id が「顧客の人生最古の status=2 予約 id」
+    // と一致するときのみ集計に乗せる。
     //   - customer_id 無しの予約 (slot block 等) は除外
     //   - 期間外の予約は SELECT 段で除外済
+    //   - これにより 1 顧客 = 1 新規 (= 1 実来院 = 1 予約) として固定される
+    //   - 入会判定は予約自身の is_member_join ではなく、顧客ライフタイム
+    //     ベース (customerEverJoined Set) を見る
     if (a.customer_id == null) continue;
-    if (firstEverApptIdByCustomer.get(a.customer_id) !== a.id) continue;
+    if (firstCompletedApptIdByCustomer.get(a.customer_id) !== a.id) continue;
+
     const ym = appointmentYearMonth(a.start_at);
     const mb = monthBuckets.get(ym) ?? (() => {
       const b = emptyTotals();
@@ -334,59 +364,107 @@ export async function getMarketingData(params: {
       sourceBuckets.set(sid, sb);
     }
 
-    const isCancel = a.status === 3 || a.status === 4 || a.status === 99;
-    const isVisit = a.status === 1 || a.status === 2;
-    const isComplete = a.status === 2;
-
+    // 最古完了予約は status=2 確定なので、予約数 = 実来院 = 1 で揃う。
+    // cancelCount / pendingCount は新規顧客の attribution からは
+    // 構造的に発生しない (キャンセルされた予約は最古完了にならない)。
     totals.reservationCount += 1;
     mb.reservationCount += 1;
     sb.reservationCount += 1;
 
-    if (isCancel) {
-      totals.cancelCount += 1;
-      mb.cancelCount += 1;
-      sb.cancelCount += 1;
-      // 内訳ごとに分けて、UI 側でホバー時に「キャンセル X / 当日 Y / no-show Z」
-      // として検証できるようにする。
-      if (a.status === 3) {
-        totals.cancelStandard += 1;
-        mb.cancelStandard += 1;
-        sb.cancelStandard += 1;
-      } else if (a.status === 4) {
-        totals.cancelSameDay += 1;
-        mb.cancelSameDay += 1;
-        sb.cancelSameDay += 1;
-      } else if (a.status === 99) {
-        totals.noShow += 1;
-        mb.noShow += 1;
-        sb.noShow += 1;
-      }
-    } else if (a.status === 0) {
-      // 待機 (これから来店予定 / 未処理 = 集計実行前) を残す。
-      // 33 - 15 - 3 = 15 のような「埋まらない数字」を即座に説明できる。
-      totals.pendingCount += 1;
-      mb.pendingCount += 1;
-      sb.pendingCount += 1;
-    }
-    if (isVisit) {
-      totals.visitCount += 1;
-      mb.visitCount += 1;
-      sb.visitCount += 1;
-    }
-    if (isComplete && a.sales) {
+    totals.visitCount += 1;
+    mb.visitCount += 1;
+    sb.visitCount += 1;
+
+    if (a.sales) {
       totals.sales += a.sales;
       mb.sales += a.sales;
       sb.sales += a.sales;
     }
-    if (isComplete && a.consumed_amount) {
+    if (a.consumed_amount) {
       totals.consumedSales += a.consumed_amount;
       mb.consumedSales += a.consumed_amount;
       sb.consumedSales += a.consumed_amount;
     }
-    if (a.is_member_join) {
+
+    // 入会/購入はライフタイム判定 (バックアタッチ):
+    //   この新規顧客が「いつかの時点で」入会または プラン購入していれば
+    //   最古完了予約の月 / 媒体バケットに 1 加算される。
+    if (customerEverJoined.has(a.customer_id)) {
       totals.joinCount += 1;
       mb.joinCount += 1;
       sb.joinCount += 1;
+    }
+  }
+
+  // 1.5. キャンセル / 待機は「期間内の新規顧客の attempts」を母集団として
+  //      数える。具体的には、新規 attribution で確定した顧客 (= 期間内に
+  //      最古完了予約がある顧客) の期間内予約のうち、キャンセル / 待機
+  //      ステータスのものを cancelCount / pendingCount に加算する。
+  //      これで「新規顧客がトライしたが完了に至らなかった件数」として
+  //      cancelRate (= cancelCount / reservationCount) が意味を持つ。
+  //      バケット (byMonth / bySource) には予約日 / 媒体ベースで分配。
+  const newCustomerIdsInPeriod = new Set<number>();
+  for (const a of appointments as Array<{
+    id: number;
+    customer_id: number | null;
+  }>) {
+    if (a.customer_id == null) continue;
+    if (firstCompletedApptIdByCustomer.get(a.customer_id) === a.id) {
+      newCustomerIdsInPeriod.add(a.customer_id);
+    }
+  }
+  for (const a of appointments as Array<{
+    customer_id: number | null;
+    status: number;
+    start_at: string;
+    visit_source_id: number | null;
+  }>) {
+    if (a.customer_id == null) continue;
+    if (!newCustomerIdsInPeriod.has(a.customer_id)) continue;
+    const isCancel = a.status === 3 || a.status === 4 || a.status === 99;
+    const isPending = a.status === 0;
+    if (!isCancel && !isPending) continue;
+
+    const ym = appointmentYearMonth(a.start_at);
+    const mb = monthBuckets.get(ym) ?? (() => {
+      const b = emptyTotals();
+      monthBuckets.set(ym, b);
+      return b;
+    })();
+    const sid = a.visit_source_id ?? 0;
+    let sb = sourceBuckets.get(sid);
+    if (!sb) {
+      sb = emptyTotals();
+      sourceBuckets.set(sid, sb);
+    }
+
+    // reservationCount にも乗せる: 新規顧客が期間内に attempt した予約は
+    // 完了/キャンセル/待機いずれも 1 件としてカウントしたいので。
+    totals.reservationCount += 1;
+    mb.reservationCount += 1;
+    sb.reservationCount += 1;
+
+    if (isPending) {
+      totals.pendingCount += 1;
+      mb.pendingCount += 1;
+      sb.pendingCount += 1;
+      continue;
+    }
+    totals.cancelCount += 1;
+    mb.cancelCount += 1;
+    sb.cancelCount += 1;
+    if (a.status === 3) {
+      totals.cancelStandard += 1;
+      mb.cancelStandard += 1;
+      sb.cancelStandard += 1;
+    } else if (a.status === 4) {
+      totals.cancelSameDay += 1;
+      mb.cancelSameDay += 1;
+      sb.cancelSameDay += 1;
+    } else if (a.status === 99) {
+      totals.noShow += 1;
+      mb.noShow += 1;
+      sb.noShow += 1;
     }
   }
 

@@ -10,7 +10,11 @@ import { toLocalDateString } from "@/helper/utils/time";
  * 来店記録を 1 ページで見せるためのデータを返す。attribution rule は
  * "初回来店月"。2 回目以降の来店が翌月でも、初回来店月の行に合算する。
  *
- * 新規客 = appointments.visit_count = 1 (reservationActions でスタンプ)
+ * 新規客 = 顧客の人生最古の status=2 (完了) 予約が当月にある顧客
+ *         (visit_count スタンプには依存しない。マーケティング概要 /
+ *          売上 / 経営指標 と統一)
+ * 入会判定 = ライフタイムで customer_plans 購入済み OR 任意の予約で
+ *           is_member_join=true → "入会済み"
  */
 
 const MAX_VISIT_COLUMNS = 20;
@@ -160,27 +164,55 @@ export async function getNewCustomerAnalytics(params: {
   const nextM = m === 12 ? 1 : m + 1;
   const endTsExclusive = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00+09:00`;
 
-  // 1. 当月の初回来店 appointments。
-  //    status = 2 (完了) のみ対象。待機 (status=0) / 施術中 (status=1) /
-  //    キャンセル系 (3/4/99) は新規顧客の確定来店ではないので、ここで
-  //    弾くことで「予約は入ったが来店前 / キャンセル」の顧客が
-  //    新規管理タブに 離反扱いで出てくるのを防ぐ。
-  //    運用フロー: 予約表で 完了 (= 集計実行 前にお会計確定) された
-  //    タイミングで初めて当タブに反映される。
-  const firstVisitRes = await supabase
+  // 1. 当月の初回完了来店を取る。
+  //    まず当月の status=2 完了予約を全取得し、その中から「顧客の人生
+  //    最古 status=2 予約」と一致するものだけを残す。これで visit_count
+  //    のスタンプに依存せず、真の新規顧客の初回完了予約を確定できる。
+  //    キャンセル / 待機 / 施術中は新規確定には使わない (UI 上「離反扱い
+  //    で出る」のを防ぐため)。
+  const completedInMonthRes = await supabase
     .from("appointments")
     .select(
       "id, customer_id, staff_id, visit_source_id, menu_manage_id, start_at, status, sales, is_member_join, visit_count"
     )
     .eq("shop_id", shopId)
-    .eq("visit_count", 1)
     .eq("status", 2)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null)
     .order("start_at", { ascending: true });
 
-  const firstVisits = (firstVisitRes.data ?? []) as ApptRow[];
+  const completedInMonth = (completedInMonthRes.data ?? []) as ApptRow[];
+
+  // 顧客の人生最古 status=2 予約 id を求めるためのヒストリ。
+  const candidateCustomerIds = Array.from(
+    new Set(completedInMonth.map((a) => a.customer_id))
+  );
+  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  if (candidateCustomerIds.length > 0) {
+    const { data: histRows } = await supabase
+      .from("appointments")
+      .select("id, customer_id, start_at")
+      .eq("shop_id", shopId)
+      .eq("status", 2)
+      .in("customer_id", candidateCustomerIds)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: true });
+    for (const r of (histRows ?? []) as Array<{
+      id: number;
+      customer_id: number;
+      start_at: string;
+    }>) {
+      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
+        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
+      }
+    }
+  }
+
+  // 「真の新規 (= 顧客の人生最古完了予約) が当月にある」ものだけ残す。
+  const firstVisits: ApptRow[] = completedInMonth.filter(
+    (a) => firstCompletedApptIdByCustomer.get(a.customer_id) === a.id
+  );
 
   if (firstVisits.length === 0) {
     // 何もない月でも 既存売上 だけは出したいので続行する。
@@ -377,11 +409,15 @@ export async function getNewCustomerAnalytics(params: {
   // を採用する。customer_plans 起因でない「入会フラグのみ (従来)」は
   // このマップに入らないので、別ロジックでフォールバック markerする。
   const planTypeByApptId = new Map<number, "ticket" | "subscription">();
+  // ライフタイム入会判定: customer_plans (ticket/subscription) を 1 つでも
+  // 持っていれば入会済み扱い。is_member_join=true な予約は別途下で OR を取る。
+  const customerHasPlan = new Set<number>();
   for (const p of (plansRes.data ?? []) as Array<{
     customer_id: number;
     plan_type: string | null;
     purchased_appointment_id: number | null;
   }>) {
+    customerHasPlan.add(p.customer_id);
     if (!p.purchased_appointment_id) continue;
     if (p.plan_type !== "ticket" && p.plan_type !== "subscription") continue;
     if (!planTypeByApptId.has(p.purchased_appointment_id)) {
@@ -413,6 +449,10 @@ export async function getNewCustomerAnalytics(params: {
       joinAppt && joinAppt.menu_manage_id
         ? (planMenuMap.get(joinAppt.menu_manage_id) ?? null)
         : null;
+    // ライフタイム入会判定: is_member_join 予約 OR customer_plans 購入の
+    // どちらかが立っていれば入会済み。
+    const isMemberJoin =
+      !!joinAppt || customerHasPlan.has(first.customer_id);
 
     // 離反: 未来 (start_at > now) かつ status ∈ {0, 1} の appointment が 1 件もない。
     const hasFuture = appts.some(
@@ -456,7 +496,7 @@ export async function getNewCustomerAnalytics(params: {
           ? (sourceMap.get(first.visit_source_id) ?? null)
           : null,
       planName,
-      isMemberJoin: !!joinAppt,
+      isMemberJoin,
       isChurned: !hasFuture,
       hasGoogleReview: customer?.hasGoogleReview ?? false,
       hasHotpepperReview: customer?.hasHotpepperReview ?? false,
