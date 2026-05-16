@@ -75,6 +75,38 @@ export async function sendLineMessage(
       ? `${input.text.slice(0, 4990)}...(以下省略)`
       : input.text;
 
+  // ---- グローバルキルスイッチ -------------------------------------------
+  // 本番で誤送信が観測された場合の最終防衛線。Vercel env で
+  // LINE_SEND_DISABLED=true を投入し再デプロイすると、全 LINE 送信が即時停止。
+  // 戻り値は success=true なので reminder_logs / sendBookingLineNotice の
+  // 呼び出し側ロジックは「送信済み」として扱い、env 削除後の再送は起きない
+  // (= 一旦止めたら止めっぱなしという思想)。
+  if (process.env.LINE_SEND_DISABLED === "true") {
+    console.log(
+      `[sendLineMessage] LINE_SEND_DISABLED=true。${input.to.slice(0, 8)}... への送信をスキップ`
+    );
+    if (input.audit) {
+      try {
+        await input.audit.supabase.from("line_messages").insert({
+          shop_id: input.audit.shopId,
+          customer_id: input.audit.customerId ?? null,
+          line_user_id: input.to,
+          direction: "outbound",
+          message_type: "text",
+          text,
+          source: input.audit.source,
+          sent_by_user_id: input.audit.sentByUserId ?? null,
+          delivery_status: "skipped",
+          error_message: "LINE_SEND_DISABLED",
+        });
+      } catch (e) {
+        console.error("[sendLineMessage] kill-switch audit failed", e);
+      }
+    }
+    return { success: true };
+  }
+  // ----------------------------------------------------------------------
+
   // ---- テスト用キルスイッチ ---------------------------------------------
   // LINE_TEST_USER_ID 環境変数が設定されている時は「ホワイトリストモード」
   // になり、その userId 以外への LINE 送信を完全にスキップする。

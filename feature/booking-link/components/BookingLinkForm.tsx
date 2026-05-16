@@ -97,6 +97,9 @@ export function BookingLinkForm({
   const [immediateEmailTemplate, setImmediateEmailTemplate] = useState<string>(
     initialData?.immediate_email_template ?? ""
   );
+  const [isMandatoryLine, setIsMandatoryLine] = useState<boolean>(
+    initialData?.is_mandatory_line ?? false
+  );
   const [reminderSettings, setReminderSettings] = useState<
     import("../types").ReminderSetting[]
   >(initialData?.reminder_settings ?? []);
@@ -162,6 +165,7 @@ export function BookingLinkForm({
     );
     form.set("immediate_email_subject", immediateEmailSubject);
     form.set("immediate_email_template", immediateEmailTemplate);
+    form.set("is_mandatory_line", isMandatoryLine ? "true" : "false");
     form.set("reminder_settings", JSON.stringify(reminderSettings));
 
     const result = isEdit
@@ -605,12 +609,43 @@ export function BookingLinkForm({
         </CardContent>
       </Card>
 
+      {/* 強制リンク (LINE リマインド対象) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">強制リンク (LINE リマインド対象)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            ON にすると、このリンク経由の <strong>初回予約 (新規)</strong> で
+            LINE 友だち追加 (LIFF) を行った顧客にのみ、下記のリマインド設定が
+            送信されます。OFF のリンク経由の予約には自動 LINE リマインドは
+            一切送信されません (誤送信防止のセーフガード)。
+          </p>
+          <label className="flex items-center gap-2">
+            <Switch
+              checked={isMandatoryLine}
+              onCheckedChange={setIsMandatoryLine}
+            />
+            <span className="text-sm">
+              {isMandatoryLine ? "強制リンクとして運用" : "通常リンク (LINE リマインド対象外)"}
+            </span>
+          </label>
+        </CardContent>
+      </Card>
+
       {/* Reminder settings */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">リマインド設定</CardTitle>
         </CardHeader>
         <CardContent>
+          {!isMandatoryLine && (
+            <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+              ⚠️ このリンクは「強制リンク」OFF のため、下記のリマインド設定を
+              入力しても自動送信されません。LINE リマインドを送りたい場合は
+              上のトグルを ON にしてください。
+            </p>
+          )}
           <ReminderSettingsSection
             value={reminderSettings}
             onChange={setReminderSettings}

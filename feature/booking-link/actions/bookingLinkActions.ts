@@ -39,6 +39,7 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
         : raw.immediate_email_enabled === "true",
     immediate_email_subject: raw.immediate_email_subject || null,
     immediate_email_template: raw.immediate_email_template || null,
+    is_mandatory_line: raw.is_mandatory_line === "true",
     reminder_settings: raw.reminder_settings
       ? JSON.parse(String(raw.reminder_settings))
       : [],
@@ -62,6 +63,10 @@ function isMissingImmediateEmailColumn(msg: string): boolean {
   return msg.includes("immediate_email_") && msg.includes("column");
 }
 
+function isMissingMandatoryLineColumn(msg: string): boolean {
+  return msg.includes("is_mandatory_line") && msg.includes("column");
+}
+
 function isMissingPublicNoticeColumn(msg: string): boolean {
   // Supabase / PostgREST は "Could not find the 'public_notice' column of
   // 'booking_links' in the schema cache" や "column booking_links.public_notice
@@ -76,6 +81,7 @@ function stripMigrationOnlyColumns(data: Record<string, unknown>): void {
   delete data.immediate_email_subject;
   delete data.immediate_email_template;
   delete data.public_notice;
+  delete data.is_mandatory_line;
 }
 
 /**
@@ -132,7 +138,8 @@ export async function createBookingLink(formData: FormData) {
       error &&
       (isMissingTagTemplateColumn(error.message ?? "") ||
         isMissingImmediateEmailColumn(error.message ?? "") ||
-        isMissingPublicNoticeColumn(error.message ?? ""))
+        isMissingPublicNoticeColumn(error.message ?? "") ||
+        isMissingMandatoryLineColumn(error.message ?? ""))
     ) {
       // 空でない列を黙って捨てないよう事前チェック。
       const dropMsg = detectSilentlyDroppedFields(
@@ -577,16 +584,19 @@ export async function submitPublicBooking(formData: FormData) {
     console.error("[submitPublicBooking] 確認メール送信失敗", e);
   }
 
-  // 5. LINE 連携済顧客には確認 + 問診票案内を LINE でも送る。
-  //    初回予約時は line_user_id は未設定なので sendBookingLineNotice は
-  //    skip される。再来予約の場合のみ LINE が飛ぶ。
-  try {
-    const { sendBookingLineNotice } = await import(
-      "@/feature/line-chat/services/sendBookingLineNotice"
-    );
-    await sendBookingLineNotice(apptInsert.data.id as number);
-  } catch (e) {
-    console.error("[submitPublicBooking] LINE 通知失敗", e);
+  // 5. 予約確定通知 LINE 送信 (旧仕様)。誤送信防止のため、本仕様 (00048)
+  //    では **AUTO_LINE_NOTICES=true** が env に明示設定されているときだけ
+  //    送る。デフォルト OFF。LINE リマインドは cron 経由の 1 通 (強制リンク
+  //    + 初回 + 紐付け済み) のみが自動送信されることを保証する。
+  if (process.env.AUTO_LINE_NOTICES === "true") {
+    try {
+      const { sendBookingLineNotice } = await import(
+        "@/feature/line-chat/services/sendBookingLineNotice"
+      );
+      await sendBookingLineNotice(apptInsert.data.id as number);
+    } catch (e) {
+      console.error("[submitPublicBooking] LINE 通知失敗", e);
+    }
   }
 
   // 顧客の LINE 紐付け用トークンを取得 (新規作成時 / 既存顧客でも)

@@ -36,6 +36,9 @@ function normalizeLink(row: Record<string, unknown>): BookingLink {
   if (!("immediate_email_enabled" in r)) r.immediate_email_enabled = true;
   if (!("immediate_email_subject" in r)) r.immediate_email_subject = null;
   if (!("immediate_email_template" in r)) r.immediate_email_template = null;
+  // Pre-migration rows (before 00048): default 強制リンクフラグ OFF so cron
+  // リマインドの対象から外す (= 既存運用へ影響を与えない)。
+  if (!("is_mandatory_line" in r)) r.is_mandatory_line = false;
   return r as unknown as BookingLink;
 }
 
