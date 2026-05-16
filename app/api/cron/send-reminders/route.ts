@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/helper/lib/supabase/server";
+import { createAdminClient } from "@/helper/lib/supabase/admin";
 import { sendLineMessage } from "@/helper/lib/line/sendLineMessage";
 import { toLocalDateString } from "@/helper/utils/time";
 import type { ReminderSetting } from "@/feature/booking-link/types";
@@ -101,7 +101,9 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const supabase = await createClient();
+  // cron は信頼されたサーバ処理。anon クライアントだと RLS で
+  // reminder_logs への書き込みが 401 になるため service-role を使う。
+  const supabase = createAdminClient();
 
   // 1. 強制リンク (is_mandatory_line=true) で enabled な LINE reminder_settings
   //    を含む booking_links を取得。
