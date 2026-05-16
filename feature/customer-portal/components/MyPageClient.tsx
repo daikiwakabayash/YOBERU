@@ -38,16 +38,20 @@ const STATUS_LABEL: Record<number, string> = {
   99: "no-show",
 };
 
+const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+// start_at は「JST 壁時計」を表す文字列 (YYYY-MM-DDTHH:MM:00…)。アプリ全体
+// (予約表 ReservationDetail / リマインド cron 等) が文字列スライス前提で
+// 扱う規約のため、ここも new Date()+toLocaleString による TZ 変換はしない。
+// TIMESTAMPTZ には壁時計が UTC として入っているので、変換すると +9h ずれる。
 function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    month: "numeric",
-    day: "numeric",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const y = Number(iso.slice(0, 4));
+  const mo = Number(iso.slice(5, 7));
+  const d = Number(iso.slice(8, 10));
+  const hh = iso.slice(11, 13);
+  const mi = iso.slice(14, 16);
+  const w = WEEKDAY_JA[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()];
+  return `${mo}/${d}(${w}) ${hh}:${mi}`;
 }
 
 export function MyPageClient() {
