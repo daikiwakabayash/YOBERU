@@ -50,7 +50,7 @@ export function MarketingMenuBreakdown({ menus }: MarketingMenuBreakdownProps) {
                 <th className="px-3 py-2 text-right font-medium">予約数</th>
                 <th className="px-3 py-2 text-right font-medium">実施数</th>
                 <th className="px-3 py-2 text-right font-medium">入会</th>
-                <th className="px-3 py-2 text-right font-medium">C数</th>
+                <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
                 <th className="px-3 py-2 text-right font-medium">平均単価</th>
                 <th className="px-3 py-2 text-right font-medium">売上</th>
                 <th className="px-3 py-2 text-right font-medium">構成比</th>

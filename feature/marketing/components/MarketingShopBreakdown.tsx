@@ -69,7 +69,7 @@ export function MarketingShopBreakdown({
                 <th className="px-3 py-2 text-right font-medium">実来院</th>
                 <th className="px-3 py-2 text-right font-medium">入会</th>
                 <th className="px-3 py-2 text-right font-medium">入会率</th>
-                <th className="px-3 py-2 text-right font-medium">C率</th>
+                <th className="px-3 py-2 text-right font-medium">キャンセル率</th>
                 <th className="px-3 py-2 text-right font-medium">広告費</th>
                 <th className="px-3 py-2 text-right font-medium">CPA</th>
                 <th className="px-3 py-2 text-right font-medium">売上</th>
