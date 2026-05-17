@@ -21,6 +21,15 @@ export interface MarketingTotals {
   visitCount: number;
   /** 残り新規 = 新規 - 実来院 - キャンセル (まだ来店も取消もしていない予約) */
   remainingCount: number;
+  /**
+   * 残2クロ = 当月新規 (人生最古予約が当月) のうち、
+   *   1) 会員/回数券などのチケット未購入 (= 入会フラグも customer_plans もない)
+   *   2) 2 回目の予約が入っている (非キャンセル)
+   *   3) その 2 回目の予約日が未経過 (= 未来日付)
+   * を満たす人数。「次回来店時にチケットを購入するかどうかを決める予定の人」
+   * = クロージング機会の可視化用 KPI。
+   */
+  pendingSecondClose: number;
   /** 後方互換: firstApptCount と同値。reservationCount を参照する古いコード用。 */
   reservationCount: number;
   joinCount: number;         // 入会数
@@ -78,6 +87,7 @@ function emptyTotals(): MarketingTotals {
     firstApptCount: 0,
     visitCount: 0,
     remainingCount: 0,
+    pendingSecondClose: 0,
     reservationCount: 0,
     joinCount: 0,
     cancelCount: 0,
@@ -304,6 +314,14 @@ export async function getMarketingData(params: {
   // 「3 回目来店までを新規売上に含める」運用に合わせる (経営指標 /
   // 売上 ダッシュボードと統一)。
   const firstThreeCompletedApptIds = new Map<number, Set<number>>();
+  // 顧客 → 全期間の予約 (status 含む) 昇順リスト。
+  // 残2クロ判定 (= 2 回目予約が未来か) で使う。
+  type ApptHistRow = {
+    id: number;
+    status: number;
+    start_at: string;
+  };
+  const apptsByCustomer = new Map<number, ApptHistRow[]>();
   if (customerIdsInPeriod.length > 0) {
     const [histRes, plansRes, joinFlagApptsRes, customersRes] =
       await Promise.all([
@@ -377,6 +395,10 @@ export async function getMarketingData(params: {
           firstThreeCompletedApptIds.set(r.customer_id, set);
         }
       }
+      // 全予約 (status 関係なく) を顧客別リストに積む
+      const arr = apptsByCustomer.get(r.customer_id) ?? [];
+      arr.push({ id: r.id, status: r.status, start_at: r.start_at });
+      apptsByCustomer.set(r.customer_id, arr);
     }
     for (const r of (plansRes.data ?? []) as Array<{ customer_id: number }>) {
       customerEverJoined.add(r.customer_id);
@@ -401,6 +423,9 @@ export async function getMarketingData(params: {
   const sourceBuckets = new Map<number, MarketingTotals>();
 
   const totals = emptyTotals();
+
+  // 残2クロ判定で「2 回目の予約が未来か」を見るための現在時刻 (ISO 文字列)。
+  const nowIso = new Date().toISOString();
 
   // メイン集計ループ: 顧客の人生最古予約 1 件 = 新規 1 件として扱う。
   //   - 新規数: 当月に最古予約がある顧客 (1 カルテ = 1 count)
@@ -431,6 +456,22 @@ export async function getMarketingData(params: {
     totals.firstApptCount += 1;
     mb.firstApptCount += 1;
     sb.firstApptCount += 1;
+
+    // 残2クロ判定: チケット未購入かつ 2 回目の予約が未来日付の新規顧客。
+    // 「次回来店時にチケット買うかどうか決める予定の人」= クロージング機会。
+    if (!customerEverJoined.has(customerId)) {
+      const list = apptsByCustomer.get(customerId) ?? [];
+      // キャンセル系を除いた予定順 (start_at 昇順) で 2 番目を取る
+      const nonCancel = list.filter(
+        (a) => a.status !== 3 && a.status !== 4 && a.status !== 99
+      );
+      const second = nonCancel[1];
+      if (second && second.start_at > nowIso) {
+        totals.pendingSecondClose += 1;
+        mb.pendingSecondClose += 1;
+        sb.pendingSecondClose += 1;
+      }
+    }
 
     // 最古予約の status で 実来院 / キャンセル / 残り新規 を振り分け
     const status = first.status;

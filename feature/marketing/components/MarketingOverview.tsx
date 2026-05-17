@@ -181,6 +181,7 @@ export function MarketingOverview({
                 <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル率</th>
                 <th className="px-3 py-2 text-right font-medium">残新規</th>
+                <th className="px-3 py-2 text-right font-medium">残2クロ</th>
                 <th className="px-3 py-2 text-right font-medium">広告費</th>
                 <th className="px-3 py-2 text-right font-medium">CPA</th>
                 <th className="px-3 py-2 text-right font-medium">売上</th>
@@ -191,7 +192,7 @@ export function MarketingOverview({
               {data.byMonth.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={13}
                     className="py-6 text-center text-muted-foreground"
                   >
                     期間内のデータがありません
@@ -229,6 +230,12 @@ export function MarketingOverview({
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {num(m.remainingCount)}
+                    </td>
+                    <td
+                      className="px-3 py-2 text-right text-amber-700"
+                      title="チケット未購入かつ 2 回目予約が未来の人数 (クロージング機会)"
+                    >
+                      {num(m.pendingSecondClose)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {yen(m.adSpend)}
@@ -275,6 +282,7 @@ export function MarketingOverview({
                 <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル率</th>
                 <th className="px-3 py-2 text-right font-medium">残新規</th>
+                <th className="px-3 py-2 text-right font-medium">残2クロ</th>
                 <th className="px-3 py-2 text-right font-medium">広告費</th>
                 <th className="px-3 py-2 text-right font-medium">CPA</th>
                 <th className="px-3 py-2 text-right font-medium">売上</th>
@@ -292,7 +300,7 @@ export function MarketingOverview({
                   return (
                     <tr>
                       <td
-                        colSpan={12}
+                        colSpan={13}
                         className="py-6 text-center text-muted-foreground"
                       >
                         媒体データがありません
@@ -331,6 +339,12 @@ export function MarketingOverview({
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {num(s.remainingCount)}
+                    </td>
+                    <td
+                      className="px-3 py-2 text-right text-amber-700"
+                      title="チケット未購入かつ 2 回目予約が未来の人数 (クロージング機会)"
+                    >
+                      {num(s.pendingSecondClose)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {yen(s.adSpend)}
