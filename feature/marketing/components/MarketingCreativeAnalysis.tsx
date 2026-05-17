@@ -1,30 +1,122 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import type {
   CreativeBucket,
   CreativeAnalysisData,
 } from "../services/getCreativeAnalysis";
 import { yen, pct, num } from "./format";
-import { Sparkles } from "lucide-react";
+import { Sparkles, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
 interface MarketingCreativeAnalysisProps {
   data: CreativeAnalysisData;
 }
 
+type SortKey =
+  | "shopName"
+  | "visitSourceName"
+  | "symptomName"
+  | "offerPrice"
+  | "reservationCount"
+  | "visitCount"
+  | "joinCount"
+  | "joinRate"
+  | "cancelRate"
+  | "adSpend"
+  | "cpa"
+  | "sales"
+  | "roas";
+
+type SortDir = "asc" | "desc";
+
+interface ColumnDef {
+  key: SortKey;
+  label: string;
+  align: "left" | "right";
+}
+
+const COLUMNS: ColumnDef[] = [
+  { key: "shopName", label: "店舗", align: "left" },
+  { key: "visitSourceName", label: "媒体", align: "left" },
+  { key: "symptomName", label: "症状", align: "left" },
+  { key: "offerPrice", label: "オファー", align: "right" },
+  { key: "reservationCount", label: "予約数", align: "right" },
+  { key: "visitCount", label: "実来院", align: "right" },
+  { key: "joinCount", label: "入会数", align: "right" },
+  { key: "joinRate", label: "入会率", align: "right" },
+  { key: "cancelRate", label: "キャンセル率", align: "right" },
+  { key: "adSpend", label: "広告費", align: "right" },
+  { key: "cpa", label: "CPA", align: "right" },
+  { key: "sales", label: "売上", align: "right" },
+  { key: "roas", label: "ROAS", align: "right" },
+];
+
+function valueOf(row: CreativeBucket, key: SortKey): number | string | null {
+  switch (key) {
+    case "shopName":
+      return row.shopName;
+    case "visitSourceName":
+      return row.visitSourceName;
+    case "symptomName":
+      return row.symptomName ?? row.symptom;
+    default:
+      return row[key];
+  }
+}
+
+function compareValues(
+  a: number | string | null,
+  b: number | string | null
+): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1; // null は常に末尾
+  if (b == null) return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), "ja");
+}
+
 /**
  * クリエイティブ分析タブ:
- *   行 = (症状 × オファー価格 × 店舗) ピボット
+ *   行 = (店舗 × 媒体 × 症状 × オファー価格) ピボット
  *   列 = 予約数 / 実来院 / 入会数 / 入会率 / キャンセル率 / 広告費 / CPA / 売上 / ROAS
  *
- * 同じ (症状, オファー価格, 店舗) に複数の強制リンクが紐付いている場合
+ * 同じ (店舗, 媒体, 症状, オファー価格) に複数の強制リンクが紐付いている場合
  * (= A/B テスト用のクリエイティブが複数) は 1 行に合算する。
  * 内訳リンクは bookingLinkTitles のツールチップで確認できる。
+ *
+ * 全列クリックで昇降順切替 (初回降順、再クリックで昇順、もう一度で降順)。
  */
 export function MarketingCreativeAnalysis({
   data,
 }: MarketingCreativeAnalysisProps) {
   const { rows, totals } = data;
+  const [sortKey, setSortKey] = useState<SortKey>("sales");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // 文字列列は asc から、数値列は desc から (見たい順)
+      const isText =
+        key === "shopName" ||
+        key === "visitSourceName" ||
+        key === "symptomName";
+      setSortDir(isText ? "asc" : "desc");
+    }
+  }
+
+  const sortedRows = useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      const cmp = compareValues(valueOf(a, sortKey), valueOf(b, sortKey));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [rows, sortKey, sortDir]);
+
   return (
     <div className="space-y-4">
       {/* Totals strip */}
@@ -51,45 +143,64 @@ export function MarketingCreativeAnalysis({
         <div className="flex items-center gap-2 border-b bg-gradient-to-r from-fuchsia-50/40 to-orange-50/40 px-5 py-3">
           <Sparkles className="h-4 w-4 text-fuchsia-500" />
           <div className="text-sm font-bold text-gray-900">
-            クリエイティブ別内訳 (症状 × オファー価格 × 店舗)
+            クリエイティブ別内訳 (店舗 × 媒体 × 症状 × オファー価格)
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-xs text-gray-500">
               <tr>
-                <th className="px-3 py-2 text-left font-medium">店舗</th>
-                <th className="px-3 py-2 text-left font-medium">症状</th>
-                <th className="px-3 py-2 text-right font-medium">オファー</th>
-                <th className="px-3 py-2 text-right font-medium">予約数</th>
-                <th className="px-3 py-2 text-right font-medium">実来院</th>
-                <th className="px-3 py-2 text-right font-medium">入会数</th>
-                <th className="px-3 py-2 text-right font-medium">入会率</th>
-                <th className="px-3 py-2 text-right font-medium">キャンセル率</th>
-                <th className="px-3 py-2 text-right font-medium">広告費</th>
-                <th className="px-3 py-2 text-right font-medium">CPA</th>
-                <th className="px-3 py-2 text-right font-medium">売上</th>
-                <th className="px-3 py-2 text-right font-medium">ROAS</th>
+                {COLUMNS.map((col) => {
+                  const isActive = col.key === sortKey;
+                  const Icon = isActive
+                    ? sortDir === "asc"
+                      ? ArrowUp
+                      : ArrowDown
+                    : ArrowUpDown;
+                  return (
+                    <th
+                      key={col.key}
+                      className={`px-3 py-2 font-medium ${
+                        col.align === "left" ? "text-left" : "text-right"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(col.key)}
+                        className={`inline-flex items-center gap-1 hover:text-gray-900 ${
+                          col.align === "right" ? "ml-auto" : ""
+                        } ${isActive ? "text-gray-900" : ""}`}
+                      >
+                        <span>{col.label}</span>
+                        <Icon
+                          className={`h-3 w-3 ${
+                            isActive ? "opacity-100" : "opacity-30"
+                          }`}
+                        />
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {rows.length === 0 ? (
+              {sortedRows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={COLUMNS.length}
                     className="py-10 text-center text-muted-foreground"
                   >
                     対象クリエイティブがありません。強制リンクに「症状」「オファー価格」を入力するとここに表示されます。
                   </td>
                 </tr>
               ) : (
-                rows.map((r) => <Row key={r.key} row={r} />)
+                sortedRows.map((r) => <Row key={r.key} row={r} />)
               )}
             </tbody>
-            {rows.length > 0 && (
+            {sortedRows.length > 0 && (
               <tfoot className="bg-orange-50/50 font-semibold">
                 <tr>
-                  <td className="px-3 py-2 text-left" colSpan={3}>合計</td>
+                  <td className="px-3 py-2 text-left" colSpan={4}>合計</td>
                   <td className="px-3 py-2 text-right">{num(totals.reservationCount)}</td>
                   <td className="px-3 py-2 text-right">{num(totals.visitCount)}</td>
                   <td className="px-3 py-2 text-right">{num(totals.joinCount)}</td>
@@ -116,6 +227,15 @@ function Row({ row }: { row: CreativeBucket }) {
   return (
     <tr className="hover:bg-orange-50/30">
       <td className="px-3 py-2 text-gray-700">{row.shopName ?? "(店舗未指定)"}</td>
+      <td className="px-3 py-2 text-gray-700">
+        {row.visitSourceName ? (
+          <span className="inline-flex items-center rounded-md bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
+            {row.visitSourceName}
+          </span>
+        ) : (
+          <span className="text-gray-300">—</span>
+        )}
+      </td>
       <td className="px-3 py-2">
         {row.symptom ? (
           <span className="inline-flex items-center rounded-md bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-700">
