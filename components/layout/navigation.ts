@@ -26,6 +26,7 @@ import {
   Gift,
   FileSignature,
   KeyRound,
+  FlaskConical,
   type LucideIcon,
 } from "lucide-react";
 
@@ -74,6 +75,7 @@ export const NAVIGATION: NavGroup[] = [
       { name: "設備", href: "/facility", icon: Grid3X3 },
       { name: "支払方法", href: "/payment-method", icon: CreditCard },
       { name: "来店経路", href: "/visit-source", icon: Megaphone },
+      { name: "症状マスター", href: "/creative-symptom", icon: FlaskConical },
       { name: "予約ブロック種別", href: "/slot-block-type", icon: CalendarX2 },
       { name: "問診票", href: "/questionnaire", icon: ClipboardList },
       { name: "広告費", href: "/ad-spend", icon: Wallet },
