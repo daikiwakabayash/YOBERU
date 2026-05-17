@@ -27,6 +27,13 @@ function translateError(msg: string): string {
       "supabase/migrations/00050_creative_analysis.sql を実行してください。"
     );
   }
+  if (msg.includes("row-level security") || msg.includes("row level security")) {
+    return (
+      "creative_symptoms テーブルの Row Level Security が有効です。" +
+      "Supabase の SQL Editor で次を実行してください: " +
+      "ALTER TABLE creative_symptoms DISABLE ROW LEVEL SECURITY;"
+    );
+  }
   if (msg.includes("permission denied")) {
     return "権限不足です。Supabase の RLS / GRANT 設定を確認してください。";
   }
