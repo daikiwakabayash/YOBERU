@@ -14,6 +14,8 @@ import { RetentionTab } from "@/feature/marketing/components/RetentionTab";
 import { getMetaAdsSummary } from "@/feature/meta-ads/services/getMetaAdsSummary";
 import { getMarketingData } from "@/feature/marketing/services/getMarketingData";
 import { getMarketingByShop } from "@/feature/marketing/services/getMarketingByShop";
+import { getCreativeAnalysis } from "@/feature/marketing/services/getCreativeAnalysis";
+import { MarketingCreativeAnalysis } from "@/feature/marketing/components/MarketingCreativeAnalysis";
 import { getNewCustomerAnalytics } from "@/feature/marketing/services/getNewCustomerAnalytics";
 import { getReceptionHistory } from "@/feature/marketing/services/getReceptionHistory";
 import { getRetentionData } from "@/feature/marketing/services/getRetentionData";
@@ -147,6 +149,20 @@ export default async function MarketingPage({
         staffId,
       });
       return <MarketingNewCustomer data={data} />;
+    }
+    if (tab === "creative") {
+      // クリエイティブ分析タブ: brand-wide で「症状 × オファー価格 × 店舗」
+      // ピボットを表示。?source / ?staff は現状無視 (将来 source-filter で
+      // クリエイティブ媒体を絞る等の拡張余地あり)。
+      // shopId は active shop で絞り、null 渡しでブランド全体表示する仕様も
+      // 検討余地あるが、UI 一貫性のため現状 active shop に揃える。
+      const data = await getCreativeAnalysis({
+        brandId,
+        startMonth,
+        endMonth,
+        shopId,
+      });
+      return <MarketingCreativeAnalysis data={data} />;
     }
     if (tab === "meta-ads" || tab === "meta-analysis") {
       // 期間を Asia/Tokyo の YYYY-MM-DD に揃える。startMonth は YYYY-MM

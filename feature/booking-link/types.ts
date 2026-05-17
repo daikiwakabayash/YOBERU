@@ -42,6 +42,12 @@ export interface BookingLink {
    */
   is_mandatory_line: boolean;
   reminder_settings: ReminderSetting[];
+  /** クリエイティブ分析用 (migration 00050)。NULL = 未指定。 */
+  symptom: string | null;
+  offer_price: number | null;
+  creative_memo: string | null;
+  /** 複製元の親リンク id。複製作成時にスタンプ。 */
+  parent_link_id: number | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;

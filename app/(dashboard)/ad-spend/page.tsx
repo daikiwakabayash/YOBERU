@@ -42,7 +42,7 @@ export default async function AdSpendPage() {
   const brandId = await getActiveBrandId();
 
   const supabase = await createClient();
-  const [adSpendResult, sourcesRes, shopRes] = await Promise.all([
+  const [adSpendResult, sourcesRes, shopRes, linksRes] = await Promise.all([
     getAdSpendRows(shopId),
     supabase
       .from("visit_sources")
@@ -52,6 +52,16 @@ export default async function AdSpendPage() {
       .order("sort_number", { ascending: true, nullsFirst: false })
       .order("id", { ascending: true }),
     supabase.from("shops").select("name").eq("id", shopId).maybeSingle(),
+    // 強制リンク (クリエイティブ単位入力に使う)。
+    // 現在の active shop に紐付いたもの (shop_id 一致 or shop_ids 含む) を抽出。
+    // shop_ids カラムが無い古いスキーマでも crashed しないよう deleted_at だけで絞り、
+    // クライアント側でフィルタする。
+    supabase
+      .from("booking_links")
+      .select("id, title, shop_id, shop_ids, visit_source_id, symptom, offer_price")
+      .eq("brand_id", brandId)
+      .is("deleted_at", null)
+      .order("id", { ascending: true }),
   ]);
 
   const visitSources = (sourcesRes.data ?? []).map((s) => ({
@@ -59,6 +69,31 @@ export default async function AdSpendPage() {
     name: s.name as string,
   }));
   const shopName = (shopRes.data?.name as string | null) ?? null;
+
+  type LinkLite = {
+    id: number;
+    title: string;
+    shop_id: number | null;
+    shop_ids?: number[] | null;
+    visit_source_id: number | null;
+    symptom: string | null;
+    offer_price: number | null;
+  };
+  const allLinks = (linksRes.data ?? []) as LinkLite[];
+  const bookingLinks = allLinks
+    .filter((l) => {
+      const ids = Array.isArray(l.shop_ids) ? l.shop_ids : [];
+      if (ids.length > 0) return ids.includes(shopId);
+      // 旧形式 (shop_id 単一 or NULL) — NULL は全店舗扱い
+      return l.shop_id == null || l.shop_id === shopId;
+    })
+    .map((l) => ({
+      id: l.id,
+      title: l.title,
+      visit_source_id: l.visit_source_id,
+      symptom: l.symptom,
+      offer_price: l.offer_price,
+    }));
 
   return (
     <div>
@@ -101,6 +136,7 @@ export default async function AdSpendPage() {
           visitSources={visitSources}
           rows={adSpendResult.rows}
           monthOptions={monthOptions()}
+          bookingLinks={bookingLinks}
           disabled={adSpendResult.setupRequired}
         />
       </div>

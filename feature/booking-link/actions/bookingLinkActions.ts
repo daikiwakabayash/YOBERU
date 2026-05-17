@@ -26,6 +26,12 @@ function parseForm(raw: Record<string, FormDataEntryValue>) {
     line_button_text: raw.line_button_text || null,
     line_button_url: raw.line_button_url || null,
     visit_source_id: raw.visit_source_id ? Number(raw.visit_source_id) : null,
+    symptom: raw.symptom || null,
+    offer_price:
+      raw.offer_price !== undefined && raw.offer_price !== ""
+        ? Number(raw.offer_price)
+        : null,
+    creative_memo: raw.creative_memo || null,
     public_notice: raw.public_notice || null,
     head_tag_template_id: raw.head_tag_template_id
       ? Number(raw.head_tag_template_id)
@@ -74,6 +80,17 @@ function isMissingPublicNoticeColumn(msg: string): boolean {
   return msg.includes("public_notice");
 }
 
+// 00050 (クリエイティブ分析) で追加したカラム未適用時のフォールバック判定。
+function isMissingCreativeColumn(msg: string): boolean {
+  return (
+    (msg.includes("symptom") ||
+      msg.includes("offer_price") ||
+      msg.includes("creative_memo") ||
+      msg.includes("parent_link_id")) &&
+    (msg.includes("column") || msg.includes("schema cache"))
+  );
+}
+
 function stripMigrationOnlyColumns(data: Record<string, unknown>): void {
   delete data.head_tag_template_id;
   delete data.body_tag_template_id;
@@ -82,6 +99,10 @@ function stripMigrationOnlyColumns(data: Record<string, unknown>): void {
   delete data.immediate_email_template;
   delete data.public_notice;
   delete data.is_mandatory_line;
+  delete data.symptom;
+  delete data.offer_price;
+  delete data.creative_memo;
+  delete data.parent_link_id;
 }
 
 /**
@@ -139,7 +160,8 @@ export async function createBookingLink(formData: FormData) {
       (isMissingTagTemplateColumn(error.message ?? "") ||
         isMissingImmediateEmailColumn(error.message ?? "") ||
         isMissingPublicNoticeColumn(error.message ?? "") ||
-        isMissingMandatoryLineColumn(error.message ?? ""))
+        isMissingMandatoryLineColumn(error.message ?? "") ||
+        isMissingCreativeColumn(error.message ?? ""))
     ) {
       // 空でない列を黙って捨てないよう事前チェック。
       const dropMsg = detectSilentlyDroppedFields(
@@ -260,6 +282,11 @@ export async function duplicateBookingLink(
     line_button_url: original.line_button_url,
     visit_source_id: original.visit_source_id,
     public_notice: (original as Record<string, unknown>).public_notice ?? null,
+    // クリエイティブ分析属性も継承 (migration 00050)
+    symptom: (original as Record<string, unknown>).symptom ?? null,
+    offer_price: (original as Record<string, unknown>).offer_price ?? null,
+    creative_memo: (original as Record<string, unknown>).creative_memo ?? null,
+    parent_link_id: (original as { id: number }).id,
   };
   // Include reminder_settings if the column exists on the original row
   if ("reminder_settings" in original) {

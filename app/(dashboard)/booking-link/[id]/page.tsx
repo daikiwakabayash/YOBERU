@@ -42,7 +42,7 @@ export default async function BookingLinkEditPage({
 
   const supabase = await createClient();
 
-  const [menuData, sourceData, categoryData, shopsData] = await Promise.all([
+  const [menuData, sourceData, categoryData, shopsData, symptomsData] = await Promise.all([
     safeQuery<{
       menu_manage_id: string;
       name: string;
@@ -85,6 +85,13 @@ export default async function BookingLinkEditPage({
         .order("sort_number", { ascending: true, nullsFirst: false })
         .order("id", { ascending: true })
     ),
+    safeQuery<{ code: string; name: string }>(
+      supabase
+        .from("creative_symptoms")
+        .select("code, name")
+        .is("deleted_at", null)
+        .order("sort_number")
+    ),
   ]);
 
   const categoryMap = new Map(categoryData.map((c) => [c.id, c.name]));
@@ -111,6 +118,7 @@ export default async function BookingLinkEditPage({
           menus={menus}
           visitSources={sourceData}
           tagTemplates={tagTemplates.map((t) => ({ id: t.id, title: t.title }))}
+          symptoms={symptomsData}
           initialData={link}
         />
       </div>

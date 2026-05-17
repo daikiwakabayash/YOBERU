@@ -13,6 +13,7 @@ import {
   LineChart,
   ClipboardList,
   Repeat,
+  FlaskConical,
 } from "lucide-react";
 
 export type MarketingTabKey =
@@ -21,6 +22,7 @@ export type MarketingTabKey =
   | "new-customer"
   | "meta-ads"
   | "meta-analysis"
+  | "creative"
   | "catchment"
   | "ai"
   | "market"
@@ -39,6 +41,7 @@ const TABS: Array<{
   { key: "retention", label: "継続管理", icon: Repeat },
   { key: "meta-ads", label: "メタ広告", icon: Megaphone },
   { key: "meta-analysis", label: "メタ分析", icon: LineChart },
+  { key: "creative", label: "クリエイティブ分析", icon: FlaskConical },
   { key: "catchment", label: "商圏", icon: MapPinned },
   { key: "ai", label: "AI分析", icon: Sparkles },
   { key: "market", label: "市場", icon: Globe, disabled: true },
