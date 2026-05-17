@@ -269,13 +269,19 @@ export async function getMarketingData(params: {
     )
   );
   const firstCompletedApptIdByCustomer = new Map<number, number>();
+  // 顧客 → 初回完了予約の visit_source_id。
+  // キャンセル予約は visit_source_id が空のまま作られるケースが多いので、
+  // 媒体バケットに分配する際は「顧客を連れてきた媒体」(= 初回完了予約の
+  // 媒体) にフォールバックする。これで「メタで来た顧客が 2 回目をキャンセル」
+  // を (不明) ではなく メタ のキャンセルとして計上できる。
+  const customerSourceMap = new Map<number, number | null>();
   const customerEverJoined = new Set<number>();
   if (customerIdsInPeriod.length > 0) {
     const [completedHistRes, plansRes, joinFlagApptsRes] = await Promise.all([
-      // 顧客の全期間 完了予約 → 各顧客の最古完了 id
+      // 顧客の全期間 完了予約 → 各顧客の最古完了 id + 媒体
       supabase
         .from("appointments")
-        .select("id, customer_id, start_at")
+        .select("id, customer_id, start_at, visit_source_id")
         .eq("shop_id", shopId)
         .eq("status", 2)
         .in("customer_id", customerIdsInPeriod)
@@ -300,9 +306,11 @@ export async function getMarketingData(params: {
       id: number;
       customer_id: number;
       start_at: string;
+      visit_source_id: number | null;
     }>) {
       if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
         firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
+        customerSourceMap.set(r.customer_id, r.visit_source_id);
       }
     }
     for (const r of (plansRes.data ?? []) as Array<{ customer_id: number }>) {
@@ -431,7 +439,12 @@ export async function getMarketingData(params: {
       monthBuckets.set(ym, b);
       return b;
     })();
-    const sid = a.visit_source_id ?? 0;
+    // 媒体は「キャンセル予約自身の visit_source」よりも「その顧客の初回
+    // 完了予約の visit_source」を優先する。続予約はフォームから来ない
+    // 限り visit_source が空のまま作られるため、自身の値だけで集計すると
+    // メタ で来た顧客のキャンセルが (不明) に寄ってしまう。
+    const sid =
+      customerSourceMap.get(a.customer_id) ?? a.visit_source_id ?? 0;
     let sb = sourceBuckets.get(sid);
     if (!sb) {
       sb = emptyTotals();
