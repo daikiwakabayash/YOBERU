@@ -106,7 +106,7 @@ export function MarketingOverview({
       )}
 
       {/* Secondary pastel row */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <MiniCard
           label="広告費合計"
           value={yen(t.adSpend)}
@@ -116,11 +116,6 @@ export function MarketingOverview({
           label="新規売上合計"
           value={yen(t.sales)}
           tone="bg-emerald-50 border-emerald-100"
-        />
-        <MiniCard
-          label="消化売上"
-          value={yen(t.consumedSales)}
-          tone="bg-cyan-50 border-cyan-100"
         />
         <MiniCard
           label="ROAS"
@@ -136,11 +131,6 @@ export function MarketingOverview({
           label="G 口コミ"
           value={`${num(t.googleReviewCount)}件`}
           tone="bg-gray-50 border-gray-100"
-        />
-        <MiniCard
-          label="H 口コミ"
-          value={`${num(t.hotpepperReviewCount)}件`}
-          tone="bg-orange-50 border-orange-100"
         />
       </div>
 
