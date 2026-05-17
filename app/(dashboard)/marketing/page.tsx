@@ -74,6 +74,7 @@ const VALID_TABS = new Set<MarketingTabKey>([
   "new-customer",
   "meta-ads",
   "meta-analysis",
+  "creative",
   "catchment",
   "ai",
   "market",

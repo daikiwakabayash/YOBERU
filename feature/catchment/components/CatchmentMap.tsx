@@ -57,7 +57,12 @@ const AGE_BUCKETS: Array<{ label: string; min: number; max: number; color: strin
   { label: "60+", min: 60, max: 999, color: "#a855f7" },
 ];
 
-/** 親 → MapContainer の center を後から動かすには useMap が要るので別 child で。 */
+/** 親 → MapContainer の center を後から動かすには useMap が要るので別 child で。
+ *  店舗があれば店舗 ±10km の範囲を初期表示する (誤 geocode で遠方の点が
+ *  混ざっていても、それに引きずられて日本列島全体が映る事故を防ぐ)。
+ *  店舗が無い時だけ顧客点群に fit するフォールバック。
+ *  shop の lat/lng が変わったときだけ再 fit するので、フィルタ操作で
+ *  ピンが減ってもズームは崩れない。 */
 function AutoFitBounds({
   points,
   shop,
@@ -66,17 +71,32 @@ function AutoFitBounds({
   shop: { lat: number; lng: number } | null;
 }) {
   const map = useMap();
+  const shopLat = shop?.lat;
+  const shopLng = shop?.lng;
   useEffect(() => {
-    const all = [...points];
-    if (shop) all.push(shop);
-    if (all.length === 0) return;
-    if (all.length === 1) {
-      map.setView([all[0].lat, all[0].lng], 14);
+    if (shopLat != null && shopLng != null) {
+      const RADIUS_KM = 10;
+      const latDelta = RADIUS_KM / 111;
+      const lngDelta =
+        RADIUS_KM / (111 * Math.cos((shopLat * Math.PI) / 180));
+      const bounds = L.latLngBounds(
+        [shopLat - latDelta, shopLng - lngDelta],
+        [shopLat + latDelta, shopLng + lngDelta]
+      );
+      map.fitBounds(bounds, { padding: [20, 20], maxZoom: 13 });
       return;
     }
-    const bounds = L.latLngBounds(all.map((p) => [p.lat, p.lng]));
+    if (points.length === 0) return;
+    if (points.length === 1) {
+      map.setView([points[0].lat, points[0].lng], 14);
+      return;
+    }
+    const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-  }, [points, shop, map]);
+    // points に依存させると、フィルタ操作のたびに再 fit してしまい
+    // ユーザーの手動ズームが破棄される。shop の座標だけを依存に取る。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopLat, shopLng, map]);
   return null;
 }
 
