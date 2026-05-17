@@ -269,24 +269,27 @@ export async function getMarketingData(params: {
     )
   );
   const firstCompletedApptIdByCustomer = new Map<number, number>();
-  // 顧客 → 初回完了予約の visit_source_id。
-  // キャンセル予約は visit_source_id が空のまま作られるケースが多いので、
-  // 媒体バケットに分配する際は「顧客を連れてきた媒体」(= 初回完了予約の
-  // 媒体) にフォールバックする。これで「メタで来た顧客が 2 回目をキャンセル」
-  // を (不明) ではなく メタ のキャンセルとして計上できる。
+  // 顧客 → "その顧客を連れてきた媒体" の解決マップ。
+  // 優先順位 (最初に見つかったもの):
+  //   1. customers.first_visit_source_id (顧客作成時に記録された初回媒体)
+  //   2. 初回完了予約 (人生最古 status=2) の visit_source_id
+  //   3. 期間内予約の visit_source_id (フォールバック)
+  // これで 「初回はメタ → 続予約は source 未入力 で キャンセル」の
+  // ようなケースでも メタ にキャンセルが乗り、(不明) を最小化できる。
   const customerSourceMap = new Map<number, number | null>();
   const customerEverJoined = new Set<number>();
   if (customerIdsInPeriod.length > 0) {
-    const [completedHistRes, plansRes, joinFlagApptsRes] = await Promise.all([
-      // 顧客の全期間 完了予約 → 各顧客の最古完了 id + 媒体
-      supabase
-        .from("appointments")
-        .select("id, customer_id, start_at, visit_source_id")
-        .eq("shop_id", shopId)
-        .eq("status", 2)
-        .in("customer_id", customerIdsInPeriod)
-        .is("deleted_at", null)
-        .order("start_at", { ascending: true }),
+    const [completedHistRes, plansRes, joinFlagApptsRes, customersRes] =
+      await Promise.all([
+        // 顧客の全期間 完了予約 → 各顧客の最古完了 id + 媒体
+        supabase
+          .from("appointments")
+          .select("id, customer_id, start_at, visit_source_id")
+          .eq("shop_id", shopId)
+          .eq("status", 2)
+          .in("customer_id", customerIdsInPeriod)
+          .is("deleted_at", null)
+          .order("start_at", { ascending: true }),
       // 顧客のライフタイム プラン購入有無
       supabase
         .from("customer_plans")
@@ -301,7 +304,23 @@ export async function getMarketingData(params: {
         .eq("is_member_join", true)
         .in("customer_id", customerIdsInPeriod)
         .is("deleted_at", null),
+      // 顧客マスタの first_visit_source_id (顧客作成時に記録された
+      // 初回経路) を最優先のソース解決に使う。
+      supabase
+        .from("customers")
+        .select("id, first_visit_source_id")
+        .in("id", customerIdsInPeriod),
     ]);
+    // 1) customers.first_visit_source_id を最優先で詰める
+    for (const r of (customersRes.data ?? []) as Array<{
+      id: number;
+      first_visit_source_id: number | null;
+    }>) {
+      if (r.first_visit_source_id != null) {
+        customerSourceMap.set(r.id, r.first_visit_source_id);
+      }
+    }
+    // 2) 初回完了予約 id を確定 + ソース未確定の顧客に補完
     for (const r of (completedHistRes.data ?? []) as Array<{
       id: number;
       customer_id: number;
@@ -310,7 +329,12 @@ export async function getMarketingData(params: {
     }>) {
       if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
         firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
-        customerSourceMap.set(r.customer_id, r.visit_source_id);
+        if (
+          !customerSourceMap.has(r.customer_id) &&
+          r.visit_source_id != null
+        ) {
+          customerSourceMap.set(r.customer_id, r.visit_source_id);
+        }
       }
     }
     for (const r of (plansRes.data ?? []) as Array<{ customer_id: number }>) {
@@ -365,7 +389,11 @@ export async function getMarketingData(params: {
       return b;
     })();
 
-    const sid = a.visit_source_id ?? 0;
+    // 媒体は customerSourceMap (= 顧客の初回媒体 / first_visit_source_id)
+    // を最優先で参照する。これで「メタで来た顧客の続予約 (visit_source 未入力)」
+    // も メタ にカウントされる。
+    const sid =
+      customerSourceMap.get(a.customer_id) ?? a.visit_source_id ?? 0;
     let sb = sourceBuckets.get(sid);
     if (!sb) {
       sb = emptyTotals();
@@ -404,14 +432,26 @@ export async function getMarketingData(params: {
     }
   }
 
-  // 1.5. キャンセル / 待機は **期間内のすべての予約** を対象に数える
-  //      (新規顧客 / リピータを問わない)。これで予約表で目視カウントした
-  //      キャンセル件数と一致する。
-  //      バケット (bySource) への分配は「その顧客を最初に連れてきた媒体」
-  //      を最優先 (customerSourceMap)、無ければ予約自身の visit_source_id、
-  //      それも無ければ "(不明)" にフォールバック。
-  //      reservationCount にも乗せるので、cancelRate (= cancel / reservation)
-  //      の分母が実際の予約件数に対応する。
+  // 1.5. このタブは "新規顧客だけを管理する場所" として位置づける:
+  //      - 新規数 (visitCount) = 顧客の人生最古 status=2 が当月にある顧客
+  //                              (= 新患管理タブの「当月新規」と一致)
+  //      - キャンセル数 / 待機 = それら新規顧客の 期間内 attempt のうち
+  //        キャンセル/待機 ステータスのものだけを数える。
+  //        リピータ (= 前期間以前に新規だった顧客) のキャンセルは
+  //        ここには含めない (彼らは別の月の新規にカウント済み)。
+  //      バケット (bySource) への分配は customerSourceMap (顧客の初回
+  //      媒体) を最優先、無ければ予約自身の visit_source_id にフォール
+  //      バック。これで (不明) 行を最小化する。
+  const newCustomerIdsInPeriod = new Set<number>();
+  for (const a of appointments as Array<{
+    id: number;
+    customer_id: number | null;
+  }>) {
+    if (a.customer_id == null) continue;
+    if (firstCompletedApptIdByCustomer.get(a.customer_id) === a.id) {
+      newCustomerIdsInPeriod.add(a.customer_id);
+    }
+  }
   for (const a of appointments as Array<{
     customer_id: number | null;
     status: number;
@@ -419,6 +459,7 @@ export async function getMarketingData(params: {
     visit_source_id: number | null;
   }>) {
     if (a.customer_id == null) continue;
+    if (!newCustomerIdsInPeriod.has(a.customer_id)) continue;
     const isCancel = a.status === 3 || a.status === 4 || a.status === 99;
     const isPending = a.status === 0;
     if (!isCancel && !isPending) continue;

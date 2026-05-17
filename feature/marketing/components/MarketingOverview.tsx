@@ -45,10 +45,10 @@ export function MarketingOverview({
         <HeroCard
           icon={<Users className="h-3 w-3 text-orange-600" />}
           iconBg="bg-orange-100"
-          label="実来院数"
+          label="新規数"
           topRightLabel="集客"
           value={`${num(t.visitCount)}名`}
-          subtext={`予約 ${num(t.reservationCount)}名`}
+          subtext={`キャンセル ${num(t.cancelCount)}名`}
         />
         <HeroCard
           icon={<DollarSign className="h-3 w-3 text-green-600" />}
@@ -184,8 +184,7 @@ export function MarketingOverview({
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">月</th>
-                <th className="px-3 py-2 text-right font-medium">予約数</th>
-                <th className="px-3 py-2 text-right font-medium">実来院</th>
+                <th className="px-3 py-2 text-right font-medium">新規数</th>
                 <th className="px-3 py-2 text-right font-medium">入会数</th>
                 <th className="px-3 py-2 text-right font-medium">入会率</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
@@ -203,7 +202,7 @@ export function MarketingOverview({
               {data.byMonth.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={11}
                     className="py-6 text-center text-muted-foreground"
                   >
                     期間内のデータがありません
@@ -214,9 +213,6 @@ export function MarketingOverview({
                   <tr key={m.yearMonth} className="hover:bg-gray-50/60">
                     <td className="px-4 py-2 font-medium text-gray-900">
                       {m.yearMonth}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-700">
-                      {num(m.reservationCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {num(m.visitCount)}
@@ -230,7 +226,7 @@ export function MarketingOverview({
                     <td
                       className="px-3 py-2 text-right text-gray-700"
                       title={
-                        `予約 ${m.reservationCount} - 実来院 ${m.visitCount} - C数 ${m.cancelCount} - 待機 ${m.pendingCount}\n` +
+                        `新規 ${m.visitCount} / キャンセル ${m.cancelCount} / 待機 ${m.pendingCount}\n` +
                         `内訳: キャンセル ${m.cancelStandard} / 当日キャンセル ${m.cancelSameDay} / 無断キャンセル ${m.noShow}`
                       }
                     >
@@ -280,8 +276,7 @@ export function MarketingOverview({
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">媒体</th>
-                <th className="px-3 py-2 text-right font-medium">予約数</th>
-                <th className="px-3 py-2 text-right font-medium">実来院</th>
+                <th className="px-3 py-2 text-right font-medium">新規数</th>
                 <th className="px-3 py-2 text-right font-medium">入会</th>
                 <th className="px-3 py-2 text-right font-medium">入会率</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
@@ -296,23 +291,29 @@ export function MarketingOverview({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {data.bySource.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={12}
-                    className="py-6 text-center text-muted-foreground"
-                  >
-                    媒体データがありません
-                  </td>
-                </tr>
-              ) : (
-                data.bySource.map((s) => (
+              {(() => {
+                // 「新規だけを管理する場所」として、新規数 / キャンセル
+                // どちらも 0 の行 (= (不明) で何もないようなケース) は
+                // ノイズなので非表示にする。
+                const filtered = data.bySource.filter(
+                  (s) => s.visitCount > 0 || s.cancelCount > 0 || s.adSpend > 0
+                );
+                if (filtered.length === 0) {
+                  return (
+                    <tr>
+                      <td
+                        colSpan={11}
+                        className="py-6 text-center text-muted-foreground"
+                      >
+                        媒体データがありません
+                      </td>
+                    </tr>
+                  );
+                }
+                return filtered.map((s) => (
                   <tr key={s.visitSourceId} className="hover:bg-gray-50/60">
                     <td className="px-4 py-2 font-medium text-gray-900">
                       {s.sourceName ?? "(不明)"}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-700">
-                      {num(s.reservationCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {num(s.visitCount)}
@@ -325,11 +326,8 @@ export function MarketingOverview({
                     </td>
                     <td
                       className="px-3 py-2 text-right text-gray-700"
-                      // C数 の根拠を hover で確認できるように内訳を出す。
-                      // 「C数 3 だけど予約表で数えると合わない」という
-                      // 検証作業のためのツールチップ。
                       title={
-                        `予約 ${s.reservationCount} - 実来院 ${s.visitCount} - C数 ${s.cancelCount} - 待機 ${s.pendingCount}\n` +
+                        `新規 ${s.visitCount} / キャンセル ${s.cancelCount} / 待機 ${s.pendingCount}\n` +
                         `内訳: キャンセル ${s.cancelStandard} / 当日キャンセル ${s.cancelSameDay} / 無断キャンセル ${s.noShow}`
                       }
                     >
@@ -362,8 +360,8 @@ export function MarketingOverview({
                       </span>
                     </td>
                   </tr>
-                ))
-              )}
+                ));
+              })()}
             </tbody>
           </table>
         </div>
