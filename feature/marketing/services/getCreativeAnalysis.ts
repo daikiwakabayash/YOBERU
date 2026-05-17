@@ -25,6 +25,8 @@ export interface CreativeBucket {
   // 軸 (UI 表示用)
   shopId: number | null;
   shopName: string | null;
+  visitSourceId: number | null;
+  visitSourceName: string | null;
   symptom: string | null;
   symptomName: string | null;
   offerPrice: number | null;
@@ -46,7 +48,7 @@ export interface CreativeBucket {
 
 export interface CreativeAnalysisData {
   rows: CreativeBucket[];
-  totals: Omit<CreativeBucket, "key" | "shopId" | "shopName" | "symptom" | "symptomName" | "offerPrice" | "bookingLinkIds" | "bookingLinkTitles">;
+  totals: Omit<CreativeBucket, "key" | "shopId" | "shopName" | "visitSourceId" | "visitSourceName" | "symptom" | "symptomName" | "offerPrice" | "bookingLinkIds" | "bookingLinkTitles">;
   meta: {
     brandId: number;
     startMonth: string;
@@ -56,7 +58,7 @@ export interface CreativeAnalysisData {
   };
 }
 
-function emptyBucket(): Omit<CreativeBucket, "key" | "shopId" | "shopName" | "symptom" | "symptomName" | "offerPrice" | "bookingLinkIds" | "bookingLinkTitles"> {
+function emptyBucket(): Omit<CreativeBucket, "key" | "shopId" | "shopName" | "visitSourceId" | "visitSourceName" | "symptom" | "symptomName" | "offerPrice" | "bookingLinkIds" | "bookingLinkTitles"> {
   return {
     reservationCount: 0,
     visitCount: 0,
@@ -163,7 +165,24 @@ export async function getCreativeAnalysis(params: {
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null);
   if (shopId != null) apptQ = apptQ.eq("shop_id", shopId);
-  const [apptRes, symptomsRes, shopsRes] = await Promise.all([
+  // links が参照している visit_source_id の一意集合を取得 (media 名解決用)
+  const visitSourceIds = Array.from(
+    new Set(
+      links
+        .map((l) => l.visit_source_id)
+        .filter((id): id is number => id != null)
+    )
+  );
+  const visitSourcesRes =
+    visitSourceIds.length > 0
+      ? supabase
+          .from("visit_sources")
+          .select("id, name")
+          .in("id", visitSourceIds)
+          .is("deleted_at", null)
+      : Promise.resolve({ data: [] as Array<{ id: number; name: string }> });
+
+  const [apptRes, symptomsRes, shopsRes, vsRes] = await Promise.all([
     apptQ,
     symptomMapRes,
     supabase
@@ -171,6 +190,7 @@ export async function getCreativeAnalysis(params: {
       .select("id, name")
       .eq("brand_id", brandId)
       .is("deleted_at", null),
+    visitSourcesRes,
   ]);
 
   type ApptRow = {
@@ -252,34 +272,51 @@ export async function getCreativeAnalysis(params: {
       (s) => [s.code, s.name]
     )
   );
+  const visitSourceMap = new Map<number, string>(
+    ((vsRes.data ?? []) as Array<{ id: number; name: string }>).map((s) => [
+      s.id,
+      s.name,
+    ])
+  );
   const linkById = new Map<number, LinkRow>(links.map((l) => [l.id, l]));
 
-  // 5. バケットキー = (shop_id, symptom, offer_price) 単位
+  // 5. バケットキー = (shop_id, visit_source_id, symptom, offer_price) 単位
   type Bucket = ReturnType<typeof emptyBucket> & {
     shopId: number | null;
     shopName: string | null;
+    visitSourceId: number | null;
+    visitSourceName: string | null;
     symptom: string | null;
     symptomName: string | null;
     offerPrice: number | null;
     bookingLinkIds: Set<number>;
     bookingLinkTitles: Set<string>;
   };
-  function keyOf(shop: number | null, sym: string | null, price: number | null) {
-    return `${shop ?? "_"}::${sym ?? "_"}::${price ?? "_"}`;
+  function keyOf(
+    shop: number | null,
+    source: number | null,
+    sym: string | null,
+    price: number | null
+  ) {
+    return `${shop ?? "_"}::${source ?? "_"}::${sym ?? "_"}::${price ?? "_"}`;
   }
   const bucketMap = new Map<string, Bucket>();
   function getBucket(
     shop: number | null,
+    source: number | null,
     sym: string | null,
     price: number | null
   ): Bucket {
-    const k = keyOf(shop, sym, price);
+    const k = keyOf(shop, source, sym, price);
     let b = bucketMap.get(k);
     if (!b) {
       b = {
         ...emptyBucket(),
         shopId: shop,
         shopName: shop != null ? shopMap.get(shop) ?? null : null,
+        visitSourceId: source,
+        visitSourceName:
+          source != null ? visitSourceMap.get(source) ?? null : null,
         symptom: sym,
         symptomName: sym ? symptomMap.get(sym) ?? sym : null,
         offerPrice: price,
@@ -306,10 +343,15 @@ export async function getCreativeAnalysis(params: {
     const link = linkById.get(a.booking_link_id);
     if (!link) continue;
 
-    // バケットの軸はリンクの shop_id / symptom / offer_price。
+    // バケットの軸はリンクの shop_id / visit_source_id / symptom / offer_price。
     // リンクが shop_ids 配列を持つ場合は予約自身の shop_id を使う。
     const bucketShop = link.shop_id ?? a.shop_id;
-    const b = getBucket(bucketShop, link.symptom, link.offer_price);
+    const b = getBucket(
+      bucketShop,
+      link.visit_source_id,
+      link.symptom,
+      link.offer_price
+    );
     b.bookingLinkIds.add(link.id);
     b.bookingLinkTitles.add(link.title);
 
@@ -345,6 +387,7 @@ export async function getCreativeAnalysis(params: {
     if (!link) continue;
     const b = getBucket(
       link.shop_id,
+      link.visit_source_id,
       link.symptom,
       link.offer_price
     );
@@ -359,6 +402,8 @@ export async function getCreativeAnalysis(params: {
         key,
         shopId: b.shopId,
         shopName: b.shopName,
+        visitSourceId: b.visitSourceId,
+        visitSourceName: b.visitSourceName,
         symptom: b.symptom,
         symptomName: b.symptomName,
         offerPrice: b.offerPrice,
