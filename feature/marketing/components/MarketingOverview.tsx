@@ -276,6 +276,12 @@ export function MarketingOverview({
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">媒体</th>
+                <th
+                  className="px-3 py-2 text-right font-medium"
+                  title="チラシなら配布枚数、Meta 広告なら表示回数 (impressions)"
+                >
+                  枚数
+                </th>
                 <th className="px-3 py-2 text-right font-medium">予約数</th>
                 <th className="px-3 py-2 text-right font-medium">新規数</th>
                 <th className="px-3 py-2 text-right font-medium">入会</th>
@@ -301,7 +307,7 @@ export function MarketingOverview({
                   return (
                     <tr>
                       <td
-                        colSpan={13}
+                        colSpan={14}
                         className="py-6 text-center text-muted-foreground"
                       >
                         媒体データがありません
@@ -313,6 +319,12 @@ export function MarketingOverview({
                   <tr key={s.visitSourceId} className="hover:bg-gray-50/60">
                     <td className="px-4 py-2 font-medium text-gray-900">
                       {s.sourceName ?? "(不明)"}
+                    </td>
+                    <td
+                      className="px-3 py-2 text-right text-gray-600"
+                      title="チラシなら配布枚数、Meta 広告なら表示回数"
+                    >
+                      {s.impressions > 0 ? num(s.impressions) : "-"}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {num(s.firstApptCount)}

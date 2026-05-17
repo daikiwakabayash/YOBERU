@@ -15,6 +15,8 @@ export interface AdSpendRow {
   /** 強制リンク (= クリエイティブ) 単位の広告費。NULL = 媒体全体 (migration 00050) */
   booking_link_id?: number | null;
   booking_link_title?: string | null;
+  /** 配布数 / 表示回数 (チラシ枚数 or 広告 impressions)。手入力 or API 同期 */
+  impressions?: number | null;
 }
 
 /**
