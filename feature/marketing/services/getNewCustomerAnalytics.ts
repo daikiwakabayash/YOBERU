@@ -157,8 +157,12 @@ function isCancelStatus(s: number): boolean {
 export async function getNewCustomerAnalytics(params: {
   shopId: number;
   yearMonth: string; // 'YYYY-MM'
+  /** 担当 (staff) フィルタ。指定時は「初回来店をその担当が施術した
+   *  新規顧客のみ」に絞る。ライフタイム判定 (入会等) は顧客 id ベースで
+   *  残るので影響しない。 */
+  staffId?: number | null;
 }): Promise<NewCustomerAnalytics> {
-  const { shopId, yearMonth } = params;
+  const { shopId, yearMonth, staffId = null } = params;
   const supabase = await createClient();
 
   // Asia/Tokyo 境界で当月の開始 / 翌月の開始を決める。
@@ -174,7 +178,7 @@ export async function getNewCustomerAnalytics(params: {
   //    のスタンプに依存せず、真の新規顧客の初回完了予約を確定できる。
   //    キャンセル / 待機 / 施術中は新規確定には使わない (UI 上「離反扱い
   //    で出る」のを防ぐため)。
-  const completedInMonthRes = await supabase
+  let completedInMonthQuery = supabase
     .from("appointments")
     .select(
       "id, customer_id, staff_id, visit_source_id, menu_manage_id, start_at, status, sales, is_member_join, visit_count"
@@ -185,6 +189,10 @@ export async function getNewCustomerAnalytics(params: {
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null)
     .order("start_at", { ascending: true });
+  if (staffId != null) {
+    completedInMonthQuery = completedInMonthQuery.eq("staff_id", staffId);
+  }
+  const completedInMonthRes = await completedInMonthQuery;
 
   const completedInMonth = (completedInMonthRes.data ?? []) as ApptRow[];
 
