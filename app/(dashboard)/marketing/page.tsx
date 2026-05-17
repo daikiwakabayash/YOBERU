@@ -139,10 +139,12 @@ export default async function MarketingPage({
     }
     if (tab === "new-customer") {
       // 新規管理タブは単月ビュー。?start= をそのまま対象月として使う。
-      // ?end / ?source / ?staff は現状無視 (月内すべての新規客を列挙)。
+      // ?end / ?source は現状無視 (月内すべての新規客を列挙)。
+      // ?staff は「初回来店をその担当が施術した新規顧客のみ」で絞る。
       const data = await getNewCustomerAnalytics({
         shopId,
         yearMonth: startMonth,
+        staffId,
       });
       return <MarketingNewCustomer data={data} />;
     }
