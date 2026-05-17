@@ -404,23 +404,14 @@ export async function getMarketingData(params: {
     }
   }
 
-  // 1.5. キャンセル / 待機は「期間内の新規顧客の attempts」を母集団として
-  //      数える。具体的には、新規 attribution で確定した顧客 (= 期間内に
-  //      最古完了予約がある顧客) の期間内予約のうち、キャンセル / 待機
-  //      ステータスのものを cancelCount / pendingCount に加算する。
-  //      これで「新規顧客がトライしたが完了に至らなかった件数」として
-  //      cancelRate (= cancelCount / reservationCount) が意味を持つ。
-  //      バケット (byMonth / bySource) には予約日 / 媒体ベースで分配。
-  const newCustomerIdsInPeriod = new Set<number>();
-  for (const a of appointments as Array<{
-    id: number;
-    customer_id: number | null;
-  }>) {
-    if (a.customer_id == null) continue;
-    if (firstCompletedApptIdByCustomer.get(a.customer_id) === a.id) {
-      newCustomerIdsInPeriod.add(a.customer_id);
-    }
-  }
+  // 1.5. キャンセル / 待機は **期間内のすべての予約** を対象に数える
+  //      (新規顧客 / リピータを問わない)。これで予約表で目視カウントした
+  //      キャンセル件数と一致する。
+  //      バケット (bySource) への分配は「その顧客を最初に連れてきた媒体」
+  //      を最優先 (customerSourceMap)、無ければ予約自身の visit_source_id、
+  //      それも無ければ "(不明)" にフォールバック。
+  //      reservationCount にも乗せるので、cancelRate (= cancel / reservation)
+  //      の分母が実際の予約件数に対応する。
   for (const a of appointments as Array<{
     customer_id: number | null;
     status: number;
@@ -428,7 +419,6 @@ export async function getMarketingData(params: {
     visit_source_id: number | null;
   }>) {
     if (a.customer_id == null) continue;
-    if (!newCustomerIdsInPeriod.has(a.customer_id)) continue;
     const isCancel = a.status === 3 || a.status === 4 || a.status === 99;
     const isPending = a.status === 0;
     if (!isCancel && !isPending) continue;
