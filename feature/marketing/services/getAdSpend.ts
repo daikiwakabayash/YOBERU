@@ -12,6 +12,9 @@ export interface AdSpendRow {
   memo: string | null;
   source_name?: string | null;
   shop_name?: string | null;
+  /** 強制リンク (= クリエイティブ) 単位の広告費。NULL = 媒体全体 (migration 00050) */
+  booking_link_id?: number | null;
+  booking_link_title?: string | null;
 }
 
 /**
@@ -80,6 +83,29 @@ export async function getAdSpendRows(
       );
       for (const r of rows) {
         r.source_name = nameMap.get(r.visit_source_id) ?? null;
+      }
+    }
+
+    // Enrich with booking_link title (migration 00050)
+    const linkIds = [
+      ...new Set(
+        rows
+          .map((r) => r.booking_link_id)
+          .filter((id): id is number => id != null && id > 0)
+      ),
+    ];
+    if (linkIds.length > 0) {
+      const { data: links } = await supabase
+        .from("booking_links")
+        .select("id, title")
+        .in("id", linkIds);
+      const titleMap = new Map<number, string>(
+        (links ?? []).map((l) => [l.id as number, l.title as string])
+      );
+      for (const r of rows) {
+        if (r.booking_link_id != null) {
+          r.booking_link_title = titleMap.get(r.booking_link_id) ?? null;
+        }
       }
     }
     return { rows, setupRequired: false };

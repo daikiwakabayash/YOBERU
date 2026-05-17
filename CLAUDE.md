@@ -334,6 +334,56 @@ menus は既存のメニュー一覧画面 (`/menu`) でそのまま閲覧・編
 
 ---
 
+## クリエイティブ分析 (Meta 広告 ROAS 測定)
+
+### 概要
+Meta 広告のクリエイティブ (動画 / 画像) を「症状 × オファー価格 × 店舗」
+軸で CPA / 入会率 / キャンセル率 / ROAS まで測定するための仕組み。
+Meta API 連携を待たずに、強制リンクと広告セットを 1:1 で運用するだけで
+正確な効果測定ができる。
+
+### 運用フロー
+1. クリエイティブ (動画 / 画像) ごとに **強制リンクを 1 つ作成**
+   - `/booking-link/register` で「症状」「オファー価格」「クリエイティブメモ」を入力
+   - 「複製」ボタンで既存リンクから一発でコピー作成可能 (`parent_link_id` で親を辿る)
+2. その強制リンクの URL **のみ** を Meta の広告セットに設定
+3. 月初に **強制リンク単位** で広告費を入力 (`/ad-spend` で「強制リンク単位」モード)
+4. マーケティング → **「クリエイティブ分析」タブ**で自動集計
+
+### データモデル (migration 00050)
+- **`creative_symptoms`** (症状マスター): `code` PK + `name` + `sort_number`
+  - seed: 自律神経 / 肩こり / 頭痛 / 腰痛 / 膝痛 / 不眠 / 冷え性 / 産後 / 美容矯正 / その他
+- **`booking_links` 拡張**: `symptom` / `offer_price` / `creative_memo` / `parent_link_id` を追加
+- **`ad_spend.booking_link_id`** 追加 (NULL = 媒体全体, NOT NULL = 特定クリエイティブ単位)
+  - 一意キーが `(shop, year_month, visit_source, booking_link_id)` の 2 つの partial unique index に拡張
+
+### 集計サービス
+`feature/marketing/services/getCreativeAnalysis.ts`:
+```ts
+getCreativeAnalysis({ brandId, startMonth, endMonth, shopId?, symptom?, offerPrice? })
+  → { rows: CreativeBucket[], totals, meta: { symptoms } }
+```
+- 行 = (症状 × オファー価格 × 店舗) でバケット化
+- 入会判定は他タブと統一: 顧客レベル ライフタイム判定 (customer_plans or is_member_join)
+- 新規 attribution も統一: 顧客の人生最古 status=2 予約 id 一致 (1 顧客 = 1 新規)
+- 広告費は `booking_link_id NOT NULL` のもののみ対象 (= クリエイティブ単位入力)
+
+### UI (クリエイティブ分析タブ)
+ピボット表で:
+- 行 = 店舗 × 症状 × オファー価格 (1 行が 1 クリエイティブ群)
+- 列 = 予約数 / 実来院 / 入会数 / 入会率 / キャンセル率 / 広告費 / CPA / 売上 / ROAS
+
+複数のクリエイティブ (= 強制リンク) が同じ (症状, オファー, 店舗) を共有する
+場合は 1 行に合算され、内訳はツールチップで確認できる (A/B テスト想定)。
+
+### 将来拡張
+- Meta API 連携 (`appointments.meta_ad_id` 追加 + 広告 URL に `?ad=<meta_ad_id>`)
+  → リンク命名規則に依存せず Meta 側の actual spend と自動結合
+- クリエイティブ別パフォーマンス推移 (週次 / 月次グラフ)
+- 「同症状内でオファー価格を変えた場合の入会率比較」など A/B 検定支援
+
+---
+
 ## その他の重要な実装パターン
 
 ### 日付・タイムゾーン

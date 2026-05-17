@@ -29,6 +29,7 @@ interface BookingLinkFormProps {
   }>;
   visitSources: Array<{ id: number; name: string }>;
   tagTemplates: Array<{ id: number; title: string }>;
+  symptoms: Array<{ code: string; name: string }>;
   initialData?: BookingLink;
 }
 
@@ -38,6 +39,7 @@ export function BookingLinkForm({
   menus,
   visitSources,
   tagTemplates,
+  symptoms,
   initialData,
 }: BookingLinkFormProps) {
   const router = useRouter();
@@ -78,6 +80,22 @@ export function BookingLinkForm({
   );
   const [visitSourceId, setVisitSourceId] = useState<number | null>(
     initialData?.visit_source_id ?? null
+  );
+  // クリエイティブ分析用: 症状コード / オファー価格 / 自由メモ。
+  // クリエイティブ (Meta 広告動画/画像) と 1:1 で紐付ける運用想定。
+  const [symptom, setSymptom] = useState<string>(
+    (initialData as { symptom?: string | null } | undefined)?.symptom ?? ""
+  );
+  const [offerPrice, setOfferPrice] = useState<string>(
+    (initialData as { offer_price?: number | null } | undefined)?.offer_price
+      ? String(
+          (initialData as { offer_price?: number | null }).offer_price
+        )
+      : ""
+  );
+  const [creativeMemo, setCreativeMemo] = useState<string>(
+    (initialData as { creative_memo?: string | null } | undefined)
+      ?.creative_memo ?? ""
   );
   const [publicNotice, setPublicNotice] = useState(
     initialData?.public_notice ?? ""
@@ -151,6 +169,9 @@ export function BookingLinkForm({
     form.set("line_button_text", lineButtonText);
     form.set("line_button_url", lineButtonUrl);
     if (visitSourceId) form.set("visit_source_id", String(visitSourceId));
+    form.set("symptom", symptom);
+    form.set("offer_price", offerPrice);
+    form.set("creative_memo", creativeMemo);
     form.set("public_notice", publicNotice);
     if (headTagTemplateId)
       form.set("head_tag_template_id", String(headTagTemplateId));
@@ -492,6 +513,55 @@ export function BookingLinkForm({
           <p className="mt-2 text-xs text-muted-foreground">
             このリンクから予約した顧客はこの媒体で自動タグ付けされます。
           </p>
+        </CardContent>
+      </Card>
+
+      {/* クリエイティブ属性 (マーケティング → クリエイティブ分析タブで使用) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">クリエイティブ属性</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Meta 広告等のクリエイティブと 1:1 で紐付けることで、症状 × オファー価格 × 店舗 軸で CPA / 入会率 / キャンセル率を分析できます。
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>症状</Label>
+              <select
+                value={symptom}
+                onChange={(e) => setSymptom(e.target.value)}
+                className="h-9 w-full rounded-md border px-2 text-sm"
+              >
+                <option value="">— 未指定 —</option>
+                {symptoms.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>オファー価格 (円)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={100}
+                value={offerPrice}
+                onChange={(e) => setOfferPrice(e.target.value)}
+                placeholder="例: 1000"
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>クリエイティブメモ</Label>
+            <Textarea
+              value={creativeMemo}
+              onChange={(e) => setCreativeMemo(e.target.value)}
+              placeholder="例: 5月 新規ロット A / モデル○○出演 / リール 15s"
+              rows={2}
+            />
+          </div>
         </CardContent>
       </Card>
 

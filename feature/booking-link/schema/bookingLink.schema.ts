@@ -34,6 +34,10 @@ export const bookingLinkSchema = z.object({
   line_button_text: z.string().optional().nullable(),
   line_button_url: z.string().url().optional().nullable().or(z.literal("")),
   visit_source_id: z.number().int().optional().nullable(),
+  // クリエイティブ分析用 (migration 00050)
+  symptom: z.string().max(32).optional().nullable(),
+  offer_price: z.coerce.number().int().min(0).optional().nullable(),
+  creative_memo: z.string().optional().nullable(),
   public_notice: z.string().optional().nullable(),
   head_tag_template_id: z.number().int().positive().optional().nullable(),
   body_tag_template_id: z.number().int().positive().optional().nullable(),

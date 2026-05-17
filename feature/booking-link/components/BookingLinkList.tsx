@@ -71,8 +71,10 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-20">ID</TableHead>
+            <TableHead className="w-16">ID</TableHead>
             <TableHead>タイトル</TableHead>
+            <TableHead className="w-28">症状</TableHead>
+            <TableHead className="w-24 text-right">オファー</TableHead>
             <TableHead>スラッグ</TableHead>
             <TableHead className="w-24">作成日</TableHead>
             <TableHead className="w-32 text-center">URL操作</TableHead>
@@ -83,7 +85,7 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
           {links.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={6}
+                colSpan={8}
                 className="py-8 text-center text-muted-foreground"
               >
                 予約リンクが作成されていません
@@ -94,6 +96,22 @@ export function BookingLinkList({ links }: BookingLinkListProps) {
               <TableRow key={link.id}>
                 <TableCell className="font-mono text-xs">{link.id}</TableCell>
                 <TableCell className="font-medium">{link.title}</TableCell>
+                <TableCell className="text-xs">
+                  {link.symptom ? (
+                    <span className="rounded bg-orange-50 px-1.5 py-0.5 text-orange-700">
+                      {link.symptom}
+                    </span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-right text-xs">
+                  {link.offer_price != null ? (
+                    `¥${link.offer_price.toLocaleString()}`
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
+                </TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">
                   /book/{link.slug}
                 </TableCell>
