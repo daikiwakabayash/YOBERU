@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { UserPlus, TrendingUp, Users, Crown, Ticket, Repeat } from "lucide-react";
 import type {
@@ -251,10 +252,24 @@ function CustomerRow({ row }: { row: NewCustomerRow }) {
   return (
     <tr className="hover:bg-gray-50/60">
       <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-mono text-[11px] text-gray-700">
-        {row.code ?? "-"}
+        {row.code ? (
+          <Link
+            href={`/customer/${row.customerId}`}
+            className="font-bold text-blue-600 underline-offset-2 hover:underline"
+          >
+            {row.code}
+          </Link>
+        ) : (
+          "-"
+        )}
       </td>
       <td className="whitespace-nowrap px-3 py-1.5 text-gray-900">
-        {row.name}
+        <Link
+          href={`/customer/${row.customerId}`}
+          className="font-bold underline-offset-2 hover:text-blue-600 hover:underline"
+        >
+          {row.name}
+        </Link>
       </td>
       <td className="whitespace-nowrap px-3 py-1.5 text-gray-700">
         {row.staffName ?? "-"}
