@@ -69,6 +69,9 @@ export interface NewCustomerStaffBucket {
   memberTotal: number;
   salesByVisitIndex: number[]; // [1回目, 2回目, 3回目]
   newCustomerSalesTotal: number; // 1+2+3回目
+  /** N 回目以降に来店した新規顧客の人数 ([0]=1回目=newCount と同じ,
+   *  [1]=2回目, [2]=3回目)。retentionRate は visitCountByIndex[i] / newCount */
+  visitCountByIndex: number[];
 }
 
 export interface NewCustomerAnalytics {
@@ -115,6 +118,7 @@ function emptyStaffBucket(
     memberTotal: 0,
     salesByVisitIndex: [0, 0, 0],
     newCustomerSalesTotal: 0,
+    visitCountByIndex: [0, 0, 0],
   };
 }
 
@@ -530,8 +534,13 @@ export async function getNewCustomerAnalytics(params: {
         if (joinVisit) t.memberTotal += joinVisit.sales;
       }
       // 1〜3 回目の売上 (status=2 を問わず sales を加算)
-      for (let i = 0; i < Math.min(3, row.visits.length); i += 1) {
-        t.salesByVisitIndex[i] += row.visits[i].sales;
+      // 1〜3 回目来店数: visits[i] が存在 (= 実際に i+1 回目の来店があった)
+      // 顧客に対して +1。retentionRate は finalize 時に newCount で割って算出。
+      for (let i = 0; i < 3; i += 1) {
+        if (i < row.visits.length) {
+          t.visitCountByIndex[i] += 1;
+          t.salesByVisitIndex[i] += row.visits[i].sales;
+        }
       }
     }
   }
