@@ -113,7 +113,7 @@ export function MarketingOverview({
           tone="bg-red-50 border-red-100"
         />
         <MiniCard
-          label="売上合計"
+          label="新規売上合計"
           value={yen(t.sales)}
           tone="bg-emerald-50 border-emerald-100"
         />

@@ -300,6 +300,10 @@ export async function getMarketingData(params: {
   //   3. 期間内予約の visit_source_id (フォールバック)
   const customerSourceMap = new Map<number, number | null>();
   const customerEverJoined = new Set<number>();
+  // 顧客 → 1〜3 回目までの status=2 予約 id 集合。
+  // 「3 回目来店までを新規売上に含める」運用に合わせる (経営指標 /
+  // 売上 ダッシュボードと統一)。
+  const firstThreeCompletedApptIds = new Map<number, Set<number>>();
   if (customerIdsInPeriod.length > 0) {
     const [histRes, plansRes, joinFlagApptsRes, customersRes] =
       await Promise.all([
@@ -343,6 +347,7 @@ export async function getMarketingData(params: {
     }
     // 2) 人生最古予約 (start_at 昇順なので最初に出会ったものが最古) を確定
     //    + ソース未確定の顧客に補完
+    //    + 1〜3 回目 status=2 集合 (firstThreeCompletedApptIds) も同時構築
     for (const r of (histRes.data ?? []) as Array<{
       id: number;
       customer_id: number;
@@ -362,6 +367,14 @@ export async function getMarketingData(params: {
           r.visit_source_id != null
         ) {
           customerSourceMap.set(r.customer_id, r.visit_source_id);
+        }
+      }
+      if (r.status === 2) {
+        const set =
+          firstThreeCompletedApptIds.get(r.customer_id) ?? new Set();
+        if (set.size < 3) {
+          set.add(r.id);
+          firstThreeCompletedApptIds.set(r.customer_id, set);
         }
       }
     }
@@ -388,26 +401,6 @@ export async function getMarketingData(params: {
   const sourceBuckets = new Map<number, MarketingTotals>();
 
   const totals = emptyTotals();
-
-  // 期間内 appointments を id でルックアップできるよう Map 化。
-  // 最古予約の sales / consumed_amount を取り出すのに使う。
-  const apptById = new Map<
-    number,
-    {
-      sales: number | null;
-      consumed_amount: number | null;
-    }
-  >();
-  for (const a of appointments as Array<{
-    id: number;
-    sales: number | null;
-    consumed_amount: number | null;
-  }>) {
-    apptById.set(a.id, {
-      sales: a.sales,
-      consumed_amount: a.consumed_amount,
-    });
-  }
 
   // メイン集計ループ: 顧客の人生最古予約 1 件 = 新規 1 件として扱う。
   //   - 新規数: 当月に最古予約がある顧客 (1 カルテ = 1 count)
@@ -446,20 +439,9 @@ export async function getMarketingData(params: {
       totals.visitCount += 1;
       mb.visitCount += 1;
       sb.visitCount += 1;
-      // 売上 / 消化売上 / 入会判定は実来院した新規にだけ加算する。
-      const a = apptById.get(first.id);
-      if (a) {
-        if (a.sales) {
-          totals.sales += a.sales;
-          mb.sales += a.sales;
-          sb.sales += a.sales;
-        }
-        if (a.consumed_amount) {
-          totals.consumedSales += a.consumed_amount;
-          mb.consumedSales += a.consumed_amount;
-          sb.consumedSales += a.consumed_amount;
-        }
-      }
+      // 入会判定は実来院した新規にだけ加算する。
+      // 売上 / 消化売上 は 1〜3 回目来店ベースで別ループで集計するので
+      // ここでは積まない (経営指標 / 売上 ダッシュボードと統一)。
       if (customerEverJoined.has(customerId)) {
         totals.joinCount += 1;
         mb.joinCount += 1;
@@ -490,6 +472,52 @@ export async function getMarketingData(params: {
       totals.pendingCount += 1;
       mb.pendingCount += 1;
       sb.pendingCount += 1;
+    }
+  }
+
+  // 1.6. 売上 / 消化売上は「顧客の人生 1〜3 回目 status=2 予約」の sales を
+  //      合算する (経営指標 / 売上 ダッシュボードと統一)。
+  //      1 回目だけでなく 2 / 3 回目で回数券購入する新規顧客もいるため、
+  //      新規獲得期間として 3 回目までを「新規売上」に含める。
+  //      バケット (bySource / byMonth) への分配は customerSourceMap (顧客の
+  //      初回媒体) を最優先、無ければ予約自身の visit_source_id にフォール
+  //      バック。
+  for (const a of appointments as Array<{
+    id: number;
+    customer_id: number | null;
+    status: number;
+    start_at: string;
+    sales: number | null;
+    consumed_amount: number | null;
+    visit_source_id: number | null;
+  }>) {
+    if (a.status !== 2) continue;
+    if (a.customer_id == null) continue;
+    const first3 = firstThreeCompletedApptIds.get(a.customer_id);
+    if (!first3 || !first3.has(a.id)) continue;
+
+    const ym = appointmentYearMonth(a.start_at);
+    const mb = monthBuckets.get(ym) ?? (() => {
+      const b = emptyTotals();
+      monthBuckets.set(ym, b);
+      return b;
+    })();
+    const sid =
+      customerSourceMap.get(a.customer_id) ?? a.visit_source_id ?? 0;
+    let sb = sourceBuckets.get(sid);
+    if (!sb) {
+      sb = emptyTotals();
+      sourceBuckets.set(sid, sb);
+    }
+    if (a.sales) {
+      totals.sales += a.sales;
+      mb.sales += a.sales;
+      sb.sales += a.sales;
+    }
+    if (a.consumed_amount) {
+      totals.consumedSales += a.consumed_amount;
+      mb.consumedSales += a.consumed_amount;
+      sb.consumedSales += a.consumed_amount;
     }
   }
 
