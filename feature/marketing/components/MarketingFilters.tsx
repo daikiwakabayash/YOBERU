@@ -18,6 +18,17 @@ interface MarketingFiltersProps {
   monthOptions: string[]; // ['2025-10', '2025-11', ...]
 }
 
+/** 新患管理タブ用のステータス絞り込み値。
+ *  4 つの状態は重複し得る (例: 入会 ∩ 継続) ため、各値は OR ではなく
+ *  「該当する顧客のみ表示」する単一選択フィルタ。 */
+const NEW_CUSTOMER_STATUS_OPTIONS = [
+  { value: "", label: "全ステータス" },
+  { value: "churned", label: "離反" },
+  { value: "joined", label: "入会" },
+  { value: "continuing", label: "継続" },
+  { value: "pendingSecondClose", label: "残2クロ" },
+] as const;
+
 export function MarketingFilters({
   startMonth,
   endMonth,
@@ -116,6 +127,24 @@ export function MarketingFilters({
           ))}
         </select>
       </div>
+      {params.get("tab") === "new-customer" && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">
+            ステータス
+          </label>
+          <select
+            className="h-9 min-w-[140px] rounded-md border px-3 text-sm"
+            value={params.get("status") ?? ""}
+            onChange={(e) => updateParam("status", e.target.value || null)}
+          >
+            {NEW_CUSTOMER_STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="ml-auto text-[11px] text-gray-400">
         {visitSources.length}媒体 × {monthRangeCount(startMonth, endMonth)}ヶ月
         {staffs.length > 0 && ` × ${staffs.length}名`}
