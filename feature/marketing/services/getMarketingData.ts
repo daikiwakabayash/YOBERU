@@ -11,8 +11,18 @@ import { createClient } from "@/helper/lib/supabase/server";
  */
 
 export interface MarketingTotals {
-  visitCount: number;        // 実来院数 (completed or in-progress)
-  reservationCount: number;  // 予約総数 (any status)
+  /**
+   * 新規数 (= 1 カルテ = 1 count)。
+   * 顧客の人生最古の予約 (any status) が当月にある人数。
+   * 内訳: visitCount + cancelCount + remainingCount = firstApptCount。
+   */
+  firstApptCount: number;
+  /** 実来院数 = 新規顧客の初回予約 status=2 (完了) の人数 */
+  visitCount: number;
+  /** 残り新規 = 新規 - 実来院 - キャンセル (まだ来店も取消もしていない予約) */
+  remainingCount: number;
+  /** 後方互換: firstApptCount と同値。reservationCount を参照する古いコード用。 */
+  reservationCount: number;
   joinCount: number;         // 入会数
   cancelCount: number;       // キャンセル系の数 (= cancelStandard + cancelSameDay + noShow)
   /** status=3 通常キャンセル (前日までの取消) の件数 */
@@ -65,7 +75,9 @@ export interface MarketingData {
 
 function emptyTotals(): MarketingTotals {
   return {
+    firstApptCount: 0,
     visitCount: 0,
+    remainingCount: 0,
     reservationCount: 0,
     joinCount: 0,
     cancelCount: 0,
@@ -98,11 +110,14 @@ function finalize(t: MarketingTotals): MarketingTotals {
   const ctr = t.impressions > 0 ? (t.clicks / t.impressions) * 100 : 0;
   const cvr = 0; // 顧客変換は appointments 側に紐付かないので一旦 API 値の合計平均は出さない
   const cpm = t.impressions > 0 ? (t.adSpend / t.impressions) * 1000 : 0;
+  // reservationCount は新規数 (firstApptCount) に揃える (後方互換 + 分母用)。
+  const reservationCount = t.firstApptCount;
   return {
     ...t,
+    reservationCount,
     joinRate: t.visitCount > 0 ? t.joinCount / t.visitCount : 0,
     cancelRate:
-      t.reservationCount > 0 ? t.cancelCount / t.reservationCount : 0,
+      reservationCount > 0 ? t.cancelCount / reservationCount : 0,
     cpa: t.visitCount > 0 ? t.adSpend / t.visitCount : 0,
     roas: t.adSpend > 0 ? t.sales / t.adSpend : 0,
     avgPrice: t.visitCount > 0 ? t.sales / t.visitCount : 0,
@@ -268,25 +283,31 @@ export async function getMarketingData(params: {
         .filter((id): id is number => id != null)
     )
   );
-  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  // 各顧客の "人生最古の予約" (any status) を求める。これが新規 attribution
+  // の基礎: その最古予約が当月にあれば、顧客は当月新規。
+  // 最古予約の status で 実来院 / キャンセル / 残り新規 を振り分ける。
+  type FirstApptInfo = {
+    id: number;
+    status: number;
+    start_at: string;
+    visit_source_id: number | null;
+  };
+  const firstApptByCustomer = new Map<number, FirstApptInfo>();
   // 顧客 → "その顧客を連れてきた媒体" の解決マップ。
   // 優先順位 (最初に見つかったもの):
   //   1. customers.first_visit_source_id (顧客作成時に記録された初回媒体)
-  //   2. 初回完了予約 (人生最古 status=2) の visit_source_id
+  //   2. 人生最古予約 (any status) の visit_source_id
   //   3. 期間内予約の visit_source_id (フォールバック)
-  // これで 「初回はメタ → 続予約は source 未入力 で キャンセル」の
-  // ようなケースでも メタ にキャンセルが乗り、(不明) を最小化できる。
   const customerSourceMap = new Map<number, number | null>();
   const customerEverJoined = new Set<number>();
   if (customerIdsInPeriod.length > 0) {
-    const [completedHistRes, plansRes, joinFlagApptsRes, customersRes] =
+    const [histRes, plansRes, joinFlagApptsRes, customersRes] =
       await Promise.all([
-        // 顧客の全期間 完了予約 → 各顧客の最古完了 id + 媒体
+        // 顧客の全期間 全予約 (start_at 昇順) → 各顧客の最古予約 + 媒体
         supabase
           .from("appointments")
-          .select("id, customer_id, start_at, visit_source_id")
+          .select("id, customer_id, start_at, status, visit_source_id")
           .eq("shop_id", shopId)
-          .eq("status", 2)
           .in("customer_id", customerIdsInPeriod)
           .is("deleted_at", null)
           .order("start_at", { ascending: true }),
@@ -320,15 +341,22 @@ export async function getMarketingData(params: {
         customerSourceMap.set(r.id, r.first_visit_source_id);
       }
     }
-    // 2) 初回完了予約 id を確定 + ソース未確定の顧客に補完
-    for (const r of (completedHistRes.data ?? []) as Array<{
+    // 2) 人生最古予約 (start_at 昇順なので最初に出会ったものが最古) を確定
+    //    + ソース未確定の顧客に補完
+    for (const r of (histRes.data ?? []) as Array<{
       id: number;
       customer_id: number;
       start_at: string;
+      status: number;
       visit_source_id: number | null;
     }>) {
-      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
-        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
+      if (!firstApptByCustomer.has(r.customer_id)) {
+        firstApptByCustomer.set(r.customer_id, {
+          id: r.id,
+          status: r.status,
+          start_at: r.start_at,
+          visit_source_id: r.visit_source_id,
+        });
         if (
           !customerSourceMap.has(r.customer_id) &&
           r.visit_source_id != null
@@ -361,154 +389,107 @@ export async function getMarketingData(params: {
 
   const totals = emptyTotals();
 
+  // 期間内 appointments を id でルックアップできるよう Map 化。
+  // 最古予約の sales / consumed_amount を取り出すのに使う。
+  const apptById = new Map<
+    number,
+    {
+      sales: number | null;
+      consumed_amount: number | null;
+    }
+  >();
   for (const a of appointments as Array<{
     id: number;
-    customer_id: number | null;
-    status: number;
-    start_at: string;
     sales: number | null;
     consumed_amount: number | null;
-    visit_source_id: number | null;
-    is_member_join: boolean | null;
-    visit_count: number | null;
   }>) {
-    // 新規 attribution: この予約 id が「顧客の人生最古の status=2 予約 id」
-    // と一致するときのみ集計に乗せる。
-    //   - customer_id 無しの予約 (slot block 等) は除外
-    //   - 期間外の予約は SELECT 段で除外済
-    //   - これにより 1 顧客 = 1 新規 (= 1 実来院 = 1 予約) として固定される
-    //   - 入会判定は予約自身の is_member_join ではなく、顧客ライフタイム
-    //     ベース (customerEverJoined Set) を見る
-    if (a.customer_id == null) continue;
-    if (firstCompletedApptIdByCustomer.get(a.customer_id) !== a.id) continue;
+    apptById.set(a.id, {
+      sales: a.sales,
+      consumed_amount: a.consumed_amount,
+    });
+  }
 
-    const ym = appointmentYearMonth(a.start_at);
+  // メイン集計ループ: 顧客の人生最古予約 1 件 = 新規 1 件として扱う。
+  //   - 新規数: 当月に最古予約がある顧客 (1 カルテ = 1 count)
+  //   - 実来院: その最古予約が status=2 (完了)
+  //   - キャンセル: status ∈ {3, 4, 99}
+  //   - 残り新規: status ∈ {0, 1} (まだ来店も取消もしていない)
+  //   - 売上: 実来院 (status=2) の sales のみ集計
+  //   - 入会: 当該新規顧客がライフタイムで入会していれば +1 (バックアタッチ)
+  //   - 媒体: customerSourceMap → 予約自身 → 0 (= (不明))
+  for (const [customerId, first] of firstApptByCustomer) {
+    // 当月以前に最古予約がある顧客 = リピータなので除外。
+    if (first.start_at < startTs || first.start_at >= endTsExclusive) continue;
+
+    const ym = appointmentYearMonth(first.start_at);
     const mb = monthBuckets.get(ym) ?? (() => {
       const b = emptyTotals();
       monthBuckets.set(ym, b);
       return b;
     })();
-
-    // 媒体は customerSourceMap (= 顧客の初回媒体 / first_visit_source_id)
-    // を最優先で参照する。これで「メタで来た顧客の続予約 (visit_source 未入力)」
-    // も メタ にカウントされる。
-    const sid =
-      customerSourceMap.get(a.customer_id) ?? a.visit_source_id ?? 0;
+    const sid = customerSourceMap.get(customerId) ?? first.visit_source_id ?? 0;
     let sb = sourceBuckets.get(sid);
     if (!sb) {
       sb = emptyTotals();
       sourceBuckets.set(sid, sb);
     }
 
-    // 最古完了予約は status=2 確定なので、予約数 = 実来院 = 1 で揃う。
-    // cancelCount / pendingCount は新規顧客の attribution からは
-    // 構造的に発生しない (キャンセルされた予約は最古完了にならない)。
-    totals.reservationCount += 1;
-    mb.reservationCount += 1;
-    sb.reservationCount += 1;
+    // 新規 +1 (1 カルテ = 1 count)
+    totals.firstApptCount += 1;
+    mb.firstApptCount += 1;
+    sb.firstApptCount += 1;
 
-    totals.visitCount += 1;
-    mb.visitCount += 1;
-    sb.visitCount += 1;
-
-    if (a.sales) {
-      totals.sales += a.sales;
-      mb.sales += a.sales;
-      sb.sales += a.sales;
-    }
-    if (a.consumed_amount) {
-      totals.consumedSales += a.consumed_amount;
-      mb.consumedSales += a.consumed_amount;
-      sb.consumedSales += a.consumed_amount;
-    }
-
-    // 入会/購入はライフタイム判定 (バックアタッチ):
-    //   この新規顧客が「いつかの時点で」入会または プラン購入していれば
-    //   最古完了予約の月 / 媒体バケットに 1 加算される。
-    if (customerEverJoined.has(a.customer_id)) {
-      totals.joinCount += 1;
-      mb.joinCount += 1;
-      sb.joinCount += 1;
-    }
-  }
-
-  // 1.5. このタブは "新規顧客だけを管理する場所" として位置づける:
-  //      - 新規数 (visitCount) = 顧客の人生最古 status=2 が当月にある顧客
-  //                              (= 新患管理タブの「当月新規」と一致)
-  //      - キャンセル数 / 待機 = それら新規顧客の 期間内 attempt のうち
-  //        キャンセル/待機 ステータスのものだけを数える。
-  //        リピータ (= 前期間以前に新規だった顧客) のキャンセルは
-  //        ここには含めない (彼らは別の月の新規にカウント済み)。
-  //      バケット (bySource) への分配は customerSourceMap (顧客の初回
-  //      媒体) を最優先、無ければ予約自身の visit_source_id にフォール
-  //      バック。これで (不明) 行を最小化する。
-  const newCustomerIdsInPeriod = new Set<number>();
-  for (const a of appointments as Array<{
-    id: number;
-    customer_id: number | null;
-  }>) {
-    if (a.customer_id == null) continue;
-    if (firstCompletedApptIdByCustomer.get(a.customer_id) === a.id) {
-      newCustomerIdsInPeriod.add(a.customer_id);
-    }
-  }
-  for (const a of appointments as Array<{
-    customer_id: number | null;
-    status: number;
-    start_at: string;
-    visit_source_id: number | null;
-  }>) {
-    if (a.customer_id == null) continue;
-    if (!newCustomerIdsInPeriod.has(a.customer_id)) continue;
-    const isCancel = a.status === 3 || a.status === 4 || a.status === 99;
-    const isPending = a.status === 0;
-    if (!isCancel && !isPending) continue;
-
-    const ym = appointmentYearMonth(a.start_at);
-    const mb = monthBuckets.get(ym) ?? (() => {
-      const b = emptyTotals();
-      monthBuckets.set(ym, b);
-      return b;
-    })();
-    // 媒体は「キャンセル予約自身の visit_source」よりも「その顧客の初回
-    // 完了予約の visit_source」を優先する。続予約はフォームから来ない
-    // 限り visit_source が空のまま作られるため、自身の値だけで集計すると
-    // メタ で来た顧客のキャンセルが (不明) に寄ってしまう。
-    const sid =
-      customerSourceMap.get(a.customer_id) ?? a.visit_source_id ?? 0;
-    let sb = sourceBuckets.get(sid);
-    if (!sb) {
-      sb = emptyTotals();
-      sourceBuckets.set(sid, sb);
-    }
-
-    // reservationCount にも乗せる: 新規顧客が期間内に attempt した予約は
-    // 完了/キャンセル/待機いずれも 1 件としてカウントしたいので。
-    totals.reservationCount += 1;
-    mb.reservationCount += 1;
-    sb.reservationCount += 1;
-
-    if (isPending) {
+    // 最古予約の status で 実来院 / キャンセル / 残り新規 を振り分け
+    const status = first.status;
+    const isCancel = status === 3 || status === 4 || status === 99;
+    if (status === 2) {
+      totals.visitCount += 1;
+      mb.visitCount += 1;
+      sb.visitCount += 1;
+      // 売上 / 消化売上 / 入会判定は実来院した新規にだけ加算する。
+      const a = apptById.get(first.id);
+      if (a) {
+        if (a.sales) {
+          totals.sales += a.sales;
+          mb.sales += a.sales;
+          sb.sales += a.sales;
+        }
+        if (a.consumed_amount) {
+          totals.consumedSales += a.consumed_amount;
+          mb.consumedSales += a.consumed_amount;
+          sb.consumedSales += a.consumed_amount;
+        }
+      }
+      if (customerEverJoined.has(customerId)) {
+        totals.joinCount += 1;
+        mb.joinCount += 1;
+        sb.joinCount += 1;
+      }
+    } else if (isCancel) {
+      totals.cancelCount += 1;
+      mb.cancelCount += 1;
+      sb.cancelCount += 1;
+      if (status === 3) {
+        totals.cancelStandard += 1;
+        mb.cancelStandard += 1;
+        sb.cancelStandard += 1;
+      } else if (status === 4) {
+        totals.cancelSameDay += 1;
+        mb.cancelSameDay += 1;
+        sb.cancelSameDay += 1;
+      } else {
+        totals.noShow += 1;
+        mb.noShow += 1;
+        sb.noShow += 1;
+      }
+    } else {
+      // status 0 (待機) / 1 (施術中) → まだ確定していない = 残り新規
+      totals.remainingCount += 1;
+      mb.remainingCount += 1;
+      sb.remainingCount += 1;
       totals.pendingCount += 1;
       mb.pendingCount += 1;
       sb.pendingCount += 1;
-      continue;
-    }
-    totals.cancelCount += 1;
-    mb.cancelCount += 1;
-    sb.cancelCount += 1;
-    if (a.status === 3) {
-      totals.cancelStandard += 1;
-      mb.cancelStandard += 1;
-      sb.cancelStandard += 1;
-    } else if (a.status === 4) {
-      totals.cancelSameDay += 1;
-      mb.cancelSameDay += 1;
-      sb.cancelSameDay += 1;
-    } else if (a.status === 99) {
-      totals.noShow += 1;
-      mb.noShow += 1;
-      sb.noShow += 1;
     }
   }
 
