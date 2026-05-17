@@ -39,6 +39,8 @@ interface MarketingPageProps {
     tab?: string;
     onlyNew?: string;
     onlyJoin?: string;
+    /** 新患管理タブ専用: 行絞り込み (離反/入会/継続/残2クロ) */
+    status?: string;
   }>;
 }
 
@@ -142,14 +144,21 @@ export default async function MarketingPage({
     }
     if (tab === "new-customer") {
       // 新規管理タブは単月ビュー。?start= をそのまま対象月として使う。
-      // ?end / ?source は現状無視 (月内すべての新規客を列挙)。
+      // ?end は無視 (月内すべての新規客を列挙)。
+      // ?source / ?status は MarketingNewCustomer 内で行を絞り込むのに使う。
       // ?staff は「初回来店をその担当が施術した新規顧客のみ」で絞る。
       const data = await getNewCustomerAnalytics({
         shopId,
         yearMonth: startMonth,
         staffId,
       });
-      return <MarketingNewCustomer data={data} />;
+      return (
+        <MarketingNewCustomer
+          data={data}
+          visitSourceId={visitSourceId}
+          status={sp.status ?? null}
+        />
+      );
     }
     if (tab === "creative") {
       // クリエイティブ分析タブ: brand-wide で「症状 × オファー価格 × 店舗」

@@ -11,6 +11,11 @@ import { ReviewDisplayCell } from "./ReviewToggleCell";
 
 interface MarketingNewCustomerProps {
   data: NewCustomerAnalytics;
+  /** 媒体絞り込み (?source=) — null で全媒体 */
+  visitSourceId?: number | null;
+  /** ステータス絞り込み (?status=)。値:
+   *   "churned" | "joined" | "continuing" | "pendingSecondClose" | null/"" */
+  status?: string | null;
 }
 
 // 表示列数 = 10 回目まで固定で枠を作る。実データがそれ以上になることは
@@ -27,8 +32,12 @@ const VISIT_COLUMNS: number[] = Array.from({ length: 10 }, (_, i) => i + 1);
  *       会員金額 / 1-3 回目売上 / 新規売上合計)。
  * 下段 = 新規売上 / 既存売上 / 合計の比較カード。
  */
-export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
-  const { rows, byStaff, sales, yearMonth } = data;
+export function MarketingNewCustomer({
+  data,
+  visitSourceId = null,
+  status = null,
+}: MarketingNewCustomerProps) {
+  const { rows: allRows, byStaff, sales, yearMonth } = data;
   const [y, m] = yearMonth.split("-");
   const periodLabel = `${y}年${Number(m)}月`;
   // 残2クロ = チケット未購入 (= !isMemberJoin) かつ 2 回目の予約があり、
@@ -40,13 +49,30 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
     month: "2-digit",
     day: "2-digit",
   });
-  const pendingSecondClose = rows.filter(
-    (r) =>
+  function isPendingSecondClose(r: NewCustomerRow): boolean {
+    return (
       !r.isMemberJoin &&
       !r.isChurned &&
       r.visits.length >= 2 &&
       r.visits[1].date > todayStr
-  ).length;
+    );
+  }
+  const pendingSecondClose = allRows.filter(isPendingSecondClose).length;
+
+  // 行の絞り込み: 媒体 + ステータスでフィルタ。ヒーローカード / スタッフ
+  // ピボットは全体数の比較が要るので allRows を参照、新規客台帳 (下の表)
+  // のみ rows (絞り込み後) を使う。
+  const rows = allRows.filter((r) => {
+    if (visitSourceId != null && r.visitSourceId !== visitSourceId) {
+      return false;
+    }
+    if (!status || status === "") return true;
+    if (status === "churned") return r.isChurned;
+    if (status === "joined") return r.isMemberJoin;
+    if (status === "continuing") return !r.isChurned;
+    if (status === "pendingSecondClose") return isPendingSecondClose(r);
+    return true;
+  });
   const newShare =
     sales.totalSales > 0 ? sales.newSales / sales.totalSales : 0;
 
