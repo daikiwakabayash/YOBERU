@@ -268,12 +268,14 @@ export default async function CustomerDetailPage({
 
         <CustomerDetailTabs
           infoTab={
-          <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">基本情報</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
+            {/* 左カラム: 基本情報 + LINE 紐付け */}
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">基本情報</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
               <div>
                 <div className="font-medium text-lg">{fullName}</div>
                 {kanaName && (
@@ -390,17 +392,16 @@ export default async function CustomerDetailPage({
               )}
               <Separator />
               <Link href={`/customer/${id}/edit`}>
-                <Button variant="outline" size="sm" className="w-full">
-                  <FileText className="mr-2 h-4 w-4" />
-                  編集する
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
+                  <Button variant="outline" size="sm" className="w-full">
+                    <FileText className="mr-2 h-4 w-4" />
+                    編集する
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
 
-          {/* 公式 LINE 紐付け (URL + QR) */}
-          {lineLink && (
-            <div className="mt-4">
+            {/* 公式 LINE 紐付け (URL + QR) */}
+            {lineLink && (
               <CustomerLineLinkSection
                 customerId={id}
                 token={lineLink.token}
@@ -409,9 +410,111 @@ export default async function CustomerDetailPage({
                 shopAddFriendUrl={lineLink.shopAddFriendUrl}
                 appUrl={baseUrl}
               />
-            </div>
-          )}
-          </>
+            )}
+          </div>
+
+          {/* 右カラム: 来院履歴 (基本情報タブ上でも常時表示するよう
+              履歴タブと同じ内容をここにも展開する) */}
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Calendar className="h-4 w-4" />
+                  来院履歴・カルテ
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {appointments.length === 0 ? (
+                  <p className="py-8 text-center text-muted-foreground">
+                    来院履歴がありません
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {appointments.map((appt) => {
+                      const date = (appt.start_at as string).slice(0, 10);
+                      const time = (appt.start_at as string).slice(11, 16);
+                      const endTime = (appt.end_at as string).slice(11, 16);
+                      const staff = appt.staffs as { name: string } | null;
+                      const sales = (appt.sales as number) || 0;
+                      const status = appt.status as number;
+                      const carte = appt.customer_record as string | null;
+                      const karteUpdatedAt =
+                        (appt.customer_record_updated_at as string | null) ??
+                        null;
+                      const karteUpdatedBy =
+                        (appt.customer_record_updated_by as string | null) ??
+                        null;
+                      const menuName =
+                        ((appt as Record<string, unknown>).menu_name as string) ??
+                        "不明";
+                      const isCancelled = status === 3 || status === 99;
+                      return (
+                        <div
+                          key={appt.id as number}
+                          className={`rounded-lg border p-4 ${isCancelled ? "opacity-50" : ""}`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-bold">{date}</span>
+                                <span className="text-sm text-gray-500">
+                                  {time}-{endTime}
+                                </span>
+                                <Badge variant="outline" className="text-xs">
+                                  {menuName}
+                                </Badge>
+                                {isCancelled && (
+                                  <Badge className="bg-red-100 text-red-600 text-xs">
+                                    キャンセル
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="mt-1 flex items-center gap-3 text-sm text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <UserCog className="h-3 w-3" />
+                                  {staff?.name ?? "-"}
+                                </span>
+                                {sales > 0 && (
+                                  <span className="flex items-center gap-1">
+                                    <BarChart3 className="h-3 w-3" />
+                                    ¥{sales.toLocaleString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {!isCancelled && (
+                            <KarteEditor
+                              appointmentId={appt.id as number}
+                              initialText={carte}
+                              updatedAt={karteUpdatedAt}
+                              updatedBy={karteUpdatedBy}
+                            />
+                          )}
+                          {isCancelled && carte && (
+                            <div className="mt-3 rounded bg-gray-50 p-3 text-sm">
+                              <div className="mb-1 text-xs font-medium text-gray-400">
+                                カルテ
+                              </div>
+                              <p className="whitespace-pre-wrap text-gray-700">
+                                {carte}
+                              </p>
+                            </div>
+                          )}
+                          {appt.memo && (
+                            <div className="mt-2 text-xs text-gray-400">
+                              メモ: {appt.memo as string}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
           }
           photosTab={
           <Card>

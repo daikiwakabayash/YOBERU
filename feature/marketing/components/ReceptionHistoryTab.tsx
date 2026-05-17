@@ -195,7 +195,7 @@ export function ReceptionHistoryTab({ data, onlyNew, onlyMemberJoin }: Props) {
                       <td className="border-b px-2 py-2 align-top">
                         {r.customerId && r.customerCode ? (
                           <Link
-                            href={`/customer/${r.customerId}/record`}
+                            href={`/customer/${r.customerId}`}
                             className="font-mono text-[11px] font-bold text-blue-600 underline-offset-2 hover:underline"
                           >
                             {r.customerCode}
@@ -209,7 +209,7 @@ export function ReceptionHistoryTab({ data, onlyNew, onlyMemberJoin }: Props) {
                       <td className="border-b px-2 py-2 align-top">
                         {r.customerId ? (
                           <Link
-                            href={`/customer/${r.customerId}/record`}
+                            href={`/customer/${r.customerId}`}
                             className="font-bold text-gray-900 underline-offset-2 hover:text-blue-600 hover:underline"
                           >
                             {r.customerName || "(無名)"}

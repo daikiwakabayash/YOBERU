@@ -31,13 +31,29 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
   const { rows, byStaff, sales, yearMonth } = data;
   const [y, m] = yearMonth.split("-");
   const periodLabel = `${y}年${Number(m)}月`;
+  // 残2クロ = チケット未購入 (= !isMemberJoin) かつ 2 回目の予約があり、
+  //          その 2 回目の日付が今日より未来な新規客の人数。
+  //          「次回来店時にチケット買うか決める予定」のクロージング機会。
+  const todayStr = new Date().toLocaleString("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const pendingSecondClose = rows.filter(
+    (r) =>
+      !r.isMemberJoin &&
+      !r.isChurned &&
+      r.visits.length >= 2 &&
+      r.visits[1].date > todayStr
+  ).length;
   const newShare =
     sales.totalSales > 0 ? sales.newSales / sales.totalSales : 0;
 
   return (
     <div className="space-y-4">
-      {/* Hero 小カード: 新規 / 入会 / 離反率 / 新規売上 */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* Hero 小カード: 新規 / 入会 / 残2クロ / 離反率 / 新規売上 */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <HeroKpi
           tone="bg-orange-50 border-orange-100"
           icon={<UserPlus className="h-4 w-4 text-orange-500" />}
@@ -51,6 +67,13 @@ export function MarketingNewCustomer({ data }: MarketingNewCustomerProps) {
           label="入会数"
           value={`${num(byStaff[0]?.joinCount ?? 0)}名`}
           sub={`入会率 ${pct(byStaff[0]?.joinRate ?? 0)}`}
+        />
+        <HeroKpi
+          tone="bg-amber-50 border-amber-100"
+          icon={<Users className="h-4 w-4 text-amber-600" />}
+          label="残2クロ"
+          value={`${num(pendingSecondClose)}名`}
+          sub={`2回目予約あり / 未購入`}
         />
         <HeroKpi
           tone="bg-red-50 border-red-100"
