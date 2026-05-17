@@ -48,7 +48,7 @@ export function MarketingOverview({
           label="新規数"
           topRightLabel="集客"
           value={`${num(t.visitCount)}名`}
-          subtext={`予約 ${num(t.firstApptCount)} / キャンセル ${num(t.cancelCount)} / 残 ${num(t.remainingCount)}`}
+          subtext={`予約 ${num(t.firstApptCount)} / キャンセル ${num(t.cancelCount)} / 残 ${num(t.remainingCount)} / 残2クロ ${num(t.pendingSecondClose)}`}
         />
         <HeroCard
           icon={<DollarSign className="h-3 w-3 text-green-600" />}
@@ -116,6 +116,7 @@ export function MarketingOverview({
           label="新規売上合計"
           value={yen(t.sales)}
           tone="bg-emerald-50 border-emerald-100"
+          hint="新規顧客の 1〜3 回目来店の売上合計"
         />
         <MiniCard
           label="ROAS"
@@ -423,15 +424,21 @@ function MiniCard({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string;
   value: string;
   tone: string;
+  /** カード下部に小さく出す注釈テキスト (集計ロジックの説明など) */
+  hint?: string;
 }) {
   return (
     <div className={`rounded-lg border p-3 ${tone}`}>
       <div className="text-[11px] font-medium text-gray-500">{label}</div>
       <div className="mt-1 text-base font-black text-gray-900">{value}</div>
+      {hint && (
+        <div className="mt-1 text-[10px] text-gray-400">{hint}</div>
+      )}
     </div>
   );
 }
