@@ -36,15 +36,15 @@ export async function getMarketingByMenu(params: {
   const nextM = em === 12 ? 1 : em + 1;
   const endTsExclusive = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00+09:00`;
 
-  // Marketing = 新規のみ → filter visit_count=1. See getMarketingData.ts
-  // for the spec rationale.
+  // 新規のみ = 顧客の人生最古 status=2 予約 id 一致。getMarketingData.ts
+  // と同じ方針。入会判定はライフタイム (customer_plans or is_member_join)。
   let q = supabase
     .from("appointments")
     .select(
-      "menu_manage_id, status, sales, is_member_join, visit_source_id, visit_count"
+      "id, customer_id, menu_manage_id, status, sales, visit_source_id, start_at"
     )
     .eq("shop_id", shopId)
-    .eq("visit_count", 1)
+    .eq("status", 2)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null);
@@ -53,17 +53,71 @@ export async function getMarketingByMenu(params: {
 
   const { data: appts } = await q;
   const appointments = (appts ?? []) as Array<{
+    id: number;
+    customer_id: number | null;
     menu_manage_id: string;
     status: number;
     sales: number | null;
-    is_member_join: boolean | null;
-    visit_count: number | null;
+    start_at: string;
   }>;
+
+  // ライフタイム attribution
+  const customerIdsInRange = Array.from(
+    new Set(
+      appointments
+        .map((a) => a.customer_id)
+        .filter((id): id is number => id != null)
+    )
+  );
+  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  const customerEverJoined = new Set<number>();
+  if (customerIdsInRange.length > 0) {
+    const [completedHistRes, plansRes, joinFlagApptsRes] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("id, customer_id, start_at")
+        .eq("shop_id", shopId)
+        .eq("status", 2)
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: true }),
+      supabase
+        .from("customer_plans")
+        .select("customer_id")
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null),
+      supabase
+        .from("appointments")
+        .select("customer_id")
+        .eq("shop_id", shopId)
+        .eq("is_member_join", true)
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null),
+    ]);
+    for (const r of (completedHistRes.data ?? []) as Array<{
+      id: number;
+      customer_id: number;
+      start_at: string;
+    }>) {
+      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
+        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
+      }
+    }
+    for (const p of (plansRes.data ?? []) as Array<{ customer_id: number }>) {
+      customerEverJoined.add(p.customer_id);
+    }
+    for (const r of (joinFlagApptsRes.data ?? []) as Array<{
+      customer_id: number;
+    }>) {
+      customerEverJoined.add(r.customer_id);
+    }
+  }
 
   // Bucket by menu_manage_id
   const byMenu = new Map<string, MenuTotals>();
   for (const a of appointments) {
-    if ((a.visit_count ?? 0) !== 1) continue;
+    if (a.customer_id == null) continue;
+    if (firstCompletedApptIdByCustomer.get(a.customer_id) !== a.id) continue;
     let bucket = byMenu.get(a.menu_manage_id);
     if (!bucket) {
       bucket = {
@@ -79,14 +133,13 @@ export async function getMarketingByMenu(params: {
       };
       byMenu.set(a.menu_manage_id, bucket);
     }
+    // 新規 attribution の予約は status=2 確定なので 予約 = 実来院 = 1。
     bucket.reservationCount += 1;
-    const isCancel = a.status === 3 || a.status === 4 || a.status === 99;
-    const isVisit = a.status === 1 || a.status === 2;
-    const isComplete = a.status === 2;
-    if (isCancel) bucket.cancelCount += 1;
-    if (isVisit) bucket.visitCount += 1;
-    if (isComplete && a.sales) bucket.sales += a.sales;
-    if (a.is_member_join) bucket.joinCount += 1;
+    bucket.visitCount += 1;
+    if (a.sales) bucket.sales += a.sales;
+    if (customerEverJoined.has(a.customer_id)) {
+      bucket.joinCount += 1;
+    }
   }
 
   // Resolve menu names in a single follow-up query

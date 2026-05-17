@@ -29,7 +29,9 @@ interface SalesData {
     count: number;
     /** 施術数 = status 1/2 かつ type=0 のみ (ミーティング/キャンセル除外) */
     treatmentCount: number;
-    /** 新規数 = 施術のうち visit_count=1 の件数 */
+    /** 新規数 = 顧客の人生最古の status=2 完了予約 (true new attribution)。
+     *  期間内にその完了予約が含まれていれば 1 加算。visit_count スタンプに
+     *  は依存しない (キャンセル後の再スタンプで誤計上されるのを防ぐ)。 */
     newCount: number;
     /** スタッフ別消化売上 (完了予約) */
     consumedSales: number;
@@ -220,11 +222,12 @@ export async function getSalesSummary(
       }) > 0
   ).length;
 
-  // For new/existing split, type=0 is normal booking
-  // We approximate new customers by checking type field
-  // In production, this would cross-reference customer's first visit date
-  const newCustomerAppts = completed.filter((a) => a.type === 0);
-  const existingCustomerAppts = completed.filter((a) => a.type !== 0);
+  // 新規/既存 売上の分類: 新規 attribution は「顧客の人生最古 status=2
+  // 予約 id」一致のもの。それ以外の status=2 完了は既存売上として扱う。
+  // (実際の Map は下のヒストリ取得後に確定するので、ここではプレース
+  //  ホルダーを置いておく)
+  let newCustomerAppts: typeof completed = [];
+  let existingCustomerAppts: typeof completed = completed;
 
   // Staff breakdown (completed appointments for sales/count) + treatment
   // count (status 1/2, type=0 — actual 施術 only) + new customer count.
@@ -280,6 +283,56 @@ export async function getSalesSummary(
     });
   }
 
+  // 新規 attribution: 期間内の予約に含まれる顧客の「人生最古の status=2
+  // 完了予約 id」を求め、その id が期間内予約にあれば新規 1 件として
+  // カウントする。visit_count スタンプは「初回キャンセル → 2 回目で再
+  // スタンプ」のケースで誤計上を起こすので使わない (新患管理・概要・
+  // 経営指標と統一)。
+  const customerIdsInRange = Array.from(
+    new Set(
+      appts
+        .map((a) => a.customer_id as number | null)
+        .filter((id): id is number => id != null)
+    )
+  );
+  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  if (customerIdsInRange.length > 0) {
+    const { data: histRows } = await supabase
+      .from("appointments")
+      .select("id, customer_id, start_at")
+      .eq("shop_id", shopId)
+      .eq("status", 2)
+      .in("customer_id", customerIdsInRange)
+      .is("deleted_at", null)
+      .order("start_at", { ascending: true });
+    for (const r of (histRows ?? []) as Array<{
+      id: number;
+      customer_id: number;
+      start_at: string;
+    }>) {
+      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
+        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
+      }
+    }
+  }
+
+  // 期間内 完了予約を「新規 (= 顧客の人生最古完了 id 一致)」と
+  // 「既存 (それ以外)」に分割。
+  newCustomerAppts = completed.filter((a) => {
+    const cId = a.customer_id as number | null;
+    return (
+      cId != null &&
+      firstCompletedApptIdByCustomer.get(cId) === (a.id as number)
+    );
+  });
+  existingCustomerAppts = completed.filter((a) => {
+    const cId = a.customer_id as number | null;
+    return (
+      cId == null ||
+      firstCompletedApptIdByCustomer.get(cId) !== (a.id as number)
+    );
+  });
+
   // Pass 2: treatment count + new count. Includes status 1 (施術中) AND
   // status 2 (完了), but only type=0 (通常予約). Excludes meetings,
   // breaks, cancels, no-shows.
@@ -295,7 +348,8 @@ export async function getSalesSummary(
       staffData?.name ?? "不明"
     );
     row.treatmentCount += 1;
-    if ((appt.visit_count as number | null) === 1) {
+    const cId = appt.customer_id as number | null;
+    if (cId != null && firstCompletedApptIdByCustomer.get(cId) === (appt.id as number)) {
       row.newCount += 1;
     }
   }

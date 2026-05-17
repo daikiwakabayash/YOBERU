@@ -418,8 +418,34 @@ function StaffPivotTable({
           values={byStaff.map((s) => yen(s.salesByVisitIndex[1] ?? 0))}
         />
         <PivotRow
+          label="2回目来店数"
+          values={byStaff.map((s) => num(s.visitCountByIndex[1] ?? 0))}
+        />
+        <PivotRow
+          label="2回目率"
+          values={byStaff.map((s) =>
+            s.newCount > 0
+              ? pct((s.visitCountByIndex[1] ?? 0) / s.newCount)
+              : "-"
+          )}
+          tone="text-blue-600"
+        />
+        <PivotRow
           label="3回目売上"
           values={byStaff.map((s) => yen(s.salesByVisitIndex[2] ?? 0))}
+        />
+        <PivotRow
+          label="3回目来店数"
+          values={byStaff.map((s) => num(s.visitCountByIndex[2] ?? 0))}
+        />
+        <PivotRow
+          label="3回目率"
+          values={byStaff.map((s) =>
+            s.newCount > 0
+              ? pct((s.visitCountByIndex[2] ?? 0) / s.newCount)
+              : "-"
+          )}
+          tone="text-blue-600"
         />
         <PivotRow
           label="新規売上合計"

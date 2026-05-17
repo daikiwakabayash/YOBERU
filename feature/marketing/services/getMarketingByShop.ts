@@ -95,14 +95,15 @@ export async function getMarketingByShop(params: {
     byShop.set(s.id, emptyShopTotals(s.id, s.name));
   }
 
-  // 2. All appointments across the brand in range (one query).
-  //    Marketing = 新規のみ → filter visit_count = 1.
-  //    See getMarketingData.ts for the spec rationale.
+  // 2. 期間内の status=2 (完了) 予約をブランド全体で取得。新規 attribution
+  //    は「顧客の人生最古 status=2 予約」一致 (visit_count スタンプには
+  //    依存しない)。入会判定は顧客レベルでライフタイム判定する。
+  //    getMarketingData.ts と同じ方針。
   let apptQuery = supabase
     .from("appointments")
-    .select("shop_id, status, sales, visit_source_id, is_member_join, visit_count")
+    .select("id, customer_id, shop_id, status, sales, visit_source_id, start_at")
     .eq("brand_id", brandId)
-    .eq("visit_count", 1)
+    .eq("status", 2)
     .gte("start_at", startTs)
     .lt("start_at", endTsExclusive)
     .is("deleted_at", null);
@@ -120,12 +121,13 @@ export async function getMarketingByShop(params: {
 
   const { data: apptRes } = await apptQuery;
   const appointments = (apptRes ?? []) as Array<{
+    id: number;
+    customer_id: number | null;
     shop_id: number;
     status: number;
     sales: number | null;
     visit_source_id: number | null;
-    is_member_join: boolean | null;
-    visit_count: number | null;
+    start_at: string;
   }>;
   const adSpend = (adSpendRes ?? []) as Array<{
     shop_id: number;
@@ -133,23 +135,75 @@ export async function getMarketingByShop(params: {
     amount: number;
   }>;
 
+  // ライフタイム attribution: 期間内予約に出てくる顧客の「人生最古
+  // status=2 予約 id」と「ライフタイム入会フラグ」を求める。
+  const customerIdsInRange = Array.from(
+    new Set(
+      appointments
+        .map((a) => a.customer_id)
+        .filter((id): id is number => id != null)
+    )
+  );
+  const firstCompletedApptIdByCustomer = new Map<number, number>();
+  const customerEverJoined = new Set<number>();
+  if (customerIdsInRange.length > 0) {
+    const [completedHistRes, plansRes, joinFlagApptsRes] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("id, customer_id, start_at")
+        .eq("brand_id", brandId)
+        .eq("status", 2)
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null)
+        .order("start_at", { ascending: true }),
+      supabase
+        .from("customer_plans")
+        .select("customer_id")
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null),
+      supabase
+        .from("appointments")
+        .select("customer_id")
+        .eq("brand_id", brandId)
+        .eq("is_member_join", true)
+        .in("customer_id", customerIdsInRange)
+        .is("deleted_at", null),
+    ]);
+    for (const r of (completedHistRes.data ?? []) as Array<{
+      id: number;
+      customer_id: number;
+      start_at: string;
+    }>) {
+      if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
+        firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
+      }
+    }
+    for (const p of (plansRes.data ?? []) as Array<{ customer_id: number }>) {
+      customerEverJoined.add(p.customer_id);
+    }
+    for (const r of (joinFlagApptsRes.data ?? []) as Array<{
+      customer_id: number;
+    }>) {
+      customerEverJoined.add(r.customer_id);
+    }
+  }
+
   for (const a of appointments) {
-    // Defensive re-check for legacy rows with NULL visit_count.
-    if ((a.visit_count ?? 0) !== 1) continue;
+    // 真の新規 attribution: 顧客の最古完了予約 id と一致するもののみ。
+    if (a.customer_id == null) continue;
+    if (firstCompletedApptIdByCustomer.get(a.customer_id) !== a.id) continue;
+
     const bucket =
       byShop.get(a.shop_id) ?? emptyShopTotals(a.shop_id, "(不明)");
     if (!byShop.has(a.shop_id)) byShop.set(a.shop_id, bucket);
 
+    // 新規顧客は status=2 確定なので 予約 = 実来院 = 1 で揃う。
     bucket.reservationCount += 1;
-
-    const isCancel = a.status === 3 || a.status === 4 || a.status === 99;
-    const isVisit = a.status === 1 || a.status === 2;
-    const isComplete = a.status === 2;
-
-    if (isCancel) bucket.cancelCount += 1;
-    if (isVisit) bucket.visitCount += 1;
-    if (isComplete && a.sales) bucket.sales += a.sales;
-    if (a.is_member_join) bucket.joinCount += 1;
+    bucket.visitCount += 1;
+    if (a.sales) bucket.sales += a.sales;
+    if (customerEverJoined.has(a.customer_id)) {
+      bucket.joinCount += 1;
+    }
   }
 
   for (const r of adSpend) {
