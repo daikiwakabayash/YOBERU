@@ -457,16 +457,18 @@ export async function getMarketingData(params: {
     mb.firstApptCount += 1;
     sb.firstApptCount += 1;
 
-    // 残2クロ判定: チケット未購入かつ 2 回目の予約が未来日付の新規顧客。
+    // 残2クロ判定: チケット未購入 + 「2 回目以降の予約 (= 非キャンセル
+    // 予約 2 件以上)」+ そのうち未来日付の予約が 1 件以上ある新規顧客。
     // 「次回来店時にチケット買うかどうか決める予定の人」= クロージング機会。
+    // 例: 1 回目来店済 → 2 回目も来店済 → 3 回目を未来予約 という顧客も
+    // 含める (前金で 2 回目分支払い済み、3 回目で本契約を決めるパターン)。
     if (!customerEverJoined.has(customerId)) {
       const list = apptsByCustomer.get(customerId) ?? [];
-      // キャンセル系を除いた予定順 (start_at 昇順) で 2 番目を取る
       const nonCancel = list.filter(
         (a) => a.status !== 3 && a.status !== 4 && a.status !== 99
       );
-      const second = nonCancel[1];
-      if (second && second.start_at > nowIso) {
+      const hasFuture = nonCancel.some((a) => a.start_at > nowIso);
+      if (nonCancel.length >= 2 && hasFuture) {
         totals.pendingSecondClose += 1;
         mb.pendingSecondClose += 1;
         sb.pendingSecondClose += 1;

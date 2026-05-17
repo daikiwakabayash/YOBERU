@@ -40,22 +40,14 @@ export function MarketingNewCustomer({
   const { rows: allRows, byStaff, sales, yearMonth } = data;
   const [y, m] = yearMonth.split("-");
   const periodLabel = `${y}年${Number(m)}月`;
-  // 残2クロ = チケット未購入 (= !isMemberJoin) かつ 2 回目の予約があり、
-  //          その 2 回目の日付が今日より未来な新規客の人数。
+  // 残2クロ = チケット未購入 (= !isMemberJoin) かつ 2 回目以降の予約があり
+  //          (= visits.length ≥ 2)、その中に未来日付の予約がある (= !isChurned)
+  //          新規客の人数。
   //          「次回来店時にチケット買うか決める予定」のクロージング機会。
-  const todayStr = new Date().toLocaleString("en-CA", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  //          例: 1〜2 回目来店済で 3 回目を未来予約しているケースも対象
+  //          (前金で 2 回目分支払い済 → 3 回目で本契約パターン)。
   function isPendingSecondClose(r: NewCustomerRow): boolean {
-    return (
-      !r.isMemberJoin &&
-      !r.isChurned &&
-      r.visits.length >= 2 &&
-      r.visits[1].date > todayStr
-    );
+    return !r.isMemberJoin && !r.isChurned && r.visits.length >= 2;
   }
   const pendingSecondClose = allRows.filter(isPendingSecondClose).length;
 
@@ -441,6 +433,7 @@ function StaffPivotTable({
         />
         <PivotRow
           label="購入率"
+          hint="購入数 ÷ 新規数"
           values={byStaff.map((s) =>
             s.newCount > 0 ? pct(s.joinRate) : "-"
           )}
@@ -448,6 +441,7 @@ function StaffPivotTable({
         />
         <PivotRow
           label="会員単価"
+          hint="会員金額 ÷ 購入数"
           values={byStaff.map((s) =>
             s.joinCount > 0 ? yen(s.memberUnitPrice) : "-"
           )}
@@ -472,6 +466,7 @@ function StaffPivotTable({
         />
         <PivotRow
           label="2回目率"
+          hint="2回目来店数 ÷ 新規数"
           values={byStaff.map((s) =>
             s.newCount > 0
               ? pct((s.visitCountByIndex[1] ?? 0) / s.newCount)
@@ -489,6 +484,7 @@ function StaffPivotTable({
         />
         <PivotRow
           label="3回目率"
+          hint="3回目来店数 ÷ 新規数"
           values={byStaff.map((s) =>
             s.newCount > 0
               ? pct((s.visitCountByIndex[2] ?? 0) / s.newCount)
@@ -512,16 +508,24 @@ function PivotRow({
   values,
   tone,
   rowTone,
+  hint,
 }: {
   label: string;
   values: string[];
   tone?: string;
   rowTone?: string;
+  /** ラベルの右に小さく出す計算式や注釈 (例: "2回目来店数 ÷ 新規数") */
+  hint?: string;
 }) {
   return (
     <tr className={rowTone ?? "hover:bg-gray-50/60"}>
       <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-gray-700">
-        {label}
+        <span>{label}</span>
+        {hint && (
+          <span className="ml-2 text-[10px] font-normal text-gray-400">
+            ({hint})
+          </span>
+        )}
       </td>
       {values.map((v, i) => (
         <td
