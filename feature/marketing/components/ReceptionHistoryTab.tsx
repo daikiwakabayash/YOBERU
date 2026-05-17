@@ -308,27 +308,34 @@ function ClassificationBadge({
   cls: "new" | "continuing";
   isFirstVisit: boolean;
 }) {
-  // 売上分類 (= 初回プラン購入かどうか) を主表記、来店区分はサブで表示
-  if (cls === "new") {
+  // プラン更新 (継続売上) は新規/既存と独立した区分として「継続」で表示
+  if (cls === "continuing") {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="inline-flex w-fit rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+          継続
+        </span>
+        <span className="text-[9px] text-gray-400">プラン更新</span>
+      </div>
+    );
+  }
+  // 初来店なら 新規、それ以外 (2 回目以降の通常来店) は 既存。
+  if (isFirstVisit) {
     return (
       <div className="flex flex-col gap-0.5">
         <span className="inline-flex w-fit rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">
           新規
         </span>
-        {isFirstVisit ? (
-          <span className="text-[9px] text-gray-400">初来店</span>
-        ) : (
-          <span className="text-[9px] text-gray-400">2回目以降</span>
-        )}
+        <span className="text-[9px] text-gray-400">初来店</span>
       </div>
     );
   }
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="inline-flex w-fit rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-        継続
+      <span className="inline-flex w-fit rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-700">
+        既存
       </span>
-      <span className="text-[9px] text-gray-400">プラン更新</span>
+      <span className="text-[9px] text-gray-400">2回目以降</span>
     </div>
   );
 }

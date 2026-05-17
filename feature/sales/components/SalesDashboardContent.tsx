@@ -118,7 +118,7 @@ export function SalesDashboardContent({
         <Card data-size="sm">
           <CardHeader className="flex flex-row items-center justify-between pb-1">
             <CardTitle className="text-xs font-medium text-muted-foreground">
-              新規顧客
+              新規売上
             </CardTitle>
             <UserPlus className="h-3.5 w-3.5 text-green-500" />
           </CardHeader>
@@ -127,7 +127,7 @@ export function SalesDashboardContent({
               ¥{data.newCustomerSales.toLocaleString()}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              {data.newCustomerCount}件
+              {data.newCustomerCount}件 (1〜3回目)
             </p>
           </CardContent>
         </Card>
@@ -135,7 +135,7 @@ export function SalesDashboardContent({
         <Card data-size="sm">
           <CardHeader className="flex flex-row items-center justify-between pb-1">
             <CardTitle className="text-xs font-medium text-muted-foreground">
-              既存顧客
+              継続売上
             </CardTitle>
             <UserCheck className="h-3.5 w-3.5 text-blue-500" />
           </CardHeader>
