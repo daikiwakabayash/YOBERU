@@ -200,6 +200,10 @@ export async function getKpiData(params: {
     )
   );
   const firstCompletedApptIdByCustomer = new Map<number, number>();
+  // 顧客 → 1〜3 回目までの status=2 予約 id 集合。
+  // 「3 回目来店まで」を新規売上に含める運用に合わせて、最古 1 件だけでなく
+  // 前 3 件まで保持する (start_at 昇順なので追記順 = 来店順)。
+  const firstThreeCompletedApptIds = new Map<number, Set<number>>();
   const customerEverJoined = new Set<number>();
   const plansByApptId = new Map<number, number[]>();
   const firstPlanIdByCustomer = new Map<number, number>();
@@ -234,6 +238,11 @@ export async function getKpiData(params: {
     }>) {
       if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
         firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
+      }
+      const set = firstThreeCompletedApptIds.get(r.customer_id) ?? new Set();
+      if (set.size < 3) {
+        set.add(r.id);
+        firstThreeCompletedApptIds.set(r.customer_id, set);
       }
     }
     type PlanRow = {
@@ -316,22 +325,23 @@ export async function getKpiData(params: {
       a.customer_id != null &&
       firstCompletedApptIdByCustomer.get(a.customer_id) === a.id;
 
-    // 「継続売上」 = この予約に紐づくプランがあり、最古プランを含まない
-    // (= 2 回目以降のプラン購入のみ)。最古プランを含む / プラン購入なし
-    // は新規売上とする。
-    const planIds = plansByApptId.get(a.id) ?? [];
-    const firstPlanId =
-      a.customer_id != null
-        ? firstPlanIdByCustomer.get(a.customer_id) ?? null
-        : null;
-    const containsFirstPlan =
-      firstPlanId != null && planIds.some((id) => id === firstPlanId);
-    const isContinuingSale = planIds.length > 0 && !containsFirstPlan;
+    // 「新規売上 / 継続売上」 = 顧客の **来店回数** ベースで判定。
+    //   - 顧客の人生 1 〜 3 回目の status=2 予約に紐づく sales = 新規売上
+    //     (1 回目で入会できなくても、2 回目 / 3 回目で回数券購入する
+    //      ことがあるので、新規獲得期間として 3 回目までを新規に含める)
+    //   - 4 回目以降の status=2 予約に紐づく sales = 継続売上
+    //   - 顧客に紐付かない予約は新規扱い (フォールバック)
+    const isFirstThreeVisit =
+      a.customer_id != null &&
+      (firstThreeCompletedApptIds.get(a.customer_id)?.has(a.id) ?? false);
 
     if (isComplete && a.sales) {
       totals.totalSales += a.sales;
-      if (isContinuingSale) totals.continuingSales += a.sales;
-      else totals.newSales += a.sales;
+      if (a.customer_id == null || isFirstThreeVisit) {
+        totals.newSales += a.sales;
+      } else {
+        totals.continuingSales += a.sales;
+      }
     }
 
     // 総新規数 = 期間内に最古完了予約 (= 真の新規) が立った顧客の

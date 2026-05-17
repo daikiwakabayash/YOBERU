@@ -296,6 +296,10 @@ export async function getSalesSummary(
     )
   );
   const firstCompletedApptIdByCustomer = new Map<number, number>();
+  // 顧客 → 1〜3 回目までの status=2 予約 id 集合。
+  // 「3 回目来店まで」を新規売上に含める運用に合わせて、最古 1 件だけでなく
+  // 前 3 件まで保持する (start_at 昇順なので追記順 = 来店順)。
+  const firstThreeCompletedApptIds = new Map<number, Set<number>>();
   if (customerIdsInRange.length > 0) {
     const { data: histRows } = await supabase
       .from("appointments")
@@ -313,24 +317,26 @@ export async function getSalesSummary(
       if (!firstCompletedApptIdByCustomer.has(r.customer_id)) {
         firstCompletedApptIdByCustomer.set(r.customer_id, r.id);
       }
+      const set = firstThreeCompletedApptIds.get(r.customer_id) ?? new Set();
+      if (set.size < 3) {
+        set.add(r.id);
+        firstThreeCompletedApptIds.set(r.customer_id, set);
+      }
     }
   }
 
-  // 期間内 完了予約を「新規 (= 顧客の人生最古完了 id 一致)」と
-  // 「既存 (それ以外)」に分割。
+  // 期間内 完了予約を「新規 = 顧客の人生 1〜3 回目 status=2」と
+  // 「継続 = 4 回目以降」に分割。2 回目 / 3 回目で回数券購入する顧客も
+  // 新規獲得期間として捉えるため、新規 attribution を 3 回目まで延長。
   newCustomerAppts = completed.filter((a) => {
     const cId = a.customer_id as number | null;
-    return (
-      cId != null &&
-      firstCompletedApptIdByCustomer.get(cId) === (a.id as number)
-    );
+    if (cId == null) return false;
+    return firstThreeCompletedApptIds.get(cId)?.has(a.id as number) ?? false;
   });
   existingCustomerAppts = completed.filter((a) => {
     const cId = a.customer_id as number | null;
-    return (
-      cId == null ||
-      firstCompletedApptIdByCustomer.get(cId) !== (a.id as number)
-    );
+    if (cId == null) return true;
+    return !(firstThreeCompletedApptIds.get(cId)?.has(a.id as number) ?? false);
   });
 
   // Pass 2: treatment count + new count. Includes status 1 (施術中) AND
