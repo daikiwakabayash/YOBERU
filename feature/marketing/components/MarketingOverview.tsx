@@ -47,8 +47,8 @@ export function MarketingOverview({
           iconBg="bg-orange-100"
           label="新規数"
           topRightLabel="集客"
-          value={`${num(t.firstApptCount)}名`}
-          subtext={`実来院 ${num(t.visitCount)} / キャンセル ${num(t.cancelCount)} / 残 ${num(t.remainingCount)}`}
+          value={`${num(t.visitCount)}名`}
+          subtext={`予約 ${num(t.firstApptCount)} / キャンセル ${num(t.cancelCount)} / 残 ${num(t.remainingCount)}`}
         />
         <HeroCard
           icon={<DollarSign className="h-3 w-3 text-green-600" />}
@@ -184,8 +184,8 @@ export function MarketingOverview({
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">月</th>
+                <th className="px-3 py-2 text-right font-medium">予約数</th>
                 <th className="px-3 py-2 text-right font-medium">新規数</th>
-                <th className="px-3 py-2 text-right font-medium">実来院</th>
                 <th className="px-3 py-2 text-right font-medium">入会数</th>
                 <th className="px-3 py-2 text-right font-medium">入会率</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
@@ -228,7 +228,7 @@ export function MarketingOverview({
                     <td
                       className="px-3 py-2 text-right text-gray-700"
                       title={
-                        `新規 ${m.firstApptCount} = 実来院 ${m.visitCount} + キャンセル ${m.cancelCount} + 残新規 ${m.remainingCount}\n` +
+                        `予約 ${m.firstApptCount} = 新規 ${m.visitCount} + キャンセル ${m.cancelCount} + 残新規 ${m.remainingCount}\n` +
                         `キャンセル内訳: 通常 ${m.cancelStandard} / 当日 ${m.cancelSameDay} / 無断 ${m.noShow}`
                       }
                     >
@@ -278,8 +278,8 @@ export function MarketingOverview({
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">媒体</th>
+                <th className="px-3 py-2 text-right font-medium">予約数</th>
                 <th className="px-3 py-2 text-right font-medium">新規数</th>
-                <th className="px-3 py-2 text-right font-medium">実来院</th>
                 <th className="px-3 py-2 text-right font-medium">入会</th>
                 <th className="px-3 py-2 text-right font-medium">入会率</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
@@ -330,7 +330,7 @@ export function MarketingOverview({
                     <td
                       className="px-3 py-2 text-right text-gray-700"
                       title={
-                        `新規 ${s.firstApptCount} = 実来院 ${s.visitCount} + キャンセル ${s.cancelCount} + 残新規 ${s.remainingCount}\n` +
+                        `予約 ${s.firstApptCount} = 新規 ${s.visitCount} + キャンセル ${s.cancelCount} + 残新規 ${s.remainingCount}\n` +
                         `キャンセル内訳: 通常 ${s.cancelStandard} / 当日 ${s.cancelSameDay} / 無断 ${s.noShow}`
                       }
                     >
