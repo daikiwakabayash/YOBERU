@@ -45,10 +45,10 @@ export function MarketingOverview({
         <HeroCard
           icon={<Users className="h-3 w-3 text-orange-600" />}
           iconBg="bg-orange-100"
-          label="実来院数"
+          label="新規数"
           topRightLabel="集客"
-          value={`${num(t.visitCount)}名`}
-          subtext={`予約 ${num(t.reservationCount)}名`}
+          value={`${num(t.firstApptCount)}名`}
+          subtext={`実来院 ${num(t.visitCount)} / キャンセル ${num(t.cancelCount)} / 残 ${num(t.remainingCount)}`}
         />
         <HeroCard
           icon={<DollarSign className="h-3 w-3 text-green-600" />}
@@ -184,18 +184,16 @@ export function MarketingOverview({
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">月</th>
-                <th className="px-3 py-2 text-right font-medium">予約数</th>
+                <th className="px-3 py-2 text-right font-medium">新規数</th>
                 <th className="px-3 py-2 text-right font-medium">実来院</th>
                 <th className="px-3 py-2 text-right font-medium">入会数</th>
                 <th className="px-3 py-2 text-right font-medium">入会率</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル率</th>
+                <th className="px-3 py-2 text-right font-medium">残新規</th>
                 <th className="px-3 py-2 text-right font-medium">広告費</th>
                 <th className="px-3 py-2 text-right font-medium">CPA</th>
                 <th className="px-3 py-2 text-right font-medium">売上</th>
-                <th className="px-3 py-2 text-right font-medium text-cyan-700">
-                  消化売上
-                </th>
                 <th className="px-3 py-2 text-right font-medium">ROAS</th>
               </tr>
             </thead>
@@ -216,7 +214,7 @@ export function MarketingOverview({
                       {m.yearMonth}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
-                      {num(m.reservationCount)}
+                      {num(m.firstApptCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {num(m.visitCount)}
@@ -230,14 +228,17 @@ export function MarketingOverview({
                     <td
                       className="px-3 py-2 text-right text-gray-700"
                       title={
-                        `予約 ${m.reservationCount} - 実来院 ${m.visitCount} - C数 ${m.cancelCount} - 待機 ${m.pendingCount}\n` +
-                        `内訳: キャンセル ${m.cancelStandard} / 当日キャンセル ${m.cancelSameDay} / 無断キャンセル ${m.noShow}`
+                        `新規 ${m.firstApptCount} = 実来院 ${m.visitCount} + キャンセル ${m.cancelCount} + 残新規 ${m.remainingCount}\n` +
+                        `キャンセル内訳: 通常 ${m.cancelStandard} / 当日 ${m.cancelSameDay} / 無断 ${m.noShow}`
                       }
                     >
                       {num(m.cancelCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-red-500">
                       {pct(m.cancelRate)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-700">
+                      {num(m.remainingCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {yen(m.adSpend)}
@@ -247,9 +248,6 @@ export function MarketingOverview({
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-emerald-700">
                       {yen(m.sales)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-cyan-800">
-                      {m.consumedSales > 0 ? yen(m.consumedSales) : "-"}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span
@@ -280,39 +278,45 @@ export function MarketingOverview({
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">媒体</th>
-                <th className="px-3 py-2 text-right font-medium">予約数</th>
+                <th className="px-3 py-2 text-right font-medium">新規数</th>
                 <th className="px-3 py-2 text-right font-medium">実来院</th>
                 <th className="px-3 py-2 text-right font-medium">入会</th>
                 <th className="px-3 py-2 text-right font-medium">入会率</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル数</th>
                 <th className="px-3 py-2 text-right font-medium">キャンセル率</th>
+                <th className="px-3 py-2 text-right font-medium">残新規</th>
                 <th className="px-3 py-2 text-right font-medium">広告費</th>
                 <th className="px-3 py-2 text-right font-medium">CPA</th>
                 <th className="px-3 py-2 text-right font-medium">売上</th>
-                <th className="px-3 py-2 text-right font-medium text-cyan-700">
-                  消化売上
-                </th>
                 <th className="px-3 py-2 text-right font-medium">ROAS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {data.bySource.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={12}
-                    className="py-6 text-center text-muted-foreground"
-                  >
-                    媒体データがありません
-                  </td>
-                </tr>
-              ) : (
-                data.bySource.map((s) => (
+              {(() => {
+                // 「新規だけを管理する場所」として、新規も広告費もない行
+                // (= (不明) で何もないようなケース) はノイズなので非表示にする。
+                const filtered = data.bySource.filter(
+                  (s) => s.firstApptCount > 0 || s.adSpend > 0
+                );
+                if (filtered.length === 0) {
+                  return (
+                    <tr>
+                      <td
+                        colSpan={12}
+                        className="py-6 text-center text-muted-foreground"
+                      >
+                        媒体データがありません
+                      </td>
+                    </tr>
+                  );
+                }
+                return filtered.map((s) => (
                   <tr key={s.visitSourceId} className="hover:bg-gray-50/60">
                     <td className="px-4 py-2 font-medium text-gray-900">
                       {s.sourceName ?? "(不明)"}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
-                      {num(s.reservationCount)}
+                      {num(s.firstApptCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {num(s.visitCount)}
@@ -325,18 +329,18 @@ export function MarketingOverview({
                     </td>
                     <td
                       className="px-3 py-2 text-right text-gray-700"
-                      // C数 の根拠を hover で確認できるように内訳を出す。
-                      // 「C数 3 だけど予約表で数えると合わない」という
-                      // 検証作業のためのツールチップ。
                       title={
-                        `予約 ${s.reservationCount} - 実来院 ${s.visitCount} - C数 ${s.cancelCount} - 待機 ${s.pendingCount}\n` +
-                        `内訳: キャンセル ${s.cancelStandard} / 当日キャンセル ${s.cancelSameDay} / 無断キャンセル ${s.noShow}`
+                        `新規 ${s.firstApptCount} = 実来院 ${s.visitCount} + キャンセル ${s.cancelCount} + 残新規 ${s.remainingCount}\n` +
+                        `キャンセル内訳: 通常 ${s.cancelStandard} / 当日 ${s.cancelSameDay} / 無断 ${s.noShow}`
                       }
                     >
                       {num(s.cancelCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-red-500">
                       {pct(s.cancelRate)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-700">
+                      {num(s.remainingCount)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">
                       {yen(s.adSpend)}
@@ -346,9 +350,6 @@ export function MarketingOverview({
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-emerald-700">
                       {yen(s.sales)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-cyan-800">
-                      {s.consumedSales > 0 ? yen(s.consumedSales) : "-"}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span
@@ -362,8 +363,8 @@ export function MarketingOverview({
                       </span>
                     </td>
                   </tr>
-                ))
-              )}
+                ));
+              })()}
             </tbody>
           </table>
         </div>

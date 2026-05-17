@@ -13,6 +13,29 @@ function generateCode(): string {
   return `c-${rand}`;
 }
 
+/** Supabase の生エラーメッセージをユーザー向けの説明文に置き換える。
+ *  特にマイグレーション未適用 (テーブル/カラムが無い) ケースは
+ *  運用側で対処が必要なので、何をすればいいかを明示する。 */
+function translateError(msg: string): string {
+  if (
+    msg.includes('relation "creative_symptoms"') ||
+    msg.includes("creative_symptoms") &&
+      (msg.includes("does not exist") || msg.includes("schema cache"))
+  ) {
+    return (
+      "creative_symptoms テーブルが未作成です。Supabase の SQL Editor で " +
+      "supabase/migrations/00050_creative_analysis.sql を実行してください。"
+    );
+  }
+  if (msg.includes("permission denied")) {
+    return "権限不足です。Supabase の RLS / GRANT 設定を確認してください。";
+  }
+  if (msg.includes("duplicate key")) {
+    return "code が重複しました。もう一度お試しください。";
+  }
+  return msg;
+}
+
 export async function createCreativeSymptom(formData: FormData) {
   const supabase = await createClient();
   const raw = Object.fromEntries(formData.entries());
@@ -24,7 +47,7 @@ export async function createCreativeSymptom(formData: FormData) {
   };
 
   const { error } = await supabase.from("creative_symptoms").insert(insert);
-  if (error) return { error: error.message };
+  if (error) return { error: translateError(error.message) };
   revalidatePath("/creative-symptom");
   revalidatePath("/booking-link");
   revalidatePath("/marketing");
@@ -47,7 +70,7 @@ export async function updateCreativeSymptom(
     .from("creative_symptoms")
     .update(update)
     .eq("code", code);
-  if (error) return { error: error.message };
+  if (error) return { error: translateError(error.message) };
   revalidatePath("/creative-symptom");
   revalidatePath("/booking-link");
   revalidatePath("/marketing");
@@ -62,7 +85,7 @@ export async function deleteCreativeSymptom(code: string) {
     .from("creative_symptoms")
     .update({ deleted_at: new Date().toISOString() })
     .eq("code", code);
-  if (error) return { error: error.message };
+  if (error) return { error: translateError(error.message) };
   revalidatePath("/creative-symptom");
   revalidatePath("/booking-link");
   revalidatePath("/marketing");

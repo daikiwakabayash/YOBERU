@@ -44,7 +44,7 @@ export function CreativeSymptomList({
     const result = await updateCreativeSymptom(row.code, form);
     setSavingCode(null);
     if (result.error) {
-      toast.error("更新に失敗しました");
+      toast.error(`更新に失敗しました: ${result.error}`, { duration: 8000 });
     } else {
       toast.success("更新しました");
     }
@@ -56,7 +56,7 @@ export function CreativeSymptomList({
     form.set("sort_number", String(rows.length + 1));
     const result = await createCreativeSymptom(form);
     if (result.error) {
-      toast.error("追加に失敗しました");
+      toast.error(`追加に失敗しました: ${result.error}`, { duration: 8000 });
     } else {
       toast.success("追加しました");
       location.reload();
@@ -67,7 +67,7 @@ export function CreativeSymptomList({
     if (!confirm(`「${name}」を削除しますか？`)) return;
     const result = await deleteCreativeSymptom(code);
     if (result.error) {
-      toast.error("削除に失敗しました");
+      toast.error(`削除に失敗しました: ${result.error}`, { duration: 8000 });
     } else {
       setRows((prev) => prev.filter((r) => r.code !== code));
       toast.success("削除しました");
