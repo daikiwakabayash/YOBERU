@@ -73,6 +73,10 @@ export function AdSpendForm({
     visitSources[0]?.id ?? ""
   );
   const [amount, setAmount] = useState("");
+  /** 配布数 / 表示回数。チラシなら配布枚数、Meta 広告なら impressions。
+   *  Meta は API 同期で自動入力されるので、その値を上書きしないよう
+   *  入力が空のときは upsert 時に null を渡して既存値を維持する。 */
+  const [impressionsInput, setImpressionsInput] = useState("");
   const [memo, setMemo] = useState("");
   /** 入力モード:
    *  'media'    = 媒体全体の月次広告費 (従来通り)
@@ -126,6 +130,16 @@ export function AdSpendForm({
       effectiveLinkId = Number(bookingLinkId);
     }
 
+    const impressionsRaw = impressionsInput.trim();
+    const impressionsNum = impressionsRaw === "" ? null : Number(impressionsRaw);
+    if (
+      impressionsNum != null &&
+      (!Number.isFinite(impressionsNum) || impressionsNum < 0)
+    ) {
+      toast.error("配布数 / 表示回数は 0 以上の数値で入力してください");
+      return;
+    }
+
     startTransition(async () => {
       const result = await upsertAdSpend({
         brand_id: brandId,
@@ -135,6 +149,7 @@ export function AdSpendForm({
         amount: amt,
         memo: memo || null,
         booking_link_id: effectiveLinkId,
+        impressions: impressionsNum,
       });
       if ("error" in result && result.error) {
         toast.error(result.error);
@@ -142,6 +157,7 @@ export function AdSpendForm({
       }
       toast.success(editingId ? "更新しました" : "広告費を保存しました");
       setAmount("");
+      setImpressionsInput("");
       setMemo("");
       setEditingId(null);
       router.refresh();
@@ -153,6 +169,11 @@ export function AdSpendForm({
     setYearMonth(row.year_month);
     setSourceId(row.visit_source_id);
     setAmount(String(row.amount));
+    setImpressionsInput(
+      row.impressions != null && row.impressions > 0
+        ? String(row.impressions)
+        : ""
+    );
     setMemo(row.memo ?? "");
     if (row.booking_link_id != null) {
       setMode("creative");
@@ -173,6 +194,7 @@ export function AdSpendForm({
   function handleCancelEdit() {
     setEditingId(null);
     setAmount("");
+    setImpressionsInput("");
     setMemo("");
   }
 
@@ -323,6 +345,19 @@ export function AdSpendForm({
               />
             </div>
             <div className="space-y-2">
+              <Label>枚数 / 表示回数 (任意)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={impressionsInput}
+                onChange={(e) => setImpressionsInput(e.target.value)}
+                placeholder="例: 1500 (チラシ枚数 / 広告 impression)"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                チラシなら配布枚数、Meta 広告なら表示回数。空欄で未入力扱い。
+              </p>
+            </div>
+            <div className="space-y-2">
               <Label>メモ</Label>
               <Input
                 value={memo}
@@ -381,6 +416,7 @@ export function AdSpendForm({
                     <th className="px-4 py-2 text-left font-medium">月</th>
                     <th className="px-4 py-2 text-left font-medium">媒体 / クリエイティブ</th>
                     <th className="px-4 py-2 text-right font-medium">金額</th>
+                    <th className="px-4 py-2 text-right font-medium">枚数</th>
                     <th className="px-4 py-2 text-left font-medium">メモ</th>
                     <th className="px-4 py-2 text-right font-medium">操作</th>
                   </tr>
@@ -389,7 +425,7 @@ export function AdSpendForm({
                   {rows.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={6}
                         className="py-8 text-center text-muted-foreground"
                       >
                         入力済みの広告費はありません
@@ -418,6 +454,11 @@ export function AdSpendForm({
                         </td>
                         <td className="px-4 py-2 text-right font-medium text-gray-900">
                           {yen(r.amount)}
+                        </td>
+                        <td className="px-4 py-2 text-right text-gray-700">
+                          {r.impressions != null && r.impressions > 0
+                            ? r.impressions.toLocaleString()
+                            : "-"}
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">
                           {r.memo ?? ""}

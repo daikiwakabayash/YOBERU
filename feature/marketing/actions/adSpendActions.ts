@@ -12,6 +12,10 @@ interface UpsertAdSpendInput {
   memo?: string | null;
   /** 強制リンク (= クリエイティブ) 単位の広告費。NULL = 媒体全体 */
   booking_link_id?: number | null;
+  /** 配布数 / 表示回数 (= チラシ枚数 or 広告 impressions)。null/未指定で
+   *  既存値を維持しない (= 上書き先で null になる)。0 を保存したい場合は
+   *  明示的に 0 を渡す。 */
+  impressions?: number | null;
 }
 
 /**
@@ -105,6 +109,9 @@ export async function upsertAdSpend(input: UpsertAdSpendInput) {
         amount: input.amount,
         memo: input.memo ?? null,
       };
+      if (input.impressions != null && Number.isFinite(input.impressions)) {
+        updatePayload.impressions = Math.max(0, Math.floor(input.impressions));
+      }
       if (bookingLinkId != null) {
         updatePayload.booking_link_id = bookingLinkId;
       }
@@ -130,6 +137,9 @@ export async function upsertAdSpend(input: UpsertAdSpendInput) {
         amount: input.amount,
         memo: input.memo ?? null,
       };
+      if (input.impressions != null && Number.isFinite(input.impressions)) {
+        insertPayload.impressions = Math.max(0, Math.floor(input.impressions));
+      }
       if (bookingLinkId != null) {
         insertPayload.booking_link_id = bookingLinkId;
       }
