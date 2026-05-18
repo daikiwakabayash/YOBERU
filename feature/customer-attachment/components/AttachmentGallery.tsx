@@ -14,8 +14,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Camera, ImagePlus, FileText, Trash2, X, Download, Video, PlayCircle } from "lucide-react";
 import { toast } from "sonner";
+import { createClient as createBrowserSupabaseClient } from "@/helper/lib/supabase/client";
 import {
-  uploadCustomerAttachment,
+  recordCustomerAttachmentMetadata,
   deleteCustomerAttachment,
 } from "../actions/attachmentActions";
 import {
@@ -24,6 +25,12 @@ import {
   type AttachmentType,
   type CustomerAttachment,
 } from "../types";
+
+const ATTACHMENT_BUCKET = "customer-attachments";
+/** Vercel Hobby の serverless function payload 上限が 4.5MB なので、本来は
+ *  100MB まで OK だがブラウザ直アップロード方式で回避する。一応 100MB を
+ *  クライアント側でもチェック (UX的に早めにエラーを出す)。 */
+const MAX_SIZE = 100 * 1024 * 1024;
 
 interface AttachmentGalleryProps {
   brandId: number;
@@ -61,41 +68,88 @@ export function AttachmentGallery({
     if (files.length === 0) return;
     e.target.value = ""; // allow re-upload of same file
 
+    // Server Action 経由ではなく Supabase Storage に直接アップロードする。
+    // Vercel Hobby プランの payload 上限 (4.5MB) を回避するため。
+    const supabase = createBrowserSupabaseClient();
+
     startTransition(async () => {
       let ok = 0;
       for (const f of files) {
-        const fd = new FormData();
-        fd.set("file", f);
-        fd.set("brand_id", String(brandId));
-        fd.set("shop_id", String(shopId));
-        fd.set("customer_id", String(customerId));
-        if (appointmentId != null) {
-          fd.set("appointment_id", String(appointmentId));
+        // クライアント側でも 100MB 上限チェック (UX 早期 fail)
+        if (f.size > MAX_SIZE) {
+          toast.error(
+            `${f.name}: ファイルサイズが ${Math.round(MAX_SIZE / 1024 / 1024)}MB を超えています (現在 ${(f.size / 1024 / 1024).toFixed(1)}MB)`,
+            { duration: 10000 }
+          );
+          continue;
         }
-        fd.set("attachment_type", selectedType);
-        fd.set("memo", memo);
+
+        // ファイル名サニタイズ + 衝突回避のためタイムスタンプ + ランダム
+        const safeName = f.name
+          .replace(/[\\/ -]+/g, "_")
+          .replace(/\s+/g, "_");
+        const path = `shop_${shopId}/customer_${customerId}/${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${safeName}`;
+
         try {
-          const res = await uploadCustomerAttachment(fd);
-          if ("error" in res && res.error) {
-            console.error("[AttachmentGallery] upload error", {
+          // 1) Supabase Storage に直接 PUT (ブラウザ → Storage、function 経由しない)
+          const { error: upErr } = await supabase.storage
+            .from(ATTACHMENT_BUCKET)
+            .upload(path, f, {
+              contentType: f.type || "application/octet-stream",
+              upsert: false,
+            });
+          if (upErr) {
+            const msg = upErr.message ?? "";
+            console.error("[AttachmentGallery] storage upload failed", {
               file: f.name,
               size: f.size,
+              error: msg,
+            });
+            const low = msg.toLowerCase();
+            let userMsg = msg;
+            if (low.includes("bucket") && low.includes("not found")) {
+              userMsg =
+                "Supabase に 'customer-attachments' バケットがありません。Supabase Studio で非公開バケットとして作成してください。";
+            } else if (
+              low.includes("row-level security") ||
+              low.includes("unauthorized") ||
+              low.includes("permission denied")
+            ) {
+              userMsg =
+                "Storage の権限が不足しています。マイグレーション 00028_customer_attachments_storage_policies.sql を実行してください。";
+            }
+            toast.error(`${f.name}: ${userMsg}`, { duration: 10000 });
+            continue;
+          }
+
+          // 2) DB 行を INSERT (Server Action 経由、ペイロード軽量)
+          const res = await recordCustomerAttachmentMetadata({
+            brand_id: brandId,
+            shop_id: shopId,
+            customer_id: customerId,
+            appointment_id: appointmentId ?? null,
+            file_path: path,
+            file_name: f.name,
+            mime_type: f.type || "application/octet-stream",
+            size_bytes: f.size,
+            attachment_type: selectedType,
+            memo: memo || null,
+          });
+          if ("error" in res && res.error) {
+            console.error("[AttachmentGallery] DB record error", {
+              file: f.name,
               error: res.error,
             });
-            // エラーメッセージは読み切れるよう長めに表示 (10 秒)。
             toast.error(`${f.name}: ${res.error}`, { duration: 10000 });
           } else {
             ok++;
           }
-        } catch (e) {
-          const msg =
-            e instanceof Error ? e.message : "不明なエラー";
-          console.error("[AttachmentGallery] upload exception", e);
-          // 典型的にはここに「Body exceeded 1MB」等の Next.js 制限が来る
-          toast.error(
-            `${f.name}: 送信に失敗しました (${msg}). ファイルが大きすぎる場合は 10MB 以下に圧縮してください。`,
-            { duration: 10000 }
-          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "不明なエラー";
+          console.error("[AttachmentGallery] upload exception", err);
+          toast.error(`${f.name}: 送信に失敗しました (${msg})`, {
+            duration: 10000,
+          });
         }
       }
       if (ok > 0) {
