@@ -567,29 +567,49 @@ export async function submitPublicBooking(formData: FormData) {
     }
   }
 
-  // 3. Create appointment
+  // 3. Create appointment.
+  //    booking_link_id を必ず保存することで、マーケティング → クリエイティブ
+  //    分析タブの「どの強制リンク経由で何件予約が入ったか」集計が成立する。
+  //    migration 00052 未適用環境ではカラムが無いので、エラーになったら
+  //    booking_link_id を外して再試行するフォールバックを入れる。
   const code = `APT-${shopId}-${Date.now()}`;
-  const apptInsert = await supabase
+  const baseApptPayload: Record<string, unknown> = {
+    brand_id: brandId,
+    shop_id: shopId,
+    customer_id: customerId,
+    staff_id: finalStaffId,
+    menu_manage_id: menuManageId,
+    code,
+    type: 0,
+    start_at: startAt,
+    end_at: endAt,
+    is_couple: false,
+    sales: 0,
+    status: 0,
+    visit_count: 1,
+    visit_source_id: link.data.visit_source_id ?? null,
+    booking_link_id: link.data.id ?? null,
+    memo: utmSource ? `流入元: ${utmSource}` : null,
+  };
+  let apptInsert = await supabase
     .from("appointments")
-    .insert({
-      brand_id: brandId,
-      shop_id: shopId,
-      customer_id: customerId,
-      staff_id: finalStaffId,
-      menu_manage_id: menuManageId,
-      code,
-      type: 0,
-      start_at: startAt,
-      end_at: endAt,
-      is_couple: false,
-      sales: 0,
-      status: 0,
-      visit_count: 1,
-      visit_source_id: link.data.visit_source_id ?? null,
-      memo: utmSource ? `流入元: ${utmSource}` : null,
-    })
+    .insert(baseApptPayload)
     .select("id")
     .single();
+  if (
+    apptInsert.error &&
+    apptInsert.error.message?.includes("booking_link_id") &&
+    (apptInsert.error.message.includes("column") ||
+      apptInsert.error.message.includes("schema cache"))
+  ) {
+    const fallback = { ...baseApptPayload };
+    delete fallback.booking_link_id;
+    apptInsert = await supabase
+      .from("appointments")
+      .insert(fallback)
+      .select("id")
+      .single();
+  }
 
   if (apptInsert.error || !apptInsert.data) {
     return {
