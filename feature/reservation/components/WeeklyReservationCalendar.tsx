@@ -287,7 +287,7 @@ export function WeeklyReservationCalendar({
 
   const ratePct =
     staffUtilizationRate != null
-      ? Math.round(staffUtilizationRate * 100)
+      ? Math.min(100, Math.round(staffUtilizationRate * 100))
       : null;
   const rateClass =
     ratePct == null
@@ -405,7 +405,10 @@ export function WeeklyReservationCalendar({
             const isSaturday = d.getDay() === 6;
 
             const du = dailyUtilByDate.get(dateStr);
-            const duPct = du?.rate != null ? Math.round(du.rate * 100) : null;
+            const duPct =
+              du?.rate != null
+                ? Math.min(100, Math.round(du.rate * 100))
+                : null;
             const duClass =
               duPct == null
                 ? "bg-gray-100 text-gray-400"

@@ -214,7 +214,10 @@ export function SalesDashboardContent({
                 </TableRow>
               ) : (
                 data.staffSales.map((staff) => {
-                  const ratePct = Math.round(staff.utilizationRate * 100);
+                  const ratePct = Math.min(
+                    100,
+                    Math.round(staff.utilizationRate * 100)
+                  );
                   return (
                     <TableRow key={staff.staffId}>
                       <TableCell className="font-medium">

@@ -445,7 +445,13 @@ export async function getMarketingData(params: {
       monthBuckets.set(ym, b);
       return b;
     })();
-    const sid = customerSourceMap.get(customerId) ?? first.visit_source_id ?? 0;
+    // 媒体は first.visit_source_id (= 顧客の人生最古予約 = 予約表バッジ
+    // に表示される媒体) を最優先で参照する。これで「予約表に メタ新規
+    // と出ている人」が必ずマーケティングの メタ 行にカウントされる。
+    // 最古予約に visit_source_id が無い (= 手動作成の顧客等) のときだけ
+    // customer.first_visit_source_id にフォールバック。
+    const sid =
+      first.visit_source_id ?? customerSourceMap.get(customerId) ?? 0;
     let sb = sourceBuckets.get(sid);
     if (!sb) {
       sb = emptyTotals();
