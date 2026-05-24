@@ -214,7 +214,9 @@ export async function updateBookingLink(id: number, formData: FormData) {
     error &&
     (isMissingTagTemplateColumn(error.message ?? "") ||
       isMissingImmediateEmailColumn(error.message ?? "") ||
-      isMissingPublicNoticeColumn(error.message ?? ""))
+      isMissingPublicNoticeColumn(error.message ?? "") ||
+      isMissingMandatoryLineColumn(error.message ?? "") ||
+      isMissingCreativeColumn(error.message ?? ""))
   ) {
     // ユーザー入力を黙って捨てないためのガード。
     const dropMsg = detectSilentlyDroppedFields(

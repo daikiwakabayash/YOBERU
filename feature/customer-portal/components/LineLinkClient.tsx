@@ -187,6 +187,24 @@ export function LineLinkClient({
               <p className="text-[11px] text-gray-500">
                 自動で遷移しない場合はページを再読込してください。
               </p>
+              {/*
+                LIFF login redirect で LINE 側 400 Bad Request が出る顧客の
+                救済リンク。OAuth 失敗時はもう LINE のページに居るので
+                ここで併記しておく必要がある。
+              */}
+              {shopAddFriendUrl && (
+                <a
+                  href={shopAddFriendUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  <Button size="sm" variant="outline" className="w-full">
+                    <ExternalLink className="mr-1 h-3 w-3" />
+                    LINE 追加でエラーが出る方はこちら
+                  </Button>
+                </a>
+              )}
             </div>
           )}
 
@@ -307,6 +325,20 @@ export function LineLinkClient({
               <p className="text-[11px] text-gray-500">
                 店舗までお問い合わせください。
               </p>
+              {/* エラー時の救済として公式 LINE 友だち追加 URL を併記 */}
+              {shopAddFriendUrl && (
+                <a
+                  href={shopAddFriendUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  <Button size="sm" variant="outline" className="w-full">
+                    <ExternalLink className="mr-1 h-3 w-3" />
+                    まず公式 LINE を友だち追加
+                  </Button>
+                </a>
+              )}
             </div>
           )}
         </CardContent>
