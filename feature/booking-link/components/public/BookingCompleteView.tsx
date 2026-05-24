@@ -12,6 +12,12 @@ interface BookingCompleteViewProps {
   lineButtonUrl: string | null;
   /** 顧客固有 LINE 紐付け URL (/line/link/<token>) — あれば最優先で表示 */
   customerLineLinkUrl?: string | null;
+  /**
+   * 店舗の公式 LINE 友だち追加 URL (shops.line_add_friend_url)。
+   * LIFF 紐付け (customerLineLinkUrl) で 400 等の不具合が出た顧客向けの
+   * 迂回ルートとして「友だち追加だけは確実にできる」リンクを併記する。
+   */
+  shopAddFriendUrl?: string | null;
   lang?: Lang;
 }
 
@@ -21,6 +27,7 @@ export function BookingCompleteView({
   lineButtonText,
   lineButtonUrl,
   customerLineLinkUrl,
+  shopAddFriendUrl,
   lang = "ja",
 }: BookingCompleteViewProps) {
   const { t } = useT(lang);
@@ -84,6 +91,23 @@ export function BookingCompleteView({
             <span className="whitespace-pre-line">
               {lineButtonText || t("contactLine")}
             </span>
+          </a>
+        )}
+
+        {/*
+          LIFF 紐付け (customerLineLinkUrl) がエラー (LINE 400 Bad Request 等)
+          になった顧客向けの迂回ルート。LIFF redirect は LINE のサーバーに
+          遷移するため、エラー後にコード側で UI を出すことができない。
+          そのため最初から「LINE 追加が出来ない方はこちら」を併記しておく。
+        */}
+        {customerLineLinkUrl && shopAddFriendUrl && (
+          <a
+            href={shopAddFriendUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 max-w-xs text-center text-xs text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
+          >
+            LINE 追加でエラーが出る方はこちら
           </a>
         )}
       </div>

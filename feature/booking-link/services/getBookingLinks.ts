@@ -39,6 +39,12 @@ function normalizeLink(row: Record<string, unknown>): BookingLink {
   // Pre-migration rows (before 00048): default 強制リンクフラグ OFF so cron
   // リマインドの対象から外す (= 既存運用へ影響を与えない)。
   if (!("is_mandatory_line" in r)) r.is_mandatory_line = false;
+  // Pre-migration rows (before 00050): クリエイティブ分析カラム未適用時の
+  // 補填。本番 DB に 00050 を当てるまでの安全弁。
+  if (!("symptom" in r)) r.symptom = null;
+  if (!("offer_price" in r)) r.offer_price = null;
+  if (!("creative_memo" in r)) r.creative_memo = null;
+  if (!("parent_link_id" in r)) r.parent_link_id = null;
   return r as unknown as BookingLink;
 }
 

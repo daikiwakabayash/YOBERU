@@ -3,6 +3,7 @@ import { getTagTemplatesByIds } from "@/feature/tag-template/services/getTagTemp
 import { TagInjector } from "@/feature/tag-template/components/TagInjector";
 import { BookingCompleteView } from "@/feature/booking-link/components/public/BookingCompleteView";
 import type { Lang } from "@/feature/booking-link/i18n/dictionary";
+import { createClient } from "@/helper/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,33 @@ export default async function BookingCompletePage({
   // (顧客固有の紐付けリンク → LIFF で line_user_id を取得して紐付け完了)
   const customerLineLinkUrl = link_token ? `/line/link/${link_token}` : null;
 
+  // LIFF 紐付けが LINE 400 等で失敗した顧客向けの迂回路として、
+  // 店舗の公式 LINE 友だち追加 URL も取得しておく。link_token から
+  // customer → shop の 2 ステップで引く。失敗してもこの画面は描画する。
+  let shopAddFriendUrl: string | null = null;
+  if (link_token) {
+    try {
+      const supabase = await createClient();
+      const { data: customer } = await supabase
+        .from("customers")
+        .select("shop_id")
+        .eq("line_link_token", link_token)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (customer?.shop_id) {
+        const { data: shop } = await supabase
+          .from("shops")
+          .select("line_add_friend_url")
+          .eq("id", customer.shop_id as number)
+          .maybeSingle();
+        shopAddFriendUrl =
+          (shop?.line_add_friend_url as string | null) ?? null;
+      }
+    } catch {
+      // 取得失敗時はフォールバックなしで進行。完了画面の表示は維持する。
+    }
+  }
+
   // Load tag templates so GTM fires on this URL too.
   const tagTemplateIds = link
     ? [link.head_tag_template_id, link.body_tag_template_id].filter(
@@ -78,6 +106,7 @@ export default async function BookingCompletePage({
           lineButtonText={link?.line_button_text ?? null}
           lineButtonUrl={link?.line_button_url ?? null}
           customerLineLinkUrl={customerLineLinkUrl}
+          shopAddFriendUrl={shopAddFriendUrl}
           lang={initialLang}
         />
       </div>
