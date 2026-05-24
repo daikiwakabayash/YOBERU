@@ -440,7 +440,7 @@ export function ReservationCalendar({
 
             const ratePct =
               staff.utilizationRate != null
-                ? Math.round(staff.utilizationRate * 100)
+                ? Math.min(100, Math.round(staff.utilizationRate * 100))
                 : null;
             const rateClass =
               ratePct == null
