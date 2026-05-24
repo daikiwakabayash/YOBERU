@@ -190,7 +190,22 @@ export function MarketingCreativeAnalysis({
                     colSpan={COLUMNS.length}
                     className="py-10 text-center text-muted-foreground"
                   >
-                    対象クリエイティブがありません。強制リンクに「症状」「オファー価格」を入力するとここに表示されます。
+                    <div className="space-y-2">
+                      <div>
+                        対象クリエイティブがありません。強制リンクに「症状」「オファー価格」を入力するとここに表示されます。
+                      </div>
+                      <div className="mx-auto max-w-xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-left text-[11px] text-amber-900">
+                        <div className="font-bold">予約があるのに 0 件と出る場合</div>
+                        <div className="mt-1">
+                          appointments テーブルに <code className="rounded bg-amber-100 px-1 font-mono">booking_link_id</code> カラムが必要です。
+                          Supabase の SQL Editor で
+                          <code className="mx-1 rounded bg-amber-100 px-1 font-mono">
+                            supabase/migrations/00052_appointments_booking_link_id.sql
+                          </code>
+                          を実行してください。実行以降に作られた予約からこのタブに反映されます。
+                        </div>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (

@@ -182,7 +182,7 @@ export async function getCreativeAnalysis(params: {
           .is("deleted_at", null)
       : Promise.resolve({ data: [] as Array<{ id: number; name: string }> });
 
-  const [apptRes, symptomsRes, shopsRes, vsRes] = await Promise.all([
+  let [apptRes, symptomsRes, shopsRes, vsRes] = await Promise.all([
     apptQ,
     symptomMapRes,
     supabase
@@ -192,6 +192,22 @@ export async function getCreativeAnalysis(params: {
       .is("deleted_at", null),
     visitSourcesRes,
   ]);
+  // migration 00052 未適用環境では appointments.booking_link_id が無く
+  // SELECT が失敗する。その場合は空配列で続行 (= 表示は 0 件のまま
+  // クラッシュさせない)。アプリ画面側にバナーは出していないが、開発時
+  // のデバッグログだけ残す。
+  if (
+    apptRes.error &&
+    apptRes.error.message?.includes("booking_link_id") &&
+    (apptRes.error.message.includes("column") ||
+      apptRes.error.message.includes("schema cache"))
+  ) {
+    console.error(
+      "[getCreativeAnalysis] appointments.booking_link_id 未適用: migration 00052 を実行してください",
+      apptRes.error.message
+    );
+    apptRes = { data: [], error: null } as typeof apptRes;
+  }
 
   type ApptRow = {
     id: number;
