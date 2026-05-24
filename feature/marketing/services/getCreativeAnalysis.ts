@@ -206,7 +206,7 @@ export async function getCreativeAnalysis(params: {
       "[getCreativeAnalysis] appointments.booking_link_id 未適用: migration 00052 を実行してください",
       apptRes.error.message
     );
-    apptRes = { data: [], error: null } as typeof apptRes;
+    apptRes = { data: [], error: null } as unknown as typeof apptRes;
   }
 
   type ApptRow = {
