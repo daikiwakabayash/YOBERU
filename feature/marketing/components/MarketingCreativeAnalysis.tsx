@@ -22,6 +22,7 @@ type SortKey =
   | "visitCount"
   | "joinCount"
   | "joinRate"
+  | "cancelCount"
   | "cancelRate"
   | "adSpend"
   | "cpa"
@@ -45,6 +46,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "visitCount", label: "実来院", align: "right" },
   { key: "joinCount", label: "入会数", align: "right" },
   { key: "joinRate", label: "入会率", align: "right" },
+  { key: "cancelCount", label: "キャンセル数", align: "right" },
   { key: "cancelRate", label: "キャンセル率", align: "right" },
   { key: "adSpend", label: "広告費", align: "right" },
   { key: "cpa", label: "CPA", align: "right" },
@@ -226,6 +228,7 @@ export function MarketingCreativeAnalysis({
                   <td className="px-3 py-2 text-right">{num(totals.visitCount)}</td>
                   <td className="px-3 py-2 text-right">{num(totals.joinCount)}</td>
                   <td className="px-3 py-2 text-right text-blue-600">{pct(totals.joinRate)}</td>
+                  <td className="px-3 py-2 text-right">{num(totals.cancelCount)}</td>
                   <td className="px-3 py-2 text-right text-rose-600">{pct(totals.cancelRate)}</td>
                   <td className="px-3 py-2 text-right">{yen(totals.adSpend)}</td>
                   <td className="px-3 py-2 text-right">{yen(totals.cpa)}</td>
@@ -290,6 +293,7 @@ function Row({ row }: { row: CreativeBucket }) {
       <td className="px-3 py-2 text-right text-blue-600">
         {row.visitCount > 0 ? pct(row.joinRate) : "-"}
       </td>
+      <td className="px-3 py-2 text-right">{num(row.cancelCount)}</td>
       <td className="px-3 py-2 text-right text-rose-600">
         {row.reservationCount > 0 ? pct(row.cancelRate) : "-"}
       </td>
