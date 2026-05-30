@@ -182,6 +182,9 @@ function RunCard({
                 actions={detail.actions.filter(
                   (a) => a.section === "meta_ads"
                 )}
+                bookingLinks={detail.bookingLinks}
+                runStartMonth={detail.startMonth}
+                runEndMonth={detail.endMonth}
               />
               <ActionSection
                 title="チラシ"
@@ -189,6 +192,9 @@ function RunCard({
                 actions={detail.actions.filter(
                   (a) => a.section === "flyer"
                 )}
+                bookingLinks={detail.bookingLinks}
+                runStartMonth={detail.startMonth}
+                runEndMonth={detail.endMonth}
               />
               <ActionSection
                 title="クリエイティブ仮説"
@@ -198,6 +204,9 @@ function RunCard({
                 actions={detail.actions.filter(
                   (a) => a.section === "creative_hypothesis"
                 )}
+                bookingLinks={detail.bookingLinks}
+                runStartMonth={detail.startMonth}
+                runEndMonth={detail.endMonth}
               />
             </>
           )}
@@ -211,10 +220,16 @@ function ActionSection({
   title,
   icon,
   actions,
+  bookingLinks,
+  runStartMonth,
+  runEndMonth,
 }: {
   title: string;
   icon: React.ReactNode;
   actions: AnalysisRunDetail["actions"];
+  bookingLinks: AnalysisRunDetail["bookingLinks"];
+  runStartMonth: string;
+  runEndMonth: string;
 }) {
   if (actions.length === 0) return null;
   return (
@@ -238,6 +253,14 @@ function ActionSection({
             initialRating={a.rating}
             executedAt={a.executedAt}
             outcomeRecordedAt={a.outcomeRecordedAt}
+            bookingLinks={bookingLinks}
+            initialBookingLinkId={a.bookingLinkId}
+            initialObservedStartMonth={a.observedStartMonth}
+            initialObservedEndMonth={a.observedEndMonth}
+            initialOutcomeMetrics={a.outcomeMetrics}
+            outcomeEvaluatedAt={a.outcomeEvaluatedAt}
+            runStartMonth={runStartMonth}
+            runEndMonth={runEndMonth}
           />
         ))}
       </div>

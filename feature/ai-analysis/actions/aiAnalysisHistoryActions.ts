@@ -7,6 +7,22 @@ import {
   getActiveShopId,
 } from "@/helper/lib/shop-context";
 import type { MarketingAnalysisResult } from "../services/runMarketingAnalysis";
+import { getCreativeAnalysis } from "@/feature/marketing/services/getCreativeAnalysis";
+
+/** Phase 1 で追加した成果測定カラム (migration 00055)。未適用環境で
+ *  update / select が失敗したらこれらを外してフォールバックする。 */
+const OUTCOME_COLUMNS = [
+  "booking_link_id",
+  "observed_start_month",
+  "observed_end_month",
+  "outcome_metrics",
+  "outcome_evaluated_at",
+];
+
+function isMissingOutcomeColumn(message: string | undefined): boolean {
+  if (!message) return false;
+  return OUTCOME_COLUMNS.some((c) => message.includes(c));
+}
 
 /**
  * AI 分析結果を保存し、含まれるアクションを行単位に展開して
@@ -129,6 +145,11 @@ export async function updateAnalysisAction(params: {
   whatDone?: string;
   outcome?: string;
   rating?: number | null;
+  /** 成果測定対象の強制リンク (migration 00055)。null で紐付け解除 */
+  bookingLinkId?: number | null;
+  /** 成果観測期間 (YYYY-MM)。空文字で解除 */
+  observedStartMonth?: string;
+  observedEndMonth?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient();
 
@@ -179,15 +200,149 @@ export async function updateAnalysisAction(params: {
       : null;
   }
   if (params.rating !== undefined) updateData.rating = params.rating;
+  // 成果測定リンク / 観測期間 (migration 00055)
+  if (params.bookingLinkId !== undefined)
+    updateData.booking_link_id = params.bookingLinkId;
+  if (params.observedStartMonth !== undefined)
+    updateData.observed_start_month = params.observedStartMonth || null;
+  if (params.observedEndMonth !== undefined)
+    updateData.observed_end_month = params.observedEndMonth || null;
 
-  const { error } = await supabase
+  let { error } = await supabase
     .from("ai_analysis_actions")
     .update(updateData)
     .eq("id", params.actionId);
+  // 00055 未適用環境 → 新カラムを外して他項目だけ保存し、移行を促す
+  if (error && isMissingOutcomeColumn(error.message)) {
+    const stripped = { ...updateData };
+    for (const c of OUTCOME_COLUMNS) delete stripped[c];
+    const retry = await supabase
+      .from("ai_analysis_actions")
+      .update(stripped)
+      .eq("id", params.actionId);
+    if (!retry.error) {
+      return {
+        ok: false,
+        error:
+          "成果測定リンクの保存には Supabase で migration 00055_ai_action_outcome_link.sql の実行が必要です。",
+      };
+    }
+    error = retry.error;
+  }
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/marketing");
   return { ok: true };
+}
+
+/**
+ * 成果メトリクス (クリエイティブ分析からスナップショットする KPI)。
+ */
+export interface OutcomeMetrics {
+  reservationCount: number;
+  visitCount: number;
+  cancelCount: number;
+  joinCount: number;
+  joinRate: number;
+  cancelRate: number;
+  adSpend: number;
+  cpa: number;
+  sales: number;
+  roas: number;
+  observedStartMonth: string;
+  observedEndMonth: string;
+  bookingLinkId: number;
+}
+
+/**
+ * アクションに紐付けた強制リンクの成果を、観測期間の クリエイティブ分析
+ * (getCreativeAnalysis) から取得して outcome_metrics にスナップショット保存する。
+ *
+ * 観測期間は action.observed_start/end_month を優先し、未設定なら run の
+ * 分析対象期間を使う。
+ */
+export async function evaluateActionOutcome(params: {
+  actionId: number;
+}): Promise<{ ok: true; metrics: OutcomeMetrics } | { ok: false; error: string }> {
+  const supabase = await createClient();
+
+  const actionRes = await supabase
+    .from("ai_analysis_actions")
+    .select(
+      "id, run_id, booking_link_id, observed_start_month, observed_end_month"
+    )
+    .eq("id", params.actionId)
+    .maybeSingle();
+  if (actionRes.error && isMissingOutcomeColumn(actionRes.error.message)) {
+    return {
+      ok: false,
+      error:
+        "成果測定には Supabase で migration 00055_ai_action_outcome_link.sql の実行が必要です。",
+    };
+  }
+  const action = actionRes.data as {
+    id: number;
+    run_id: number;
+    booking_link_id: number | null;
+    observed_start_month: string | null;
+    observed_end_month: string | null;
+  } | null;
+  if (!action) return { ok: false, error: "アクションが見つかりません" };
+  if (!action.booking_link_id) {
+    return {
+      ok: false,
+      error: "先に成果測定の対象となる強制リンクを選択してください。",
+    };
+  }
+
+  const { data: run } = await supabase
+    .from("ai_analysis_runs")
+    .select("brand_id, shop_id, start_month, end_month")
+    .eq("id", action.run_id)
+    .maybeSingle();
+  if (!run) return { ok: false, error: "分析実行が見つかりません" };
+
+  const startMonth =
+    action.observed_start_month || (run.start_month as string);
+  const endMonth = action.observed_end_month || (run.end_month as string);
+
+  const data = await getCreativeAnalysis({
+    brandId: run.brand_id as number,
+    shopId: run.shop_id as number,
+    startMonth,
+    endMonth,
+  });
+  const row = data.rows.find(
+    (r) => !r.unassigned && r.bookingLinkIds.includes(action.booking_link_id!)
+  );
+
+  const metrics: OutcomeMetrics = {
+    reservationCount: row?.reservationCount ?? 0,
+    visitCount: row?.visitCount ?? 0,
+    cancelCount: row?.cancelCount ?? 0,
+    joinCount: row?.joinCount ?? 0,
+    joinRate: row?.joinRate ?? 0,
+    cancelRate: row?.cancelRate ?? 0,
+    adSpend: row?.adSpend ?? 0,
+    cpa: row?.cpa ?? 0,
+    sales: row?.sales ?? 0,
+    roas: row?.roas ?? 0,
+    observedStartMonth: startMonth,
+    observedEndMonth: endMonth,
+    bookingLinkId: action.booking_link_id,
+  };
+
+  const { error: upErr } = await supabase
+    .from("ai_analysis_actions")
+    .update({
+      outcome_metrics: metrics,
+      outcome_evaluated_at: new Date().toISOString(),
+    })
+    .eq("id", params.actionId);
+  if (upErr) return { ok: false, error: upErr.message };
+
+  revalidatePath("/marketing");
+  return { ok: true, metrics };
 }
 
 /**
@@ -278,6 +433,20 @@ export interface AnalysisActionRow {
   rating: number | null;
   executedAt: string | null;
   outcomeRecordedAt: string | null;
+  // 成果測定 (migration 00055)
+  bookingLinkId: number | null;
+  observedStartMonth: string | null;
+  observedEndMonth: string | null;
+  outcomeMetrics: OutcomeMetrics | null;
+  outcomeEvaluatedAt: string | null;
+}
+
+/** アクションに紐付け可能な強制リンク (クリエイティブ) の選択肢 */
+export interface BookingLinkOption {
+  id: number;
+  title: string;
+  symptom: string | null;
+  offerPrice: number | null;
 }
 
 export interface AnalysisRunDetail {
@@ -291,6 +460,8 @@ export interface AnalysisRunDetail {
   warnings: unknown;
   createdAt: string;
   actions: AnalysisActionRow[];
+  /** 成果測定リンクの選択肢 (この run の店舗で使える強制リンク) */
+  bookingLinks: BookingLinkOption[];
 }
 
 export async function getAnalysisRunDetail(
@@ -302,7 +473,7 @@ export async function getAnalysisRunDetail(
   const { data: run } = await supabase
     .from("ai_analysis_runs")
     .select(
-      "id, shop_id, start_month, end_month, summary, meta_ads, flyer, creative_hypotheses, warnings, created_at"
+      "id, brand_id, shop_id, start_month, end_month, summary, meta_ads, flyer, creative_hypotheses, warnings, created_at"
     )
     .eq("id", runId)
     .is("deleted_at", null)
@@ -310,14 +481,55 @@ export async function getAnalysisRunDetail(
   if (!run) return null;
   if ((run.shop_id as number) !== shopId) return null; // 他店舗のは見せない
 
-  const { data: actions } = await supabase
-    .from("ai_analysis_actions")
-    .select(
-      "id, section, position, action_text, status, what_done, outcome, rating, executed_at, outcome_recorded_at"
-    )
-    .eq("run_id", runId)
-    .order("section", { ascending: true })
-    .order("position", { ascending: true });
+  // アクション取得: 成果測定カラム (migration 00055) 込みで取得し、未適用
+  // 環境ではカラム無し版でフォールバックする。
+  const baseActionCols =
+    "id, section, position, action_text, status, what_done, outcome, rating, executed_at, outcome_recorded_at";
+  const fullActionCols = `${baseActionCols}, booking_link_id, observed_start_month, observed_end_month, outcome_metrics, outcome_evaluated_at`;
+  // 列名を変数で渡すことで、両クエリのレスポンス型を同一にして再代入の
+  // 型衝突を避ける (00055 未適用時はフォールバック)。
+  function fetchActions(cols: string) {
+    return supabase
+      .from("ai_analysis_actions")
+      .select(cols)
+      .eq("run_id", runId)
+      .order("section", { ascending: true })
+      .order("position", { ascending: true });
+  }
+  let actionsRes = await fetchActions(fullActionCols);
+  if (actionsRes.error && isMissingOutcomeColumn(actionsRes.error.message)) {
+    actionsRes = await fetchActions(baseActionCols);
+  }
+  const actions = actionsRes.data;
+
+  // この run の店舗で使える強制リンク (クリエイティブ) を成果測定の選択肢に。
+  // getCreativeAnalysis と同じ shop フィルタ (shop_id / shop_ids) を適用。
+  const bookingLinks: BookingLinkOption[] = [];
+  const { data: linksRaw } = await supabase
+    .from("booking_links")
+    .select("id, title, shop_id, shop_ids, symptom, offer_price")
+    .eq("brand_id", run.brand_id as number)
+    .is("deleted_at", null);
+  for (const l of (linksRaw ?? []) as Array<{
+    id: number;
+    title: string;
+    shop_id: number | null;
+    shop_ids: number[] | null;
+    symptom: string | null;
+    offer_price: number | null;
+  }>) {
+    const ids = Array.isArray(l.shop_ids) ? l.shop_ids : [];
+    const matches =
+      ids.length > 0 ? ids.includes(shopId) : l.shop_id == null || l.shop_id === shopId;
+    if (matches) {
+      bookingLinks.push({
+        id: l.id,
+        title: l.title,
+        symptom: l.symptom,
+        offerPrice: l.offer_price,
+      });
+    }
+  }
 
   return {
     id: run.id as number,
@@ -329,7 +541,8 @@ export async function getAnalysisRunDetail(
     creativeHypotheses: run.creative_hypotheses,
     warnings: run.warnings,
     createdAt: run.created_at as string,
-    actions: ((actions ?? []) as Array<{
+    bookingLinks,
+    actions: ((actions ?? []) as unknown as Array<{
       id: number;
       section: string;
       position: number;
@@ -340,6 +553,11 @@ export async function getAnalysisRunDetail(
       rating: number | null;
       executed_at: string | null;
       outcome_recorded_at: string | null;
+      booking_link_id?: number | null;
+      observed_start_month?: string | null;
+      observed_end_month?: string | null;
+      outcome_metrics?: OutcomeMetrics | null;
+      outcome_evaluated_at?: string | null;
     }>).map((a) => ({
       id: a.id,
       section: a.section,
@@ -351,6 +569,11 @@ export async function getAnalysisRunDetail(
       rating: a.rating,
       executedAt: a.executed_at,
       outcomeRecordedAt: a.outcome_recorded_at,
+      bookingLinkId: a.booking_link_id ?? null,
+      observedStartMonth: a.observed_start_month ?? null,
+      observedEndMonth: a.observed_end_month ?? null,
+      outcomeMetrics: (a.outcome_metrics as OutcomeMetrics | null) ?? null,
+      outcomeEvaluatedAt: a.outcome_evaluated_at ?? null,
     })),
   };
 }
