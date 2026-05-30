@@ -268,7 +268,9 @@ export async function getCreativeAnalysis(params: {
       histRes = await fetchHist(false);
     }
 
-    histRows = ((histRes.data ?? []) as Array<Record<string, unknown>>).map(
+    histRows = ((histRes.data ?? []) as unknown as Array<
+      Record<string, unknown>
+    >).map(
       (r) => ({
         id: r.id as number,
         customer_id: r.customer_id as number,
@@ -343,17 +345,20 @@ export async function getCreativeAnalysis(params: {
   // ---------------------------------------------------------------------------
   // 4. 期間内 ad_spend (creative 単位 + 媒体単位の両方)
   // ---------------------------------------------------------------------------
-  let adSpendQ = supabase
-    .from("ad_spend")
-    .select("shop_id, visit_source_id, booking_link_id, year_month, amount")
-    .gte("year_month", startMonth)
-    .lte("year_month", endMonth)
-    .is("deleted_at", null);
-  adSpendQ =
-    shopId != null
-      ? adSpendQ.eq("shop_id", shopId)
-      : adSpendQ.eq("brand_id", brandId);
-  let adSpendRes = await adSpendQ;
+  async function fetchAdSpend(withLink: boolean) {
+    const sel = withLink
+      ? "shop_id, visit_source_id, booking_link_id, year_month, amount"
+      : "shop_id, visit_source_id, year_month, amount";
+    let q = supabase
+      .from("ad_spend")
+      .select(sel)
+      .gte("year_month", startMonth)
+      .lte("year_month", endMonth)
+      .is("deleted_at", null);
+    q = shopId != null ? q.eq("shop_id", shopId) : q.eq("brand_id", brandId);
+    return q;
+  }
+  let adSpendRes = await fetchAdSpend(true);
   if (
     adSpendRes.error &&
     adSpendRes.error.message?.includes("booking_link_id") &&
@@ -361,17 +366,7 @@ export async function getCreativeAnalysis(params: {
       adSpendRes.error.message.includes("schema cache"))
   ) {
     // 00050 未適用環境 → booking_link_id 抜きで取得し、全て媒体単位扱い
-    let retryQ = supabase
-      .from("ad_spend")
-      .select("shop_id, visit_source_id, year_month, amount")
-      .gte("year_month", startMonth)
-      .lte("year_month", endMonth)
-      .is("deleted_at", null);
-    retryQ =
-      shopId != null
-        ? retryQ.eq("shop_id", shopId)
-        : retryQ.eq("brand_id", brandId);
-    adSpendRes = await retryQ;
+    adSpendRes = await fetchAdSpend(false);
   }
   type AdSpendRow = {
     shop_id: number | null;
@@ -380,7 +375,9 @@ export async function getCreativeAnalysis(params: {
     year_month: string;
     amount: number;
   };
-  const adSpendRows = ((adSpendRes.data ?? []) as Array<Record<string, unknown>>).map(
+  const adSpendRows = ((adSpendRes.data ?? []) as unknown as Array<
+    Record<string, unknown>
+  >).map(
     (r) => ({
       shop_id: (r.shop_id as number | null) ?? null,
       visit_source_id: r.visit_source_id as number,
