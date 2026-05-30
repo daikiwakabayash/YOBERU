@@ -111,6 +111,9 @@ export function MarketingCreativeAnalysis({
   const sortedRows = useMemo(() => {
     const arr = [...rows];
     arr.sort((a, b) => {
+      // 「未割当 (強制リンクなし)」行は並び順に関わらず常に最下部へ。
+      // クリエイティブ (= attribution 済み) を上に見せたいため。
+      if (a.unassigned !== b.unassigned) return a.unassigned ? 1 : -1;
       const cmp = compareValues(valueOf(a, sortKey), valueOf(b, sortKey));
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -122,7 +125,10 @@ export function MarketingCreativeAnalysis({
       {/* Totals strip */}
       <Card className="overflow-hidden border-orange-200/60">
         <div className="grid grid-cols-2 gap-4 bg-gradient-to-r from-orange-50 to-amber-50/40 p-5 sm:grid-cols-3 lg:grid-cols-6">
-          <TotalTile label="クリエイティブ" value={`${num(rows.length)}件`} />
+          <TotalTile
+            label="クリエイティブ"
+            value={`${num(rows.filter((r) => !r.unassigned).length)}件`}
+          />
           <TotalTile label="新規 / 実来院" value={`${num(totals.visitCount)}名`} />
           <TotalTile label="入会数" value={`${num(totals.joinCount)}名`} />
           <TotalTile
@@ -252,7 +258,14 @@ function Row({ row }: { row: CreativeBucket }) {
         )}
       </td>
       <td className="px-3 py-2">
-        {row.symptom ? (
+        {row.unassigned ? (
+          <span
+            className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500"
+            title="強制リンク (booking_link_id) に紐付かない予約。手動登録・媒体直来店・migration 00052 以前の予約など。"
+          >
+            未割当
+          </span>
+        ) : row.symptom ? (
           <span className="inline-flex items-center rounded-md bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-700">
             {row.symptomName ?? row.symptom}
           </span>
@@ -262,12 +275,14 @@ function Row({ row }: { row: CreativeBucket }) {
       </td>
       <td className="px-3 py-2 text-right text-gray-700">
         {row.offerPrice != null ? `¥${row.offerPrice.toLocaleString()}` : "—"}
-        <div
-          className="mt-0.5 text-[10px] text-gray-400"
-          title={linksTooltip}
-        >
-          ▸ {row.bookingLinkIds.length} 件のリンク
-        </div>
+        {!row.unassigned && (
+          <div
+            className="mt-0.5 text-[10px] text-gray-400"
+            title={linksTooltip}
+          >
+            ▸ {row.bookingLinkIds.length} 件のリンク
+          </div>
+        )}
       </td>
       <td className="px-3 py-2 text-right">{num(row.reservationCount)}</td>
       <td className="px-3 py-2 text-right">{num(row.visitCount)}</td>
