@@ -27,12 +27,16 @@ export async function isMissingAdSpendTable(error: unknown): Promise<boolean> {
   if (!error || typeof error !== "object") return false;
   const msg = String((error as { message?: string }).message ?? "");
   const code = (error as { code?: string }).code;
+  // 「テーブルそのものが無い」ことを示す確実なシグナルだけで判定する。
+  // 以前は msg に "ad_spend" / "schema cache" / "does not exist" が含まれる
+  // だけで true を返していたが、これだと「列が無い」「ユニーク制約違反」など
+  // テーブルは存在するのに失敗したケースまで「テーブル未作成」と誤判定して
+  // しまうため、対象を relation (= テーブル) の欠落に限定する。
   return (
-    msg.includes("does not exist") ||
-    msg.includes("schema cache") ||
-    msg.toLowerCase().includes("ad_spend") ||
-    code === "42P01" ||
-    code === "PGRST205"
+    code === "42P01" || // undefined_table
+    code === "PGRST205" || // PostgREST: table not found in schema cache
+    /relation ["']?ad_spend["']? does not exist/i.test(msg) ||
+    (msg.includes("ad_spend") && msg.toLowerCase().includes("find the table"))
   );
 }
 

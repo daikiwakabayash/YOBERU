@@ -55,12 +55,30 @@ export async function upsertAdSpend(input: UpsertAdSpendInput) {
       raw && typeof raw === "object"
         ? String((raw as { message?: string }).message ?? "")
         : String(raw ?? "");
+    const code =
+      raw && typeof raw === "object"
+        ? String((raw as { code?: string }).code ?? "")
+        : "";
+    // 「テーブルそのものが無い」ときだけ migration 案内を出す。列の欠落や
+    // ユニーク制約違反など、テーブルは在るのに失敗したケースで誤って
+    // 「テーブル未作成」と案内しないよう、検出条件を厳密に絞る。
     if (
-      msg.includes("does not exist") ||
-      msg.includes("schema cache") ||
-      msg.toLowerCase().includes("ad_spend")
+      code === "42P01" ||
+      code === "PGRST205" ||
+      /relation ["']?ad_spend["']? does not exist/i.test(msg) ||
+      (msg.includes("ad_spend") && msg.toLowerCase().includes("find the table"))
     ) {
       return "広告費テーブルが未作成です。Supabase で migration 00007_marketing_and_member_plans.sql を実行してください。";
+    }
+    // ユニーク制約違反 (古い uk_ad_spend_shop_source_month_active が残って
+    // いる環境で、媒体単位と強制リンク単位が衝突するケース) は migration
+    // 00054 の案内を出す。
+    if (
+      code === "23505" ||
+      msg.toLowerCase().includes("duplicate key") ||
+      msg.includes("uk_ad_spend_shop_source_month_active")
+    ) {
+      return "同じ月 × 媒体の広告費が既に登録されています。媒体単位と強制リンク単位が衝突している場合は、Supabase で migration 00054_fix_ad_spend_stale_unique_index.sql を実行してください。";
     }
     return msg || "広告費の保存に失敗しました";
   }
